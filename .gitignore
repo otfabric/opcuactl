@@ -1,0 +1,14 @@
+# Build output
+/opcuactl
+/release/*
+
+# Scan results
+*.csv
+*.json
+*.log
+
+# Editor settings
+.vscode/
+
+# macOS
+.DS_Store
