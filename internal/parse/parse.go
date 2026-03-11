@@ -1,33 +1,62 @@
 package parse
 
 import (
+	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/otfabric/opcua"
 	"github.com/otfabric/opcua/ua"
 )
 
 // NodeID parses a string to a ua.NodeID using the standard OPC UA format.
+// If namespace is non-empty and the string has no explicit ns= prefix, it prepends "ns=<namespace>;".
 func NodeID(s string) (*ua.NodeID, error) {
+	return NodeIDWithNamespace(s, "")
+}
+
+// NodeIDWithNamespace parses a string to a ua.NodeID, using the given default namespace
+// when the string has no explicit "ns=" prefix.
+// If the input doesn't match standard OPC UA syntax, it tries to resolve the string
+// as a well-known standard node name (e.g. "CurrentTime" → i=2258).
+func NodeIDWithNamespace(s, namespace string) (*ua.NodeID, error) {
 	if s == "" {
 		return nil, fmt.Errorf("invalid node ID: empty string")
 	}
-	id, err := ua.ParseNodeID(s)
+	raw := s
+	// If a default namespace is set and the string doesn't already specify one
+	if namespace != "" && !strings.HasPrefix(strings.ToLower(s), "ns=") {
+		raw = "ns=" + namespace + ";" + s
+	}
+	id, err := ua.ParseNodeID(raw)
+	if err == nil {
+		// ParseNodeID may succeed for arbitrary strings; verify the round-trip.
+		if rt := id.String(); rt == raw || strings.EqualFold(rt, raw) {
+			return id, nil
+		}
+	}
+	// Fallback: try as a well-known standard node name (namespace 0 only)
+	if nid, ok := opcua.StandardNodeID(s); ok {
+		return nid, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("invalid node ID %q: %w", s, err)
 	}
-	// ParseNodeID may succeed for arbitrary strings; verify the round-trip.
-	if rt := id.String(); rt != s && !strings.EqualFold(rt, s) {
-		return nil, fmt.Errorf("invalid node ID %q", s)
-	}
-	return id, nil
+	return nil, fmt.Errorf("invalid node ID %q", s)
 }
 
 // NodeIDs parses multiple node ID strings.
 func NodeIDs(ss []string) ([]*ua.NodeID, error) {
+	return NodeIDsWithNamespace(ss, "")
+}
+
+// NodeIDsWithNamespace parses multiple node ID strings with a default namespace.
+func NodeIDsWithNamespace(ss []string, namespace string) ([]*ua.NodeID, error) {
 	ids := make([]*ua.NodeID, len(ss))
 	for i, s := range ss {
-		id, err := NodeID(s)
+		id, err := NodeIDWithNamespace(s, namespace)
 		if err != nil {
 			return nil, err
 		}
@@ -63,5 +92,120 @@ func NodeClassMask(s string) ua.NodeClass {
 	if s == "" || strings.EqualFold(s, "all") {
 		return ua.NodeClassAll
 	}
-	return ua.NodeClassFromString(s)
+	// SDK expects title-case (e.g. "Variable", "Object")
+	titled := strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+	return ua.NodeClassFromString(titled)
+}
+
+// AttributeIDFromName converts a friendly attribute name to a ua.AttributeID.
+func AttributeIDFromName(s string) (ua.AttributeID, error) {
+	switch strings.ToLower(s) {
+	case "nodeid", "node-id", "1":
+		return ua.AttributeIDNodeID, nil
+	case "nodeclass", "node-class", "2":
+		return ua.AttributeIDNodeClass, nil
+	case "browsename", "browse-name", "3":
+		return ua.AttributeIDBrowseName, nil
+	case "displayname", "display-name", "4":
+		return ua.AttributeIDDisplayName, nil
+	case "description", "5":
+		return ua.AttributeIDDescription, nil
+	case "writemask", "write-mask", "6":
+		return ua.AttributeIDWriteMask, nil
+	case "userwritemask", "user-write-mask", "7":
+		return ua.AttributeIDUserWriteMask, nil
+	case "isabstract", "is-abstract", "8":
+		return ua.AttributeIDIsAbstract, nil
+	case "symmetric", "9":
+		return ua.AttributeIDSymmetric, nil
+	case "inversename", "inverse-name", "10":
+		return ua.AttributeIDInverseName, nil
+	case "containsnoloops", "contains-no-loops", "11":
+		return ua.AttributeIDContainsNoLoops, nil
+	case "eventnotifier", "event-notifier", "12":
+		return ua.AttributeIDEventNotifier, nil
+	case "value", "13":
+		return ua.AttributeIDValue, nil
+	case "datatype", "data-type", "14":
+		return ua.AttributeIDDataType, nil
+	case "valuerank", "value-rank", "15":
+		return ua.AttributeIDValueRank, nil
+	case "arraydimensions", "array-dimensions", "16":
+		return ua.AttributeIDArrayDimensions, nil
+	case "accesslevel", "access-level", "17":
+		return ua.AttributeIDAccessLevel, nil
+	case "useraccesslevel", "user-access-level", "18":
+		return ua.AttributeIDUserAccessLevel, nil
+	case "minimumsamplinginterval", "minimum-sampling-interval", "19":
+		return ua.AttributeIDMinimumSamplingInterval, nil
+	case "historizing", "20":
+		return ua.AttributeIDHistorizing, nil
+	case "executable", "21":
+		return ua.AttributeIDExecutable, nil
+	case "userexecutable", "user-executable", "22":
+		return ua.AttributeIDUserExecutable, nil
+	default:
+		// Try parsing as a numeric ID
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return ua.AttributeIDInvalid, fmt.Errorf("unknown attribute %q", s)
+		}
+		id := ua.AttributeID(v)
+		if id == ua.AttributeIDInvalid || id > 27 {
+			return ua.AttributeIDInvalid, fmt.Errorf("invalid attribute ID %d", v)
+		}
+		return id, nil
+	}
+}
+
+// CoerceValue converts a string value to a Go type based on the given OPC UA type name.
+func CoerceValue(value, typeName string) (interface{}, error) {
+	switch strings.ToLower(typeName) {
+	case "bool", "boolean":
+		return strconv.ParseBool(value)
+	case "int16":
+		v, err := strconv.ParseInt(value, 10, 16)
+		return int16(v), err
+	case "uint16":
+		v, err := strconv.ParseUint(value, 10, 16)
+		return uint16(v), err
+	case "int32":
+		v, err := strconv.ParseInt(value, 10, 32)
+		return int32(v), err
+	case "uint32":
+		v, err := strconv.ParseUint(value, 10, 32)
+		return uint32(v), err
+	case "int64":
+		v, err := strconv.ParseInt(value, 10, 64)
+		return v, err
+	case "uint64":
+		v, err := strconv.ParseUint(value, 10, 64)
+		return v, err
+	case "float", "float32":
+		v, err := strconv.ParseFloat(value, 32)
+		return float32(v), err
+	case "double", "float64":
+		return strconv.ParseFloat(value, 64)
+	case "string":
+		return value, nil
+	case "bytes", "bytestring":
+		return base64.StdEncoding.DecodeString(value)
+	case "datetime":
+		return time.Parse(time.RFC3339, value)
+	case "guid":
+		if len(value) != 36 {
+			return nil, fmt.Errorf("invalid GUID format %q: expected 36 characters", value)
+		}
+		return value, nil
+	case "nodeid":
+		nid, err := ua.ParseNodeID(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid NodeID %q: %w", value, err)
+		}
+		return nid, nil
+	case "json":
+		return value, nil
+	default:
+		return value, nil
+	}
 }

@@ -12,16 +12,17 @@ import (
 
 // Config holds the connection parameters extracted from CLI flags.
 type Config struct {
-	Endpoint       string
-	SecurityPolicy string
-	SecurityMode   string
-	Auth           string
-	Username       string
-	Password       string
-	CertFile       string
-	KeyFile        string
-	ServerCertFile string
-	Timeout        time.Duration
+	Endpoint           string
+	SecurityPolicy     string
+	SecurityMode       string
+	Auth               string
+	Username           string
+	Password           string
+	CertFile           string
+	KeyFile            string
+	ServerCertFile     string
+	InsecureSkipVerify bool
+	Timeout            time.Duration
 }
 
 // NewClient creates a connected OPC UA client from the config.
@@ -87,6 +88,9 @@ func (cfg *Config) buildOptions() []opcua.Option {
 	}
 	if cfg.ServerCertFile != "" {
 		opts = append(opts, opcua.RemoteCertificateFile(cfg.ServerCertFile))
+	}
+	if cfg.InsecureSkipVerify {
+		opts = append(opts, opcua.InsecureSkipVerify())
 	}
 
 	return opts

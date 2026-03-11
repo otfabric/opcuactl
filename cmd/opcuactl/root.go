@@ -14,6 +14,8 @@ var (
 	outputFormat string
 	prettyOutput bool
 	verbose      bool
+	quiet        bool
+	namespace    string
 )
 
 func newWriter() *format.Writer {
@@ -48,10 +50,13 @@ func init() {
 	pf.StringVar(&connCfg.CertFile, "cert", "", "Client certificate file (PEM/DER)")
 	pf.StringVar(&connCfg.KeyFile, "key", "", "Client private key file (PEM/DER)")
 	pf.StringVar(&connCfg.ServerCertFile, "server-cert", "", "Server certificate file for validation")
+	pf.BoolVar(&connCfg.InsecureSkipVerify, "insecure-skip-verify", false, "Skip server certificate verification (INSECURE)")
 	pf.DurationVar(&connCfg.Timeout, "timeout", 10*time.Second, "Connection/operation timeout")
 	pf.StringVarP(&outputFormat, "format", "f", "table", "Output format (table|json|yaml)")
 	pf.BoolVar(&prettyOutput, "pretty", false, "Pretty-print structured output")
 	pf.BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	pf.BoolVarP(&quiet, "quiet", "q", false, "Quiet mode: emit only the primary value (for scripting)")
+	pf.StringVar(&namespace, "namespace", "", "Default namespace (index or URI) for node ID shorthand")
 
 	bindEnv("OPCUACTL_ENDPOINT", &connCfg.Endpoint)
 	bindEnv("OPCUACTL_SECURITY_POLICY", &connCfg.SecurityPolicy)
@@ -62,12 +67,26 @@ func init() {
 	bindEnv("OPCUACTL_CERT", &connCfg.CertFile)
 	bindEnv("OPCUACTL_KEY", &connCfg.KeyFile)
 	bindEnv("OPCUACTL_FORMAT", &outputFormat)
+	bindEnv("OPCUACTL_NAMESPACE", &namespace)
+
+	_ = rootCmd.RegisterFlagCompletionFunc("format", fixedCompletion(formatValues))
+	_ = rootCmd.RegisterFlagCompletionFunc("security-policy", fixedCompletion(securityPolicyValues))
+	_ = rootCmd.RegisterFlagCompletionFunc("security-mode", fixedCompletion(securityModeValues))
+	_ = rootCmd.RegisterFlagCompletionFunc("auth", fixedCompletion(authValues))
 
 	rootCmd.AddCommand(
 		newDiscoverCmd(),
 		newBrowseCmd(),
+		newFindCmd(),
 		newGetCmd(),
+		newWriteCmd(),
+		newCallCmd(),
+		newMonitorCmd(),
+		newHistoryCmd(),
+		newExportCmd(),
+		newPingCmd(),
 		newVersionCmd(),
+		newCompletionCmd(),
 	)
 }
 

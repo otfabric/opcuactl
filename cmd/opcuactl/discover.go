@@ -2,7 +2,10 @@ package opcuactl
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/otfabric/opcua"
@@ -180,6 +183,8 @@ Examples:
 	cmd.Flags().StringVar(&modeFilter, "mode", "", "Filter by security mode")
 	cmd.Flags().StringVar(&transportFilter, "transport-profile", "", "Filter by transport profile")
 	cmd.Flags().BoolVar(&best, "best", false, "Select the best (most secure) endpoint")
+	_ = cmd.RegisterFlagCompletionFunc("policy", fixedCompletion(securityPolicyValues))
+	_ = cmd.RegisterFlagCompletionFunc("mode", fixedCompletion(securityModeValues))
 	return cmd
 }
 
@@ -206,6 +211,16 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 			HasCertificate:   len(ep.ServerCertificate) > 0,
 			TransportProfile: ep.TransportProfileURI,
 		}
+		if ep.Server != nil {
+			e.ApplicationURI = ep.Server.ApplicationURI
+		}
+		if len(ep.ServerCertificate) > 0 {
+			h := sha256.Sum256(ep.ServerCertificate)
+			e.CertThumbprint = fmt.Sprintf("%x", h[:8]) // first 8 bytes = 16 hex chars
+		}
+		if mismatch := endpointURLMismatch(connCfg.Endpoint, ep.EndpointURL); mismatch != "" {
+			e.URLMismatch = mismatch
+		}
 		for _, tp := range ep.UserIdentityTokens {
 			e.UserTokenPolicies = append(e.UserTokenPolicies, model.UserTokenPolicy{
 				PolicyID:  tp.PolicyID,
@@ -218,6 +233,9 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 	f := format.ParseFormat(outputFormat)
 	if f == format.Table {
 		headers := []string{"ENDPOINT URL", "SECURITY POLICY", "SECURITY MODE", "LEVEL", "CERT", "TOKEN TYPES"}
+		if verbose {
+			headers = append(headers, "APP URI", "CERT THUMBPRINT", "URL MISMATCH")
+		}
 		rows := make([][]string, len(endpoints))
 		for i, e := range endpoints {
 			tokenTypes := make([]string, len(e.UserTokenPolicies))
@@ -228,7 +246,11 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 			if e.HasCertificate {
 				cert = "yes"
 			}
-			rows[i] = []string{e.EndpointURL, e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel), cert, strings.Join(tokenTypes, ", ")}
+			row := []string{e.EndpointURL, e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel), cert, strings.Join(tokenTypes, ", ")}
+			if verbose {
+				row = append(row, e.ApplicationURI, e.CertThumbprint, e.URLMismatch)
+			}
+			rows[i] = row
 		}
 		return w.WriteTable(headers, rows)
 	}
@@ -237,19 +259,37 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 
 func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter string) error {
 	w := newWriter()
-	policy := policyFilter
-	if policy == "" {
-		policy = "Basic256Sha256"
-	}
-	mode := ua.MessageSecurityModeSignAndEncrypt
-	if modeFilter != "" {
-		mode = ua.MessageSecurityModeFromString(modeFilter)
+
+	if len(eps) == 0 {
+		return exitCodef(3, "no endpoints returned by server")
 	}
 
-	ep, err := opcua.SelectEndpoint(eps, parse.SecurityPolicy(policy), mode)
-	if err != nil {
-		format.Errf("selecting best endpoint: %v", err)
-		return exitCode(3, err)
+	var ep *ua.EndpointDescription
+
+	// If the user explicitly set --policy or --mode, try an exact match first.
+	if policyFilter != "" || modeFilter != "" {
+		policy := policyFilter
+		if policy == "" {
+			policy = "Basic256Sha256"
+		}
+		mode := ua.MessageSecurityModeSignAndEncrypt
+		if modeFilter != "" {
+			mode = ua.MessageSecurityModeFromString(modeFilter)
+		}
+		matched, err := opcua.SelectEndpoint(eps, parse.SecurityPolicy(policy), mode)
+		if err == nil {
+			ep = matched
+		}
+	}
+
+	// Fall back: pick the endpoint with the highest security level.
+	if ep == nil {
+		sorted := make([]*ua.EndpointDescription, len(eps))
+		copy(sorted, eps)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].SecurityLevel > sorted[j].SecurityLevel
+		})
+		ep = sorted[0]
 	}
 
 	e := model.Endpoint{
@@ -273,4 +313,26 @@ func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter 
 		return w.WriteTable(headers, rows)
 	}
 	return w.Write(e)
+}
+
+// endpointURLMismatch returns a warning string if the host in the discovered
+// endpoint URL differs from the host the user connected to.
+func endpointURLMismatch(dialURL, endpointURL string) string {
+	dialHost := hostFromOPCURL(dialURL)
+	epHost := hostFromOPCURL(endpointURL)
+	if dialHost == "" || epHost == "" || strings.EqualFold(dialHost, epHost) {
+		return ""
+	}
+	return fmt.Sprintf("dial=%s ep=%s", dialHost, epHost)
+}
+
+// hostFromOPCURL extracts the hostname from an opc.tcp:// or http(s):// URL.
+func hostFromOPCURL(rawURL string) string {
+	// opc.tcp:// is not a standard scheme; normalize for url.Parse.
+	normalized := strings.Replace(rawURL, "opc.tcp://", "http://", 1)
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
