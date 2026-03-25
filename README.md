@@ -1,12 +1,13 @@
 # opcuactl
 
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/otfabric/opcuactl)](https://goreportcard.com/report/github.com/otfabric/opcuactl)
 [![CI](https://github.com/otfabric/opcuactl/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/opcuactl/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/github/otfabric/opcuactl/graph/badge.svg?token=W6AQ0AL1O3)](https://codecov.io/github/otfabric/opcuactl)
 [![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?style=flat&color=blue)](https://github.com/otfabric/opcuactl/releases)
 
-A production-grade command-line tool for OPC UA, built in Go on top of [otfabric/opcua](https://github.com/otfabric/opcua).
+A production-grade command-line tool for OPC UA, built in Go on top of [otfabric/go-opcua](https://github.com/otfabric/go-opcua).
 
 `opcuactl` provides operator-focused access to OPC UA servers for discovery, browsing, reading, writing, method calls, real-time monitoring, historical data retrieval, and bulk export — all from the terminal.
 
@@ -40,6 +41,7 @@ go install github.com/otfabric/opcuactl@latest
 git clone https://github.com/otfabric/opcuactl.git
 cd opcuactl
 make build
+# binary: ./bin/opcuactl
 ```
 
 ### Cross-platform builds
@@ -484,13 +486,13 @@ make check
 # Run tests with race detector
 make test
 
-# Build for current platform
+# Build for current platform (output: ./bin/opcuactl)
 make build
 
 # Build for all platforms
 make build-all
 
-# Install to $GOPATH/bin
+# Install to /usr/local/bin
 make install
 ```
 
@@ -525,7 +527,7 @@ internal/parse/        NodeID parsing, type coercion, security policy handling
 
 ## Built With
 
-- [otfabric/opcua](https://github.com/otfabric/opcua) — Pure Go OPC UA client library
+- [otfabric/go-opcua](https://github.com/otfabric/go-opcua) — Pure Go OPC UA client library
 - [spf13/cobra](https://github.com/spf13/cobra) — CLI framework
 
 ## Documentation

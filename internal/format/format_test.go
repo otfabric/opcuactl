@@ -3,6 +3,9 @@ package format
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -100,6 +103,22 @@ func TestParseFormatCSVAndJSONL(t *testing.T) {
 	}
 }
 
+type failingWriter struct{}
+
+func (failingWriter) Write(p []byte) (n int, err error) {
+	return 0, errors.New("write failed")
+}
+
+func TestWriteCSVTable_writeError(t *testing.T) {
+	t.Parallel()
+	w := NewWriter(CSV, false)
+	w.SetOutput(failingWriter{})
+	err := w.WriteTable([]string{"A"}, [][]string{{"b"}})
+	if err == nil {
+		t.Fatal("expected error from failing writer")
+	}
+}
+
 func TestWriteCSVTable(t *testing.T) {
 	var buf bytes.Buffer
 	w := &Writer{format: CSV, out: &buf}
@@ -174,6 +193,102 @@ func TestSetOutput(t *testing.T) {
 	}
 	if buf2.Len() == 0 {
 		t.Error("expected buf2 to have output after SetOutput")
+	}
+}
+
+func TestNewWriter(t *testing.T) {
+	t.Parallel()
+	w := NewWriter(JSON, true)
+	if w == nil {
+		t.Fatal("NewWriter returned nil")
+	}
+	var buf bytes.Buffer
+	w.SetOutput(&buf)
+	if err := w.Write(map[string]int{"n": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() == 0 {
+		t.Error("expected JSON output on buffer after SetOutput")
+	}
+}
+
+func TestWriterYAML(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	w := NewWriter(YAML, false)
+	w.SetOutput(&buf)
+	if err := w.Write(map[string]string{"k": "v"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "k") || !strings.Contains(buf.String(), "v") {
+		t.Errorf("YAML output = %q, want k and v", buf.String())
+	}
+}
+
+func TestWriterWrite_tableFormatRequiresWriteTable(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	w := NewWriter(Table, false)
+	w.SetOutput(&buf)
+	err := w.Write(map[string]string{"a": "b"})
+	if err == nil {
+		t.Fatal("Write with table format should error")
+	}
+	if !strings.Contains(err.Error(), "WriteTable") {
+		t.Errorf("error = %v, want mention of WriteTable", err)
+	}
+}
+
+func TestWriterJSONL_nonSlice(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	w := NewWriter(JSONL, false)
+	w.SetOutput(&buf)
+	if err := w.Write(map[string]int{"x": 42}); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]int
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["x"] != 42 {
+		t.Errorf("got %v, want x=42", got)
+	}
+}
+
+func TestWriterJSONL_interfaceSlice(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	w := NewWriter(JSONL, false)
+	w.SetOutput(&buf)
+	items := []interface{}{map[string]string{"a": "1"}, map[string]string{"b": "2"}}
+	if err := w.Write(items); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want 2 lines, got %d: %q", len(lines), buf.String())
+	}
+}
+
+func TestErrf(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	Errf("unit %s", "test")
+	_ = w.Close()
+	os.Stderr = old
+	outB, err := io.ReadAll(r)
+	_ = r.Close()
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	out := string(outB)
+	if !strings.Contains(out, "Error:") || !strings.Contains(out, "unit test") {
+		t.Errorf("Errf output = %q, want Error: and unit test", out)
 	}
 }
 

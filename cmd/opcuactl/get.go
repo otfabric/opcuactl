@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -203,7 +202,7 @@ Examples:
 					info.Description = summary.Description.Text
 				}
 				if summary.DataType != nil {
-					info.DataType = opcua.DataTypeDisplayName(summary.DataType)
+					info.DataType = ua.DataTypeDisplayName(summary.DataType)
 				}
 				if summary.AccessLevel != 0 {
 					info.AccessLevel = summary.AccessLevel.String()
@@ -213,7 +212,7 @@ Examples:
 					info.UserAccessLevel = summary.UserAccessLevel.String()
 				}
 				if summary.TypeDefinition != nil {
-					info.TypeDefinition = opcua.TypeDefinitionDisplayName(summary.TypeDefinition)
+					info.TypeDefinition = ua.TypeDefinitionDisplayName(summary.TypeDefinition)
 				}
 				if summary.Value != nil && summary.Value.Value != nil {
 					info.Value = summary.Value.Value.Value()

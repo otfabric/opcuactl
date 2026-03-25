@@ -7,8 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -106,7 +105,7 @@ Examples:
 							result.DisplayName = summary.DisplayName.Text
 						}
 						if summary.DataType != nil {
-							result.DataType = opcua.DataTypeDisplayName(summary.DataType)
+							result.DataType = ua.DataTypeDisplayName(summary.DataType)
 						}
 						if summary.AccessLevel != 0 {
 							result.AccessLevel = friendlyAccessLevel(summary.AccessLevel)

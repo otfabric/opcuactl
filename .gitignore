@@ -1,6 +1,8 @@
 # Build output
+/bin/
 /opcuactl
 /release/*
+/bin/*
 
 # Scan results
 *.csv
@@ -12,3 +14,8 @@
 
 # macOS
 .DS_Store
+
+# Coverage
+coverage.out
+coverage.html
+*.cover

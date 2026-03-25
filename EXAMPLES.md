@@ -694,5 +694,10 @@ i=2267   NodeClassVariable  ServiceLevel  Byte       i=68
 ```console
 $ opcuactl version
 
-opcuactl dev | go version: go1.26.1
+opcuactl dev
+  commit:     none
+  built:      unknown
+  go version: go1.26.1
 ```
+
+With a release build, `tag` appears when `main.tag` is set at link time.

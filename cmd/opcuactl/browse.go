@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/id"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua"
+	"github.com/otfabric/go-opcua/id"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -92,7 +92,7 @@ Examples:
 					cn.DisplayName = summary.DisplayName.Text
 				}
 				if summary.TypeDefinition != nil {
-					cn.TypeDefinition = opcua.TypeDefinitionDisplayName(summary.TypeDefinition)
+					cn.TypeDefinition = ua.TypeDefinitionDisplayName(summary.TypeDefinition)
 				}
 				results = append(results, cn)
 			}
@@ -185,7 +185,7 @@ Examples:
 					NodeClass: ref.NodeClass.String(),
 				}
 				if ref.ReferenceTypeID != nil {
-					r.ReferenceType = opcua.ReferenceTypeDisplayName(ref.ReferenceTypeID)
+					r.ReferenceType = ua.ReferenceTypeDisplayName(ref.ReferenceTypeID)
 				}
 				if ref.NodeID != nil && ref.NodeID.NodeID != nil {
 					r.NodeID = ref.NodeID.NodeID.String()
@@ -197,7 +197,7 @@ Examples:
 					r.DisplayName = ref.DisplayName.Text
 				}
 				if ref.TypeDefinition != nil && ref.TypeDefinition.NodeID != nil {
-					r.TypeDefinition = opcua.TypeDefinitionDisplayName(ref.TypeDefinition.NodeID)
+					r.TypeDefinition = ua.TypeDefinitionDisplayName(ref.TypeDefinition.NodeID)
 				}
 				results = append(results, r)
 			}
@@ -275,7 +275,7 @@ Examples:
 				return browseTreeTable(ctx, n, maxDepth, classMask)
 			}
 			// JSON/YAML: collect tree structure
-			tree, err := browseTreeJSON(ctx, c, n, maxDepth, classMask, 0)
+			tree, err := browseTreeJSON(ctx, n, maxDepth, classMask, 0)
 			if err != nil {
 				format.Errf("browsing tree: %v", err)
 				return exitCode(3, err)
@@ -315,7 +315,7 @@ func browseTreeTable(ctx context.Context, n *opcua.Node, maxDepth int, classMask
 	return nil
 }
 
-func browseTreeJSON(ctx context.Context, c *opcua.Client, n *opcua.Node, maxDepth int, classMask ua.NodeClass, depth int) (model.TreeNode, error) {
+func browseTreeJSON(ctx context.Context, n *opcua.Node, maxDepth int, classMask ua.NodeClass, depth int) (model.TreeNode, error) {
 	opCtx, cancel := connCfg.TimeoutContext(ctx)
 	defer cancel()
 
@@ -334,7 +334,7 @@ func browseTreeJSON(ctx context.Context, c *opcua.Client, n *opcua.Node, maxDept
 			tn.DisplayName = summary.DisplayName.Text
 		}
 		if summary.TypeDefinition != nil {
-			tn.TypeDefinition = opcua.TypeDefinitionDisplayName(summary.TypeDefinition)
+			tn.TypeDefinition = ua.TypeDefinitionDisplayName(summary.TypeDefinition)
 		}
 	}
 
@@ -348,7 +348,7 @@ func browseTreeJSON(ctx context.Context, c *opcua.Client, n *opcua.Node, maxDept
 	}
 
 	for _, child := range children {
-		childNode, err := browseTreeJSON(ctx, c, child, maxDepth, classMask, depth+1)
+		childNode, err := browseTreeJSON(ctx, child, maxDepth, classMask, depth+1)
 		if err != nil {
 			continue
 		}

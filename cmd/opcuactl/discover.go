@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -276,7 +276,7 @@ func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter 
 		if modeFilter != "" {
 			mode = ua.MessageSecurityModeFromString(modeFilter)
 		}
-		matched, err := opcua.SelectEndpoint(eps, parse.SecurityPolicy(policy), mode)
+		matched, err := ua.SelectEndpoint(eps, parse.SecurityPolicy(policy), mode)
 		if err == nil {
 			ep = matched
 		}
