@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/id"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua"
+	"github.com/otfabric/go-opcua/id"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -199,12 +199,12 @@ func nodeToExportedNode(ctx context.Context, n *opcua.Node, depth int) model.Exp
 		en.Description = summary.Description.Text
 	}
 	if summary.DataType != nil {
-		en.DataType = opcua.DataTypeDisplayName(summary.DataType)
+		en.DataType = ua.DataTypeDisplayName(summary.DataType)
 	}
 	en.AccessLevel = summary.AccessLevel.String()
 	en.UserAccessLevel = summary.UserAccessLevel.String()
 	if summary.TypeDefinition != nil {
-		en.TypeDefinition = opcua.TypeDefinitionDisplayName(summary.TypeDefinition)
+		en.TypeDefinition = ua.TypeDefinitionDisplayName(summary.TypeDefinition)
 	}
 	return en
 }

@@ -32,7 +32,7 @@ make check
 # Run tests with race detector
 make test
 
-# Build for current platform
+# Build for current platform (./bin/opcuactl)
 make build
 ```
 

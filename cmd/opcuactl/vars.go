@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/id"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua"
+	"github.com/otfabric/go-opcua/id"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -140,7 +140,7 @@ Examples:
 					vn.DisplayName = v.ref.DisplayName.Text
 				}
 				if v.ref.TypeDefinition != nil && v.ref.TypeDefinition.NodeID != nil {
-					vn.TypeDefinition = opcua.TypeDefinitionDisplayName(v.ref.TypeDefinition.NodeID)
+					vn.TypeDefinition = ua.TypeDefinitionDisplayName(v.ref.TypeDefinition.NodeID)
 				}
 				if paths && pathMap != nil {
 					vn.Path = pathMap[nid.String()]
@@ -176,7 +176,7 @@ Examples:
 
 					if dtRes.DataValue != nil && dtRes.DataValue.Value != nil {
 						if dtID, ok := dtRes.DataValue.Value.Value().(*ua.NodeID); ok {
-							results[i].DataType = opcua.DataTypeDisplayName(dtID)
+							results[i].DataType = ua.DataTypeDisplayName(dtID)
 						}
 					}
 				}

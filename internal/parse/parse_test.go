@@ -3,7 +3,7 @@ package parse
 import (
 	"testing"
 
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua/ua"
 )
 
 func TestNodeID(t *testing.T) {
@@ -76,6 +76,7 @@ func TestSecurityPolicyShortName(t *testing.T) {
 		{"", "None"},
 		{"http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256", "Basic256Sha256"},
 		{"http://opcfoundation.org/UA/SecurityPolicy#None", "None"},
+		{"https://example.com/policy/only/path", "https://example.com/policy/only/path"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -177,6 +178,18 @@ func TestAttributeIDFromName(t *testing.T) {
 		{"WriteMask", ua.AttributeIDWriteMask, false},
 		{"Historizing", ua.AttributeIDHistorizing, false},
 		{"NodeClass", ua.AttributeIDNodeClass, false},
+		{"node-id", ua.AttributeIDNodeID, false},
+		{"Executable", ua.AttributeIDExecutable, false},
+		{"user-executable", ua.AttributeIDUserExecutable, false},
+		{"Symmetric", ua.AttributeIDSymmetric, false},
+		{"27", ua.AttributeID(27), false},
+		{"28", ua.AttributeIDInvalid, true},
+		{"inverse-name", ua.AttributeIDInverseName, false},
+		{"contains-no-loops", ua.AttributeIDContainsNoLoops, false},
+		{"event-notifier", ua.AttributeIDEventNotifier, false},
+		{"value-rank", ua.AttributeIDValueRank, false},
+		{"array-dimensions", ua.AttributeIDArrayDimensions, false},
+		{"minimum-sampling-interval", ua.AttributeIDMinimumSamplingInterval, false},
 		{"unknown-attr", ua.AttributeIDInvalid, true},
 		{"999", ua.AttributeIDInvalid, true},
 		{"0", ua.AttributeIDInvalid, true},
@@ -207,6 +220,12 @@ func TestNodeIDWithNamespace(t *testing.T) {
 		{"s=Temperature", "2", "ns=2;s=Temperature", false},
 		{"ns=3;s=Foo", "2", "ns=3;s=Foo", false}, // explicit ns= not overridden
 		{"", "2", "", true},
+		{"CurrentTime", "", "i=2258", false},
+		{"not-a-valid-node-id-or-name", "2", "", true},
+		// Parses but canonical form differs from input; not a symbolic standard name.
+		{"ns=2;i=001", "", "", true},
+		// ParseNodeID fails outright.
+		{"###not-a-node-id###", "", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input+"/ns="+tt.namespace, func(t *testing.T) {

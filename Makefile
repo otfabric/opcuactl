@@ -8,13 +8,17 @@ help: ## This help
 APP_NAME       = opcuactl
 APP_SRC        = main.go
 ARCHS          = linux/amd64 linux/arm64 linux/arm/v7 darwin/amd64 darwin/arm64
-VERSION       := $(shell head -1 version.txt)
+VERSION       := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+TAG           := $(shell git tag --points-at HEAD 2>/dev/null | head -1)
 COMMIT        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE    := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS       := -ldflags "\
-  -X 'github.com/otfabric/opcuactl/cmd/opcuactl.version=$(VERSION)' \
-  -X 'github.com/otfabric/opcuactl/cmd/opcuactl.commit=$(COMMIT)' \
-  -X 'github.com/otfabric/opcuactl/cmd/opcuactl.buildDate=$(BUILD_DATE)'"
+LDFLAGS       := -ldflags "-s -w \
+  -X 'main.version=$(VERSION)' \
+  -X 'main.tag=$(TAG)' \
+  -X 'main.commit=$(COMMIT)' \
+  -X 'main.buildDate=$(BUILD_DATE)'"
+BIN_DIR       := bin
+BIN           := $(BIN_DIR)/$(APP_NAME)
 RELEASE_DIR   := release
 
 all: test build build-all ## Test and build the application
@@ -43,11 +47,20 @@ test: ## Run unit tests with race detector
 	@echo "Running unit tests (race detector)"
 	@go test -count=1 -race ./...
 
-check: fmt lint lint-ci vet test ## Run all checks (format, lint, vet, test)
+coverage: ## Run tests with coverage on core library only (writes coverage.out)
+	@echo "Running coverage"
+	@go test -count=1 -race -coverprofile=coverage.out -covermode=atomic ./...
+
+cover: coverage ## Open coverage report in browser
+	@echo "Opening coverage report"
+	@go tool cover -html=coverage.out
+
+check: fmt lint lint-ci vet test coverage ## Run all checks (format, lint, vet, test, coverage)
 
 build: check ## Build the application
-	@echo "Building $(APP_NAME)"
-	@go build $(LDFLAGS) -o $(APP_NAME) $(APP_SRC)
+	@echo "Building $(BIN)"
+	@mkdir -p $(BIN_DIR)
+	@go build $(LDFLAGS) -o $(BIN) $(APP_SRC)
 
 build-all: ## Build the application for all architectures
 	@mkdir -p $(RELEASE_DIR)
@@ -83,9 +96,9 @@ release-all: build-all ## Package the build binaries into tar.gz archives for al
 
 install: build ## Install the built binary to /usr/local/bin
 	@echo "Installing $(APP_NAME) to /usr/local/bin"
-	@sudo install -m 0755 $(APP_NAME) /usr/local/bin/$(APP_NAME)
+	@sudo install -m 0755 $(BIN) /usr/local/bin/$(APP_NAME)
 
 clean: ## Clean the build artifacts
 	@echo "Cleaning build artifacts"
-	@rm -f $(APP_NAME)
+	@rm -rf $(BIN_DIR)
 	@rm -rf $(RELEASE_DIR)

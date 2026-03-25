@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/otfabric/opcua/id"
-	"github.com/otfabric/opcua/ua"
-	"github.com/otfabric/opcua/uacp"
+	"github.com/otfabric/go-opcua/id"
+	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/go-opcua/uacp"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/spf13/cobra"

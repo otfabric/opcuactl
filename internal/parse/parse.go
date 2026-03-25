@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua/ua"
 )
 
 // NodeID parses a string to a ua.NodeID using the standard OPC UA format.
@@ -38,7 +37,7 @@ func NodeIDWithNamespace(s, namespace string) (*ua.NodeID, error) {
 		}
 	}
 	// Fallback: try as a well-known standard node name (namespace 0 only)
-	if nid, ok := opcua.StandardNodeID(s); ok {
+	if nid, ok := ua.StandardNodeID(s); ok {
 		return nid, nil
 	}
 	if err != nil {

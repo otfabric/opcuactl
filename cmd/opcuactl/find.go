@@ -6,9 +6,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/otfabric/opcua"
-	"github.com/otfabric/opcua/id"
-	"github.com/otfabric/opcua/ua"
+	"github.com/otfabric/go-opcua"
+	"github.com/otfabric/go-opcua/id"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -185,7 +185,7 @@ Examples:
 					DisplayName: dispName,
 				}
 				if ref.TypeDefinition != nil && ref.TypeDefinition.NodeID != nil {
-					info.TypeDefinition = opcua.TypeDefinitionDisplayName(ref.TypeDefinition.NodeID)
+					info.TypeDefinition = ua.TypeDefinitionDisplayName(ref.TypeDefinition.NodeID)
 				}
 				// Optionally enrich with summary
 				results = append(results, enrichNodeInfo(ctx, c, info))
@@ -255,7 +255,7 @@ func enrichNodeInfo(ctx context.Context, c *opcua.Client, info model.NodeInfo) m
 		return info
 	}
 	if summary.DataType != nil {
-		info.DataType = opcua.DataTypeDisplayName(summary.DataType)
+		info.DataType = ua.DataTypeDisplayName(summary.DataType)
 	}
 	if summary.Description != nil && summary.Description.Text != "" {
 		info.Description = summary.Description.Text
@@ -367,7 +367,7 @@ Examples:
 						continue
 					}
 					if typeDefName != "" {
-						tdFriendly := strings.ToLower(opcua.TypeDefinitionDisplayName(summary.TypeDefinition))
+						tdFriendly := strings.ToLower(ua.TypeDefinitionDisplayName(summary.TypeDefinition))
 						if !strings.Contains(tdFriendly, typeDefName) {
 							// Also try browsing for display name of the type
 							continue
@@ -385,7 +385,7 @@ Examples:
 					}
 					if dataTypeName != "" {
 						dtStr := strings.ToLower(summary.DataType.String())
-						dtFriendly := strings.ToLower(opcua.DataTypeDisplayName(summary.DataType))
+						dtFriendly := strings.ToLower(ua.DataTypeDisplayName(summary.DataType))
 						if !strings.Contains(dtStr, dataTypeName) && !strings.Contains(dtFriendly, dataTypeName) {
 							continue
 						}
@@ -406,10 +406,10 @@ Examples:
 					info.Description = summary.Description.Text
 				}
 				if summary.DataType != nil {
-					info.DataType = opcua.DataTypeDisplayName(summary.DataType)
+					info.DataType = ua.DataTypeDisplayName(summary.DataType)
 				}
 				if summary.TypeDefinition != nil {
-					info.TypeDefinition = opcua.TypeDefinitionDisplayName(summary.TypeDefinition)
+					info.TypeDefinition = ua.TypeDefinitionDisplayName(summary.TypeDefinition)
 				}
 				results = append(results, info)
 
