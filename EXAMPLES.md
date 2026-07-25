@@ -1,8 +1,12 @@
 # Examples
 
-Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** industrial PLC at `opc.tcp://109.166.142.215:4840` using SDK **v0.1.10**.
+Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** industrial PLC at `opc.tcp://109.166.142.215:4840`.
 
-> All commands use these connection flags:
+Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.3.1** (`opcuactl` **v0.2.0**).
+
+This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md).
+
+> All captured commands use these connection flags:
 > ```bash
 > CONN=(
 >   -e opc.tcp://109.166.142.215:4840
@@ -15,6 +19,66 @@ Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** i
 
 ---
 
+## Table of Contents
+
+- [Connectivity](#connectivity)
+  - [Ping](#ping)
+  - [Ping (JSON)](#ping-json)
+- [Discovery](#discovery)
+  - [Discover Servers](#discover-servers)
+  - [Discover Endpoints](#discover-endpoints)
+  - [Discover Endpoints — Best](#discover-endpoints-best)
+  - [Discover Endpoints — Verbose (Troubleshooting)](#discover-endpoints-verbose-troubleshooting)
+- [Browsing](#browsing)
+  - [Browse Children (Root)](#browse-children-root)
+  - [Browse Children (DeviceSet)](#browse-children-deviceset)
+  - [Browse Tree](#browse-tree)
+  - [Browse References](#browse-references)
+  - [Browse Path](#browse-path)
+  - [Browse Path — Qualified (Per-Segment Namespace)](#browse-path-qualified-per-segment-namespace)
+  - [Browse Path — Quiet Mode](#browse-path-quiet-mode)
+- [Reading Values and Nodes](#reading-values-and-nodes)
+  - [Get Value (Single)](#get-value-single)
+  - [Get Value (Symbolic Alias)](#get-value-symbolic-alias)
+  - [Get Value (Multiple, with Timestamps)](#get-value-multiple-with-timestamps)
+  - [Get Value (JSON)](#get-value-json)
+  - [Get Value (Quiet Mode)](#get-value-quiet-mode)
+  - [Get Node](#get-node)
+  - [Get Node (Full, JSON)](#get-node-full-json)
+  - [Get Attr](#get-attr)
+  - [Get Server](#get-server)
+  - [Get Vars (Direct Children)](#get-vars-direct-children)
+  - [Get Vars (Metadata Only)](#get-vars-metadata-only)
+  - [Get Vars (Quiet Mode)](#get-vars-quiet-mode)
+- [Writing](#writing)
+  - [Write Value — Dry Run](#write-value-dry-run)
+  - [Write Value — Dry Run (JSON)](#write-value-dry-run-json)
+- [Monitoring](#monitoring)
+  - [Monitor Value (Table)](#monitor-value-table)
+  - [Monitor Value (with Sampling Interval)](#monitor-value-with-sampling-interval)
+  - [Monitor Value (JSONL, with --count)](#monitor-value-jsonl-with-count)
+  - [Monitor Event (Unsupported)](#monitor-event-unsupported)
+- [Historical Data](#historical-data)
+  - [History Value (Unsupported)](#history-value-unsupported)
+- [Export](#export)
+  - [Export Nodes (JSON)](#export-nodes-json)
+  - [Export Nodes (CSV)](#export-nodes-csv)
+  - [Export Values (Table)](#export-values-table)
+  - [Export Values (CSV)](#export-values-csv)
+- [Searching](#searching)
+  - [Find Namespace](#find-namespace)
+  - [Find Namespace (Filtered)](#find-namespace-filtered)
+  - [Find Namespace (JSON)](#find-namespace-json)
+  - [Find Node (by Name)](#find-node-by-name)
+  - [Find Node (by Regex)](#find-node-by-regex)
+  - [Find Type (by Data Type)](#find-type-by-data-type)
+  - [Find Type (by Byte)](#find-type-by-byte)
+- [Version](#version)
+- [v0.2.0 features (not exercised on this PLC)](#v020-features-not-exercised-on-this-plc)
+  - [Secure connect](#secure-connect)
+  - [IndexRange and timestamps](#indexrange-and-timestamps)
+  - [Monitor queue / overflow / event filters](#monitor-queue-overflow-event-filters)
+  - [History modes](#history-modes)
 ## Connectivity
 
 ### Ping
@@ -701,3 +765,71 @@ opcuactl dev
 ```
 
 With a release build, `tag` appears when `main.tag` is set at link time.
+
+---
+
+## v0.2.0 features (not exercised on this PLC)
+
+These commands match the current CLI. They are **not** live captures from the WAGO above — use them as copy-paste templates against a server that supports the feature.
+
+### Secure connect
+
+```sh
+# Inspect token types / policies first
+opcuactl discover endpoints -e opc.tcp://secure-host:4840 --best -v
+
+# Username + auto endpoint selection
+opcuactl get value -e opc.tcp://secure-host:4840 -n i=2258 \
+  --auth username --username operator --password "$OPCUACTL_PASSWORD" \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key \
+  --trusted-cert server-ca.pem
+
+# X.509 user identity
+opcuactl get value -e opc.tcp://secure-host:4840 -n i=2258 \
+  --auth certificate --cert client.pem --key client.key \
+  --security-policy auto --security-mode auto \
+  --trusted-cert server-ca.pem
+
+# Issued token
+opcuactl get value -e opc.tcp://secure-host:4840 -n i=2258 \
+  --auth issued --token-file ./token.jwt \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key
+```
+
+### IndexRange and timestamps
+
+```sh
+opcuactl get value "${CONN[@]}" -n "ns=2;s=ArrayNode" --index-range "0:2"
+opcuactl get value "${CONN[@]}" -n i=2258 \
+  --timestamps-to-return source --timestamps
+```
+
+### Monitor queue / overflow / event filters
+
+```sh
+opcuactl monitor value "${CONN[@]}" -n i=2258 \
+  --interval 1s --sampling 100ms --queue-size 10 --discard-oldest --jsonl --count 20
+# JSONL lines may include "overflow": true when the server sets the Overflow InfoBit
+
+opcuactl monitor event -e opc.tcp://events-host:4840 -n i=2253 \
+  --of-type i=2041 --severity-min 500 --severity-max 1000 \
+  --jsonl --duration 30s
+```
+
+### History modes
+
+```sh
+opcuactl history value -e opc.tcp://historian:4840 -n "ns=2;s=Temperature" \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z \
+  --mode processed --interval 1h --aggregate average
+
+opcuactl history value -e opc.tcp://historian:4840 -n "ns=2;s=Temperature" \
+  --mode attime --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z
+
+opcuactl export values -e opc.tcp://historian:4840 -n "ns=2;s=Temperature" \
+  --history --mode attime \
+  --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z \
+  -f csv --output history-attime.csv
+```

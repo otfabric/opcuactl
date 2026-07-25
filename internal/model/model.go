@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package model
 
 import "time"
@@ -184,6 +186,7 @@ type MonitoredValue struct {
 	Type            string      `json:"type,omitempty"`
 	Status          string      `json:"status"`
 	StatusCode      uint32      `json:"statusCode"`
+	Overflow        bool        `json:"overflow,omitempty"`
 	SourceTimestamp string      `json:"sourceTimestamp,omitempty"`
 	ServerTimestamp string      `json:"serverTimestamp,omitempty"`
 }

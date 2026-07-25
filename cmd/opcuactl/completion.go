@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package opcuactl
 
 import (
@@ -9,15 +11,16 @@ import (
 // Shared completion values for reuse across commands.
 var (
 	formatValues         = []string{"table", "json", "yaml", "csv", "jsonl"}
-	securityPolicyValues = []string{"None", "Basic128Rsa15", "Basic256", "Basic256Sha256", "Aes128Sha256RsaOaep", "Aes256Sha256RsaPss"}
-	securityModeValues   = []string{"None", "Sign", "SignAndEncrypt"}
-	authValues           = []string{"anonymous", "username", "certificate"}
+	securityPolicyValues = []string{"None", "Basic128Rsa15", "Basic256", "Basic256Sha256", "Aes128Sha256RsaOaep", "Aes256Sha256RsaPss", "auto"}
+	securityModeValues   = []string{"None", "Sign", "SignAndEncrypt", "auto"}
+	authValues           = []string{"anonymous", "username", "certificate", "issued"}
 	nodeClassValues      = []string{"all", "object", "variable", "method", "objecttype", "variabletype", "referencetype", "datatype", "view"}
 	directionValues      = []string{"forward", "inverse", "both"}
 	writeTypeValues      = []string{"bool", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float", "double", "string", "bytes", "datetime", "guid", "nodeid", "json"}
 	historyModeValues    = []string{"raw", "modified", "processed", "attime"}
 	continuationValues   = []string{"all", "single"}
 	timestampValues      = []string{"source", "server", "both", "neither"}
+	aggregateValues      = []string{"average", "min", "max", "count"}
 	attrValues           = []string{"NodeID", "NodeClass", "BrowseName", "DisplayName", "Description", "DataType", "Value", "AccessLevel", "UserAccessLevel", "WriteMask", "ValueRank", "Historizing", "MinimumSamplingInterval", "ArrayDimensions"}
 )
 

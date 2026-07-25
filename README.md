@@ -1,35 +1,57 @@
 # opcuactl
 
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/opcuactl.svg)](https://pkg.go.dev/github.com/otfabric/opcuactl)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/otfabric/opcuactl)](https://goreportcard.com/report/github.com/otfabric/opcuactl)
 [![CI](https://github.com/otfabric/opcuactl/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/opcuactl/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/github/otfabric/opcuactl/graph/badge.svg?token=W6AQ0AL1O3)](https://codecov.io/github/otfabric/opcuactl)
-[![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?style=flat&color=blue)](https://github.com/otfabric/opcuactl/releases)
+[![Codecov](https://codecov.io/gh/otfabric/opcuactl/graph/badge.svg)](https://codecov.io/gh/otfabric/opcuactl)
+[![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?label=release)](https://github.com/otfabric/opcuactl/releases)
 
 A production-grade command-line tool for OPC UA, built in Go on top of [otfabric/go-opcua](https://github.com/otfabric/go-opcua).
 
 `opcuactl` provides operator-focused access to OPC UA servers for discovery, browsing, reading, writing, method calls, real-time monitoring, historical data retrieval, and bulk export — all from the terminal.
 
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Command Reference](#command-reference)
+- [Usage Examples](#usage-examples)
+- [Global Flags](#global-flags)
+- [Output Formats](#output-formats)
+- [Exit Codes](#exit-codes)
+- [Security](#security)
+- [NodeID Formats](#nodeid-formats)
+- [Path Resolution](#path-resolution)
+- [Monitoring Intervals](#monitoring-intervals)
+- [Development](#development)
+- [Supported Value Types](#supported-value-types)
+- [Built With](#built-with)
+- [Documentation](#documentation)
+- [License](#license)
 ## Features
 
 - **Discovery** — find servers on a network, list endpoints, select the most secure configuration
 - **Browse** — explore address-space trees, child nodes, references, and resolve browse paths
 - **Search** — find nodes by name, display name, type definition, data type, or namespace
-- **Read** — read values, node summaries, and server status
+- **Read** — read values (including array IndexRange), node summaries, attributes, and server status
 - **Write** — write typed values with dry-run validation
 - **Call** — invoke OPC UA methods with argument introspection
-- **Monitor** — subscribe to live value changes, events, and alarms with streaming output
-- **History** — retrieve historical values and events over time ranges
-- **Export** — bulk export node metadata and value snapshots or time-series data
+- **Monitor** — subscribe to live value changes, filtered events, and alarms (queue window + overflow)
+- **History** — raw, modified, processed (aggregates), and at-time historical reads
+- **Export** — bulk export node metadata and value snapshots or historical time-series
+- **AuthN/Z** — anonymous, username, X.509, and issued-token identities; `auto` endpoint security selection
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
+
+See [RELEASE.md](RELEASE.md) for what changed in the latest release.
 
 ## Installation
 
 ### From source
 
-Requires Go 1.23+.
+Requires Go 1.25+.
 
 ```sh
 go install github.com/otfabric/opcuactl@latest
@@ -61,7 +83,7 @@ opcuactl discover servers -e opc.tcp://localhost:4840
 # List endpoints and their security configurations
 opcuactl discover endpoints -e opc.tcp://localhost:4840
 
-# Read a value
+# Read a value (anonymous / None — fine for lab servers)
 opcuactl get value -e opc.tcp://localhost:4840 -n i=2258
 
 # Browse the address space
@@ -71,6 +93,17 @@ opcuactl browse children -e opc.tcp://localhost:4840
 opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258
 ```
 
+For production servers, prefer secure connect with endpoint auto-selection:
+
+```sh
+opcuactl get value -e opc.tcp://plc.example:4840 -n i=2258 \
+  --auth username --username operator --password "$OPCUACTL_PASSWORD" \
+  --security-policy auto --security-mode auto \
+  --cert ./pki/client.pem --key ./pki/client.key \
+  --trusted-cert ./pki/server-ca.pem
+```
+
+More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPLES.md).
 ## Command Reference
 
 ```
@@ -158,6 +191,13 @@ opcuactl get value -e opc.tcp://localhost:4840 -n i=2258
 # Read multiple values with timestamps
 opcuactl get value -e opc.tcp://localhost:4840 -n i=2258 -n "ns=2;s=Temperature" --timestamps
 
+# Read an array subset (IndexRange)
+opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=ArrayNode" --index-range "0:2"
+
+# Ask the server for source timestamps only; still print them with --timestamps
+opcuactl get value -e opc.tcp://localhost:4840 -n i=2258 \
+  --timestamps-to-return source --timestamps
+
 # Get a full node summary (with extended attributes)
 opcuactl get node -e opc.tcp://localhost:4840 -n i=2258 --full
 
@@ -230,11 +270,20 @@ opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258
 # Monitor for 30 seconds with JSONL output
 opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 --jsonl --duration 30s
 
-# Monitor with custom sampling interval
-opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 --sampling 500ms
+# Monitor with custom sampling interval and queue window
+opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 \
+  --interval 1s --sampling 100ms --queue-size 10 --discard-oldest
+
+# Overflow is marked in table output as [OVERFLOW] and in JSON as "overflow": true
+# when the server sets the DataValue Overflow InfoBit
 
 # Monitor events
-opcuactl monitor event -e opc.tcp://localhost:4840 -n i=2253 --select EventType --select Message --select Severity
+opcuactl monitor event -e opc.tcp://localhost:4840 -n i=2253 \
+  --select EventType --select Message --select Severity
+
+# Monitor events with WhereClause filters (BaseEventType = i=2041)
+opcuactl monitor event -e opc.tcp://localhost:4840 -n i=2253 \
+  --of-type i=2041 --severity-min 500 --severity-max 1000
 
 # Monitor alarms (event specialization with alarm-relevant defaults)
 opcuactl monitor alarm -e opc.tcp://localhost:4840 -n i=2253
@@ -253,7 +302,12 @@ opcuactl history value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
 
 # Read processed (aggregated) historical values
 opcuactl history value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
-  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z --mode processed --interval 1h
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z \
+  --mode processed --interval 1h --aggregate average
+
+# Read historical values at specific timestamps
+opcuactl history value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
+  --mode attime --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z
 
 # Read historical events
 opcuactl history event -e opc.tcp://localhost:4840 -n i=2253 \
@@ -278,6 +332,16 @@ opcuactl export values -e opc.tcp://localhost:4840 --nodes-file nodes.txt --outp
 # Export historical values for nodes in a subtree
 opcuactl export values -e opc.tcp://localhost:4840 --start-node "ns=2;i=1" --depth 2 \
   --history --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z
+
+# Export processed history
+opcuactl export values -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
+  --history --mode processed --interval 1h --aggregate average \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z
+
+# Export at-time history (same modes as `history value`)
+opcuactl export values -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
+  --history --mode attime \
+  --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z
 ```
 
 ### Searching
@@ -306,20 +370,25 @@ Every networked command supports these connection and output flags:
 | Flag | Env Variable | Description |
 |------|-------------|-------------|
 | `-e, --endpoint` | `OPCUACTL_ENDPOINT` | OPC UA server endpoint (e.g. `opc.tcp://host:4840`) |
-| `--security-policy` | `OPCUACTL_SECURITY_POLICY` | Security policy (`None`, `Basic256Sha256`, etc.) |
-| `--security-mode` | `OPCUACTL_SECURITY_MODE` | Security mode (`None`, `Sign`, `SignAndEncrypt`) |
-| `--auth` | `OPCUACTL_AUTH` | Auth mode (`anonymous`, `username`, `certificate`) |
+| `--security-policy` | `OPCUACTL_SECURITY_POLICY` | Security policy (`None`, `Basic256Sha256`, …, or `auto`) |
+| `--security-mode` | `OPCUACTL_SECURITY_MODE` | Security mode (`None`, `Sign`, `SignAndEncrypt`, or `auto`) |
+| `--auth` | `OPCUACTL_AUTH` | Auth mode (`anonymous`, `username`, `certificate`, `issued`) |
 | `--username` | `OPCUACTL_USERNAME` | Username for username auth |
 | `--password` | `OPCUACTL_PASSWORD` | Password for username auth |
-| `--cert` | `OPCUACTL_CERT` | Client certificate file |
+| `--auth-policy-id` | `OPCUACTL_AUTH_POLICY_ID` | User token PolicyId (usually set via security `auto`) |
+| `--token` | `OPCUACTL_TOKEN` | Issued token (raw or base64) for `--auth issued` |
+| `--token-file` | `OPCUACTL_TOKEN_FILE` | Issued token file for `--auth issued` |
+| `--cert` | `OPCUACTL_CERT` | Client certificate file (channel and/or certificate auth) |
 | `--key` | `OPCUACTL_KEY` | Client private key file |
-| `--server-cert` | — | Server certificate file |
+| `--server-cert` | `OPCUACTL_SERVER_CERT` | Server certificate file (overrides endpoint cert) |
+| `--trusted-cert` | `OPCUACTL_TRUSTED_CERT` | Trusted CA / self-signed cert (repeatable; env is CSV) |
 | `--insecure-skip-verify` | — | Skip server certificate verification (INSECURE) |
-| `--timeout` | `OPCUACTL_TIMEOUT` | Operation timeout (default: `10s`) |
+| `--timeout` | `OPCUACTL_TIMEOUT` | Dial / request / connect timeout (default: `10s`) |
 | `--namespace` | `OPCUACTL_NAMESPACE` | Default namespace index for node IDs |
 | `-f, --format` | `OPCUACTL_FORMAT` | Output format: `table`, `json`, `yaml`, `csv`, `jsonl` |
-| `--pretty` | — | Pretty-print JSON output |
-| `-v, --verbose` | — | Verbose output |
+| `--pretty` | — | Pretty-print JSON / YAML output |
+| `-v, --verbose` | — | Verbose diagnostics on stderr |
+| `-q, --quiet` | — | Emit only the primary value (scripting) |
 
 ## Output Formats
 
@@ -345,26 +414,49 @@ All data goes to stdout, all errors go to stderr.
 
 ## Security
 
-`opcuactl` supports the full range of OPC UA security configurations:
+`opcuactl` supports the same client authN/Z options as [go-opcua](https://github.com/otfabric/go-opcua) so you can reach as many servers as possible.
 
-- **Anonymous** access (default)
-- **Username/Password** authentication
-- **X.509 Certificate** authentication
-- Security policies: `None`, `Basic128Rsa15`, `Basic256`, `Basic256Sha256`, `Aes128Sha256RsaOaep`, `Aes256Sha256RsaPss`
-- Security modes: `None`, `Sign`, `SignAndEncrypt`
+| Concern | How to set it |
+|---------|----------------|
+| User identity | `--auth anonymous\|username\|certificate\|issued` |
+| Channel crypto | `--security-policy` / `--security-mode` (`None` … or `auto`) |
+| Client application cert | `--cert` + `--key` (required for Sign / SignAndEncrypt) |
+| Trust the server | `--trusted-cert` (repeatable), `--server-cert`, or `--insecure-skip-verify` (dev only) |
+| User token PolicyId | usually filled by `auto`; override with `--auth-policy-id` if needed |
 
-Use `discover endpoints --best` to automatically select the most secure endpoint.
+**Recommended production pattern:** set `--security-policy auto --security-mode auto`, provide a client cert/key, and trust the server CA with `--trusted-cert`. `auto` discovers endpoints, picks the best match, and applies channel settings, remote certificate, and user-token PolicyId for you.
 
 ```sh
-# Connect with username/password
+# 1) Inspect what the server offers
+opcuactl discover endpoints -e opc.tcp://host:4840 --best -v
+
+# 2) Username over auto-selected secure endpoint
 opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
   --auth username --username operator --password secret \
-  --security-policy Basic256Sha256 --security-mode SignAndEncrypt
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key \
+  --trusted-cert server-ca.pem
 
-# Connect with certificates
+# Explicit policy/mode (skip auto) — keep username off None/None channels
 opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
-  --auth certificate --cert client.pem --key client.key
+  --auth username --username operator --password secret \
+  --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
+  --cert client.pem --key client.key
+
+# X.509 user identity (same cert used for channel + user token)
+opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
+  --auth certificate --cert client.pem --key client.key \
+  --security-policy auto --security-mode auto \
+  --trusted-cert server-ca.pem
+
+# Issued token (JWT / SAML / opaque — format depends on the server policy)
+opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
+  --auth issued --token-file ./token.jwt \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key
 ```
+
+Store secrets in the environment when scripting (`OPCUACTL_PASSWORD`, `OPCUACTL_TOKEN`, …). Env vars apply when the matching flag is not set on the CLI. See [RECIPES.md](RECIPES.md) for copy-paste `CONN=(...)` blocks.
 
 ## NodeID Formats
 
@@ -435,12 +527,12 @@ opcuactl browse path -e opc.tcp://host:4840 --path Sensor.Temperature \
 
 ### Summary
 
-| Syntax | Flags | SDK method | Start node |
-|--------|-------|------------|------------|
-| `Server.ServerStatus` | *(none)* | `NodeFromPath` | Objects (i=85), ns=0 |
-| `Folder.Sensor` | `--namespace 2` | `NodeFromPathInNamespace` | Objects (i=85), ns=2 |
-| `0:Server.2:Custom` | *(auto-detected)* | `NodeFromQualifiedPath` | Objects (i=85), per-segment ns |
-| `Seg1.Seg2` | `--start-node "ns=2;i=100"` | `TranslateBrowsePathInNamespaceToNodeID` | custom node |
+| Path syntax | Flags | Starts from |
+|-------------|-------|-------------|
+| `Server.ServerStatus` | *(none)* | Objects (`i=85`), namespace 0 |
+| `Folder.Sensor` | `--namespace 2` | Objects, all segments in ns 2 |
+| `0:Server.2:Custom` | *(auto-detected)* | Objects, per-segment namespace |
+| `Seg1.Seg2` | `--start-node "ns=2;i=100"` | custom node |
 
 ## Monitoring Intervals
 
@@ -448,32 +540,32 @@ OPC UA subscriptions separate three concerns — how often the server samples th
 
 | Concept | Flag | Default | Description |
 |---------|------|---------|-------------|
-| **Publishing interval** | `--interval` | `1s` | How often the server sends a batch of queued notifications to the client. |
+| **Publishing interval** | `--interval` | `100ms` | How often the server sends a batch of queued notifications to the client. |
 | **Sampling interval** | `--sampling` | server-decided | How often the server reads the underlying data source. Must be ≤ the publishing interval for meaningful results. |
-| **Queue size** | `--queue-size` | `1` | Maximum number of data-change notifications the server queues between publish cycles. Older values are discarded when the queue is full. |
+| **Queue size** | `--queue-size` | `10` | Maximum number of data-change notifications the server queues between publish cycles. |
+| **Discard oldest** | `--discard-oldest` | `true` | When the queue is full, discard oldest samples (`true`) or keep the oldest window and drop newest intermediates (`false`). |
 
-**Example:** With `--interval 1s --sampling 100ms --queue-size 10`, the server samples the value every 100 ms, queues up to 10 changes, and delivers them in a batch every 1 s. If the value changes faster than the queue can hold, intermediate changes are lost.
+**Example:** With `--interval 1s --sampling 100ms --queue-size 10`, the server samples every 100 ms, queues up to 10 changes, and delivers them every 1 s. If the queue overflows, table output shows `[OVERFLOW]` and JSON includes `"overflow": true`.
 
 ```sh
 # Fast sampling with batched delivery
 opcuactl monitor value -e opc.tcp://host:4840 -n i=2258 \
-  --interval 1s --sampling 100ms --queue-size 10
+  --interval 1s --sampling 100ms --queue-size 10 --discard-oldest
 
 # Match sampling to publishing (one notification per cycle)
 opcuactl monitor value -e opc.tcp://host:4840 -n i=2258 \
   --interval 1s --sampling 1s
 
-# Let the server decide the sampling rate
-opcuactl monitor value -e opc.tcp://host:4840 -n i=2258 --interval 500ms
+# Default publishing interval (100ms), server-decided sampling
+opcuactl monitor value -e opc.tcp://host:4840 -n i=2258
 ```
 
-> **Tip:** If the server revises your publishing interval (shown on stderr with `-v`), it means the server cannot sustain the requested rate. Increase `--interval` until the revised value matches.
-
+> **Tip:** If the server revises your publishing interval (shown on stderr with `-v`), it cannot sustain the requested rate. Increase `--interval` until the revised value matches.
 ## Development
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.25+
 - [staticcheck](https://staticcheck.dev/) (for linting)
 - [golangci-lint](https://golangci-lint.run/) (for CI linting)
 
@@ -532,11 +624,12 @@ internal/parse/        NodeID parsing, type coercion, security policy handling
 
 ## Documentation
 
-- [EXAMPLES.md](EXAMPLES.md) — Real command outputs captured against a WAGO PLC
 - [RECIPES.md](RECIPES.md) — End-to-end workflows for common operator tasks
+- [EXAMPLES.md](EXAMPLES.md) — Real command outputs captured against a WAGO PLC
+- [RELEASE.md](RELEASE.md) — Release notes (latest: v0.2.0)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — How to contribute
 - [SECURITY.md](SECURITY.md) — Security policy and vulnerability reporting
 
 ## License
 
-This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE).

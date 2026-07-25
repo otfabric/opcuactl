@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package opcuactl
 
 import (
@@ -211,14 +213,18 @@ func nodeToExportedNode(ctx context.Context, n *opcua.Node, depth int) model.Exp
 
 func newExportValuesCmd() *cobra.Command {
 	var (
-		nodes     []string
-		nodesFile string
-		startNode string
-		maxDepth  int
-		history   bool
-		startStr  string
-		endStr    string
-		output    string
+		nodes       []string
+		nodesFile   string
+		startNode   string
+		maxDepth    int
+		history     bool
+		startStr    string
+		endStr      string
+		atTimes     []string
+		mode        string
+		aggregate   string
+		aggInterval time.Duration
+		output      string
 	)
 
 	cmd := &cobra.Command{
@@ -228,7 +234,7 @@ func newExportValuesCmd() *cobra.Command {
 
 In snapshot mode (default), reads current values for specified nodes or all
 variable nodes in a subtree. In history mode (--history), exports historical
-values within a time range.
+values within a time range. Use --mode raw|modified|processed|attime (default raw).
 
 Use --nodes-file to read node IDs from a text file (one per line).
 Use --output to write directly to a file instead of stdout.
@@ -239,6 +245,7 @@ Examples:
   opcuactl export values -e opc.tcp://localhost:4840 --start-node i=85 --depth 3
   opcuactl export values -e opc.tcp://localhost:4840 --nodes-file nodes.txt --format csv --output values.csv
   opcuactl export values -e opc.tcp://localhost:4840 -n i=2258 --history --start 2026-03-01T00:00:00Z --end 2026-03-11T00:00:00Z
+  opcuactl export values -e opc.tcp://localhost:4840 -n i=2258 --history --mode processed --interval 1h --aggregate average --start 2026-03-01T00:00:00Z --end 2026-03-02T00:00:00Z
   opcuactl export values -e opc.tcp://localhost:4840 -n i=2258 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load nodes from file if specified
@@ -298,7 +305,11 @@ Examples:
 			}
 
 			if history {
-				return exportHistoryValues(ctx, c, nodeIDs, startStr, endStr, output)
+				return exportHistoryValues(ctx, c, nodeIDs, exportHistoryOpts{
+					startStr: startStr, endStr: endStr, atTimes: atTimes,
+					mode: mode, aggregate: aggregate, aggInterval: aggInterval,
+					output: output,
+				})
 			}
 			return exportSnapshotValues(ctx, c, nodeIDs, output)
 		},
@@ -309,10 +320,24 @@ Examples:
 	cmd.Flags().StringVar(&startNode, "start-node", "", "Start node for subtree discovery (exports all variable children)")
 	cmd.Flags().IntVar(&maxDepth, "depth", 5, "Maximum depth for subtree discovery")
 	cmd.Flags().BoolVar(&history, "history", false, "Export historical values instead of current snapshot")
-	cmd.Flags().StringVar(&startStr, "start", "", "Start time in RFC3339 format (required with --history)")
-	cmd.Flags().StringVar(&endStr, "end", "", "End time in RFC3339 format (required with --history)")
+	cmd.Flags().StringVar(&startStr, "start", "", "Start time in RFC3339 format (required with --history except attime)")
+	cmd.Flags().StringVar(&endStr, "end", "", "End time in RFC3339 format (required with --history except attime)")
+	cmd.Flags().StringArrayVar(&atTimes, "at", nil, "Timestamp for attime mode (repeatable, RFC3339)")
+	cmd.Flags().StringVar(&mode, "mode", "raw", "History mode with --history (raw|modified|processed|attime)")
+	cmd.Flags().StringVar(&aggregate, "aggregate", "average", "Aggregate for processed history (average|min|max|count)")
+	cmd.Flags().DurationVar(&aggInterval, "interval", 0, "Aggregate interval for processed history")
 	cmd.Flags().StringVar(&output, "output", "", "Write output to file instead of stdout")
+	_ = cmd.RegisterFlagCompletionFunc("mode", fixedCompletion(historyModeValues))
+	_ = cmd.RegisterFlagCompletionFunc("aggregate", fixedCompletion(aggregateValues))
 	return cmd
+}
+
+type exportHistoryOpts struct {
+	startStr, endStr string
+	atTimes          []string
+	mode, aggregate  string
+	aggInterval      time.Duration
+	output           string
 }
 
 func exportSnapshotValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.NodeID, output string) error {
@@ -366,29 +391,98 @@ func exportSnapshotValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.No
 	return w.Write(results)
 }
 
-func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.NodeID, startStr, endStr, output string) error {
-	if startStr == "" || endStr == "" {
-		return exitCodef(1, "--start and --end are required with --history")
+func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.NodeID, opts exportHistoryOpts) error {
+	mode := strings.ToLower(opts.mode)
+	if mode == "" {
+		mode = "raw"
 	}
 
-	startTime, err := time.Parse(time.RFC3339, startStr)
-	if err != nil {
-		return exitCodef(1, "invalid --start time: %v", err)
+	var startTime, endTime time.Time
+	var reqTimes []time.Time
+	var err error
+	if mode != "attime" {
+		if opts.startStr == "" || opts.endStr == "" {
+			return exitCodef(1, "--start and --end are required with --history")
+		}
+		startTime, err = time.Parse(time.RFC3339, opts.startStr)
+		if err != nil {
+			return exitCodef(1, "invalid --start time: %v", err)
+		}
+		endTime, err = time.Parse(time.RFC3339, opts.endStr)
+		if err != nil {
+			return exitCodef(1, "invalid --end time: %v", err)
+		}
+		if !endTime.After(startTime) {
+			return exitCodef(1, "--end must be after --start")
+		}
+	} else {
+		if len(opts.atTimes) == 0 {
+			return exitCodef(1, "--at is required for attime mode")
+		}
+		for _, s := range opts.atTimes {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				return exitCodef(1, "invalid --at time %q: %v", s, err)
+			}
+			reqTimes = append(reqTimes, t)
+		}
 	}
-	endTime, err := time.Parse(time.RFC3339, endStr)
-	if err != nil {
-		return exitCodef(1, "invalid --end time: %v", err)
-	}
-	if !endTime.After(startTime) {
-		return exitCodef(1, "--end must be after --start")
-	}
+
+	opCtx, opCancel := connCfg.TimeoutContext(ctx)
+	defer opCancel()
 
 	var results []model.ExportedValue
 	for _, nid := range nodeIDs {
-		for dv, err := range c.ReadHistoryAll(ctx, nid, startTime, endTime) {
+		var dvs []*ua.DataValue
+		switch mode {
+		case "modified":
+			resp, err := c.HistoryReadRawModified(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadRawModifiedDetails{
+				IsReadModified: true, StartTime: startTime, EndTime: endTime,
+			})
 			if err != nil {
-				format.Errf("reading history for %s: %v", nid, err)
-				break
+				format.Errf("reading modified history for %s: %v", nid, err)
+				continue
+			}
+			dvs = historyDataValuesFromResp(resp)
+		case "processed":
+			if opts.aggInterval == 0 {
+				return exitCodef(1, "--interval is required for processed mode")
+			}
+			aggID, err := aggregateNodeID(opts.aggregate)
+			if err != nil {
+				return exitCode(1, err)
+			}
+			resp, err := c.HistoryReadProcessed(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadProcessedDetails{
+				StartTime: startTime, EndTime: endTime,
+				ProcessingInterval: float64(opts.aggInterval / time.Millisecond),
+				AggregateType:      []*ua.NodeID{aggID},
+			})
+			if err != nil {
+				format.Errf("reading processed history for %s: %v", nid, err)
+				continue
+			}
+			dvs = historyDataValuesFromResp(resp)
+		case "attime":
+			resp, err := c.HistoryReadAtTime(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadAtTimeDetails{
+				ReqTimes: reqTimes,
+			})
+			if err != nil {
+				format.Errf("reading at-time history for %s: %v", nid, err)
+				continue
+			}
+			dvs = historyDataValuesFromResp(resp)
+		default:
+			for dv, err := range c.ReadHistoryAll(ctx, nid, startTime, endTime) {
+				if err != nil {
+					format.Errf("reading history for %s: %v", nid, err)
+					break
+				}
+				dvs = append(dvs, dv)
+			}
+		}
+		for _, dv := range dvs {
+			if dv == nil {
+				continue
 			}
 			ev := model.ExportedValue{
 				NodeID:          nid.String(),
@@ -404,6 +498,8 @@ func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.Nod
 			results = append(results, ev)
 		}
 	}
+
+	output := opts.output
 
 	if verbose {
 		format.Errf("exported %d historical value(s) across %d node(s)", len(results), len(nodeIDs))

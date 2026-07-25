@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package opcuactl
 
 import (
@@ -29,8 +31,10 @@ Examples:
 
 func newGetValueCmd() *cobra.Command {
 	var (
-		nodes      []string
-		timestamps bool
+		nodes              []string
+		timestamps         bool
+		timestampsToReturn string
+		indexRange         string
 	)
 
 	cmd := &cobra.Command{
@@ -38,10 +42,15 @@ func newGetValueCmd() *cobra.Command {
 		Short: "Read node values",
 		Long: `Read one or more node values from the server.
 
+Use --index-range for array/matrix subsets (e.g. "0:2" or "0:1,0:1").
+Use --timestamps-to-return to control which timestamps the server returns
+(source|server|both|neither). --timestamps only affects CLI display.
+
 Examples:
   opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258
   opcuactl get value -e opc.tcp://localhost:4840 -n i=2258 -n "ns=2;s=Temperature" --format json
-  opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258 --timestamps`,
+  opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258 --timestamps
+  opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Array" --index-range "0:2"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(nodes) == 0 {
 				return exitCodef(1, "at least one --node is required")
@@ -50,6 +59,11 @@ Examples:
 			nodeIDs, err := parse.NodeIDs(nodes)
 			if err != nil {
 				return exitCode(1, err)
+			}
+
+			tsReturn := ua.TimestampsToReturnBoth
+			if timestampsToReturn != "" {
+				tsReturn = ua.TimestampsToReturnFromString(timestampsToReturn)
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -65,28 +79,36 @@ Examples:
 			opCtx, opCancel := connCfg.TimeoutContext(ctx)
 			defer opCancel()
 
-			w := newWriter()
-
-			if len(nodeIDs) == 1 {
-				dv, err := c.ReadValue(opCtx, nodeIDs[0])
-				if err != nil {
-					format.Errf("reading value: %v", err)
-					return exitCode(3, err)
+			nodesToRead := make([]*ua.ReadValueID, len(nodeIDs))
+			for i, nid := range nodeIDs {
+				nodesToRead[i] = &ua.ReadValueID{
+					NodeID:      nid,
+					AttributeID: ua.AttributeIDValue,
+					IndexRange:  indexRange,
 				}
-				return outputValues(w, nodeIDs, []*ua.DataValue{dv}, timestamps)
 			}
-
-			dvs, err := c.ReadValues(opCtx, nodeIDs...)
+			resp, err := c.Read(opCtx, &ua.ReadRequest{
+				NodesToRead:        nodesToRead,
+				TimestampsToReturn: tsReturn,
+			})
 			if err != nil {
-				format.Errf("reading values: %v", err)
+				format.Errf("reading value: %v", err)
 				return exitCode(3, err)
 			}
-			return outputValues(w, nodeIDs, dvs, timestamps)
+
+			showTS := timestamps
+			if timestampsToReturn != "neither" && (timestampsToReturn == "source" || timestampsToReturn == "server" || timestampsToReturn == "both") {
+				showTS = true
+			}
+			return outputValues(newWriter(), nodeIDs, resp.Results, showTS)
 		},
 	}
 
 	cmd.Flags().StringArrayVarP(&nodes, "node", "n", nil, "Node ID to read (repeatable)")
-	cmd.Flags().BoolVar(&timestamps, "timestamps", false, "Show source and server timestamps")
+	cmd.Flags().BoolVar(&timestamps, "timestamps", false, "Show source and server timestamps in output")
+	cmd.Flags().StringVar(&timestampsToReturn, "timestamps-to-return", "both", "Timestamps to request (source|server|both|neither)")
+	cmd.Flags().StringVar(&indexRange, "index-range", "", "IndexRange for array/matrix Value reads")
+	_ = cmd.RegisterFlagCompletionFunc("timestamps-to-return", fixedCompletion(timestampValues))
 	return cmd
 }
 

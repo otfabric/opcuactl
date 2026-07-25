@@ -2,13 +2,93 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-All examples use a shell array for connection flags:
+Aligned with **v0.2.0** (go-opcua v1.3.1): secure authN/Z, IndexRange reads, event WhereClause filters, monitored-item queues/overflow, and history `raw|modified|processed|attime`.
+
+## Table of Contents
+
+- [Connection presets](#connection-presets)
+- [1. First Contact with an Unknown Server](#1-first-contact-with-an-unknown-server)
+- [2. Find and Read a Specific Variable](#2-find-and-read-a-specific-variable)
+- [3. Navigate by Browse Path](#3-navigate-by-browse-path)
+- [4. Monitor Values and Events](#4-monitor-values-and-events)
+- [5. Write a Value Safely](#5-write-a-value-safely)
+- [6. Historical Data and Export](#6-historical-data-and-export)
+- [7. Troubleshoot a Connection](#7-troubleshoot-a-connection)
+- [8. Script: Poll and Log a Value](#8-script-poll-and-log-a-value)
+- [9. Inspect a Method Before Calling It](#9-inspect-a-method-before-calling-it)
+- [10. Use Standard Node Aliases](#10-use-standard-node-aliases)
+- [11. Collect All Variables from a Device](#11-collect-all-variables-from-a-device)
+## Connection presets
+
+Most examples reuse a shell array for connection flags:
 
 ```sh
+# Lab / anonymous (default)
 CONN=(-e opc.tcp://your-server:4840 --auth anonymous --security-mode None --security-policy None)
 ```
 
-Adjust `--auth`, `--security-mode`, and `--security-policy` to match your server's configuration. Use `discover endpoints --best` to find the most secure option.
+Prefer `auto` once you leave None/None. Client certs are required for Sign / SignAndEncrypt:
+
+```sh
+# Anonymous over the strongest advertised secure endpoint
+CONN=(-e opc.tcp://your-server:4840 --auth anonymous \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key --trusted-cert server-ca.pem)
+
+# Username / password
+CONN=(-e opc.tcp://your-server:4840 --auth username \
+  --username operator --password "$OPCUACTL_PASSWORD" \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key --trusted-cert server-ca.pem)
+
+# X.509 user token (same cert for channel + identity)
+CONN=(-e opc.tcp://your-server:4840 --auth certificate \
+  --cert client.pem --key client.key \
+  --security-policy auto --security-mode auto \
+  --trusted-cert server-ca.pem)
+
+# Issued token (JWT / SAML / opaque — whatever the server's UserTokenPolicy expects)
+CONN=(-e opc.tcp://your-server:4840 --auth issued --token-file ./token.jwt \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key --trusted-cert server-ca.pem)
+```
+
+Inspect advertised policies, modes, and token types first:
+
+```sh
+opcuactl discover endpoints "${CONN[@]}" --best -v
+```
+
+### Environment variables
+
+Useful when you do not want secrets on the command line:
+
+| Variable | Flag |
+|----------|------|
+| `OPCUACTL_ENDPOINT` | `-e` / `--endpoint` |
+| `OPCUACTL_AUTH` | `--auth` |
+| `OPCUACTL_USERNAME` / `OPCUACTL_PASSWORD` | `--username` / `--password` |
+| `OPCUACTL_TOKEN` / `OPCUACTL_TOKEN_FILE` | `--token` / `--token-file` |
+| `OPCUACTL_CERT` / `OPCUACTL_KEY` | `--cert` / `--key` |
+| `OPCUACTL_SERVER_CERT` | `--server-cert` |
+| `OPCUACTL_TRUSTED_CERT` | `--trusted-cert` (comma-separated paths) |
+| `OPCUACTL_SECURITY_POLICY` / `OPCUACTL_SECURITY_MODE` | `--security-policy` / `--security-mode` |
+
+```sh
+export OPCUACTL_ENDPOINT=opc.tcp://your-server:4840
+export OPCUACTL_AUTH=username
+export OPCUACTL_USERNAME=operator
+export OPCUACTL_PASSWORD='...'
+export OPCUACTL_CERT=./pki/client.pem
+export OPCUACTL_KEY=./pki/client.key
+export OPCUACTL_TRUSTED_CERT=./pki/server-ca.pem
+export OPCUACTL_SECURITY_POLICY=auto
+export OPCUACTL_SECURITY_MODE=auto
+
+opcuactl get value -n i=2258
+```
+
+Environment variables apply when the matching flag is not set on the command line.
 
 ---
 
@@ -52,7 +132,14 @@ opcuactl find node "${CONN[@]}" --name "Temp.*" --regex --limit 5
 # Once you have the NodeID, read the value
 opcuactl get value "${CONN[@]}" -n "ns=2;s=Temperature"
 
-# Get a full node summary (data type, access level, type definition)
+# Array / matrix subset (IndexRange)
+opcuactl get value "${CONN[@]}" -n "ns=2;s=ArrayNode" --index-range "0:2" --timestamps
+
+# Ask the server for source timestamps only
+opcuactl get value "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --timestamps-to-return source --timestamps
+
+# Full node summary (data type, access level, type definition)
 opcuactl get node "${CONN[@]}" -n "ns=2;s=Temperature" --full
 ```
 
@@ -79,9 +166,9 @@ opcuactl get value "${CONN[@]}" -n "$NODE_ID"
 
 ---
 
-## 4. Monitor a Value in Real Time
+## 4. Monitor Values and Events
 
-Subscribe to live data changes and stream output.
+Subscribe to live data changes or filtered events.
 
 ```sh
 # Monitor until Ctrl+C
@@ -95,9 +182,19 @@ opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Temperature" \
 opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Temperature" \
   --count 10 --jsonl
 
-# Fast sampling with batched delivery
+# Fast sampling with batched delivery (queue window + discard-oldest)
+# Overflow appears as [OVERFLOW] in table / "overflow": true in JSONL
 opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Temperature" \
-  --interval 1s --sampling 100ms --queue-size 10
+  --interval 1s --sampling 100ms --queue-size 10 --discard-oldest --jsonl
+
+# Events: OfType + severity window (BaseEventType = i=2041)
+opcuactl monitor event "${CONN[@]}" -n i=2253 \
+  --of-type i=2041 --severity-min 500 --severity-max 1000 \
+  --select EventType --select Message --select Severity \
+  --jsonl --duration 30s
+
+# Alarms (alarm-oriented select defaults)
+opcuactl monitor alarm "${CONN[@]}" -n i=2253 --duration 30s --jsonl
 ```
 
 ---
@@ -119,17 +216,38 @@ opcuactl write value "${CONN[@]}" -n "ns=2;s=Setpoint" \
 opcuactl write value "${CONN[@]}" -n "ns=2;s=Setpoint" \
   --value 42.5 --type double --yes
 
+# Write a single array element
+opcuactl write value "${CONN[@]}" -n "ns=2;s=ArrayNode" \
+  --value 99 --type int32 --index-range "0" --yes
+
 # Verify the write
 opcuactl get value "${CONN[@]}" -n "ns=2;s=Setpoint"
 ```
 
 ---
 
-## 6. Export for Reporting
+## 6. Historical Data and Export
 
-Bulk-export node metadata or value snapshots for offline analysis.
+History modes: `raw` (default), `modified`, `processed` (needs `--interval` + optional `--aggregate`), `attime` (repeatable `--at`).
 
 ```sh
+# Raw history over a window
+opcuactl history value "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z
+
+# Modified values (audit trail of changes)
+opcuactl history value "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z --mode modified
+
+# Hourly averages
+opcuactl history value "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z \
+  --mode processed --interval 1h --aggregate average
+
+# Exact timestamps (no --start/--end)
+opcuactl history value "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --mode attime --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z
+
 # Export node metadata tree as JSON
 opcuactl export nodes "${CONN[@]}" --depth 3 -f json --output nodes.json
 
@@ -141,11 +259,19 @@ opcuactl export values "${CONN[@]}" -n "ns=2;s=Temperature" -n "ns=2;s=Pressure"
 opcuactl export values "${CONN[@]}" --start-node "ns=2;i=1" --depth 2 \
   -f csv --output subtree-values.csv
 
-# Export historical data (if supported by server)
-opcuactl export values "${CONN[@]}" --start-node "ns=2;i=1" --depth 2 \
-  --history --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z \
-  -f csv --output history.csv
+# Same history modes on export
+opcuactl export values "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --history --mode processed --interval 1h --aggregate average \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z \
+  -f csv --output history-hourly.csv
+
+opcuactl export values "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --history --mode attime \
+  --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z \
+  -f csv --output history-attime.csv
 ```
+
+`--aggregate` accepts `average` (default), `min`, `max`, `count`.
 
 ---
 
@@ -160,13 +286,26 @@ opcuactl ping "${CONN[@]}" -v
 # List endpoints with full detail (cert thumbprints, URL mismatches)
 opcuactl discover endpoints "${CONN[@]}" -v
 
-# Check if the server advertises a different hostname than the one you connected to
-# (look for "URL mismatch" warnings in verbose output)
+# Hostname mismatch is common on PLCs (dial IP vs advertised hostname)
 opcuactl discover endpoints "${CONN[@]}" -v 2>&1 | grep -i mismatch
 
 # Verify authentication works
 opcuactl get server "${CONN[@]}"
+
+# Trust a private CA / self-signed server cert without disabling validation
+opcuactl get server -e opc.tcp://your-server:4840 \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key \
+  --trusted-cert ./pki/server-ca.pem
+
+# Last resort for lab only — never in production
+opcuactl get server -e opc.tcp://your-server:4840 \
+  --security-policy auto --security-mode auto \
+  --cert client.pem --key client.key \
+  --insecure-skip-verify
 ```
+
+If username/certificate auth fails with an opaque BadIdentityToken error, retry with `--security-policy auto --security-mode auto` so the correct user-token PolicyId is taken from the endpoint.
 
 ---
 
@@ -204,6 +343,11 @@ opcuactl call method "${CONN[@]}" \
 opcuactl call method "${CONN[@]}" \
   --object "ns=2;i=1" --method "ns=2;i=2" \
   --arg 42 --arg hello --types int32,string
+
+# Call with a JSON argument array
+opcuactl call method "${CONN[@]}" \
+  --object "ns=2;i=1" --method "ns=2;i=2" \
+  --arg-json '[42, "hello"]'
 ```
 
 ---
