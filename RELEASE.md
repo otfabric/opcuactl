@@ -27,6 +27,8 @@ Patch release: bump to **[go-opcua v1.5.0](https://github.com/otfabric/go-opcua/
 
 - **README**: installation instructions for Linux, macOS and Windows (pre-built binaries with checksum verification), "Why opcuactl?", use cases and an FAQ.
 
+---
+
 ## v0.2.0
 
 **Date:** 2026-07-25  
