@@ -2,7 +2,7 @@
 
 Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** industrial PLC at `opc.tcp://109.166.142.215:4840`.
 
-Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.3.1** (`opcuactl` **v0.2.0**).
+Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.5.0** (`opcuactl` **v0.2.1**).
 
 This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md).
 

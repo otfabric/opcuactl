@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.2.0** (go-opcua v1.3.1): secure authN/Z, IndexRange reads, event WhereClause filters, monitored-item queues/overflow, and history `raw|modified|processed|attime`.
+Aligned with **v0.2.1** (go-opcua v1.5.0): secure authN/Z, IndexRange reads, event WhereClause filters, monitored-item queues/overflow, and history `raw|modified|processed|attime`.
 
 ## Table of Contents
 

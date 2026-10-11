@@ -1,5 +1,32 @@
 # opcuactl Releases
 
+## v0.2.1
+
+**Date:** 2026-10-11  
+**Previous release:** v0.2.0
+
+### Summary
+
+Patch release: bump to **[go-opcua v1.5.0](https://github.com/otfabric/go-opcua/releases/tag/v1.5.0)** for its client hardening (reconnect, subscriptions, handshake timeouts, SecureChannel tokens), and rework the README with installation instructions for Linux, macOS and Windows. No CLI flags, commands or output formats changed.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.3.1 → **[v1.5.0](https://github.com/otfabric/go-opcua/releases/tag/v1.5.0)**
+- **`golang.org/x/sys`** (indirect): v0.42.0 → v0.44.0 (fixes [GO-2026-5024](https://pkg.go.dev/vuln/GO-2026-5024); Windows-only code path)
+- No source changes were needed.
+
+### What the library update brings to the CLI
+
+- **Reconnect and subscriptions (v1.5.0):** `monitor value|event|alarm` sessions that use auto-reconnect no longer come back "connected" with dead subscriptions after a connection drop; subscriptions that expire on the server are recreated.
+- **No more hangs on a silent peer (v1.5.0):** the HEL/ACK handshake honours the timeout, so connect and close return when a host accepts TCP but never answers.
+- **SecureChannel token handling (v1.5.0):** renewal is race-free and superseded tokens are retired, which matters for long-running `monitor` and `export` sessions on secured endpoints.
+- **Quiet library logging (v1.4.0):** go-opcua no longer writes to `slog.Default()`, so library log lines do not leak onto stderr.
+- **Schema UA-1.05.07 (v1.5.0):** new status codes (`UncertainOverRange`, `UncertainUnderRange`) and node ids are known by name.
+
+### Documentation
+
+- **README**: installation instructions for Linux, macOS and Windows (pre-built binaries with checksum verification), "Why opcuactl?", use cases and an FAQ.
+
 ## v0.2.0
 
 **Date:** 2026-07-25  
