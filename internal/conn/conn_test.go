@@ -76,7 +76,9 @@ func TestConfig_buildOptions(t *testing.T) {
 		{"anonymous_default", Config{}, 1, ""},
 		{"username", Config{Auth: "username", Username: "u", Password: "p"}, 1, ""},
 		{"username_missing", Config{Auth: "username"}, 0, "--username"},
-		{"security_policy", Config{SecurityPolicy: "Basic256Sha256"}, 2, ""},
+		{"security_policy_with_server_cert", Config{SecurityPolicy: "Basic256Sha256", ServerCertFile: "/tmp/srv.pem"}, 3, ""},
+		{"security_policy_needs_endpoint", Config{SecurityPolicy: "Basic256Sha256"}, 0, "--endpoint"},
+		{"reverse_connect", Config{ReverseListen: "127.0.0.1:0", ReverseServerURI: "urn:srv"}, 2, ""},
 		{"security_policy_none_skipped", Config{SecurityPolicy: "none"}, 1, ""},
 		{"security_mode_sign", Config{SecurityMode: "Sign"}, 2, ""},
 		{"security_mode_sign_and_encrypt", Config{SecurityMode: "SignAndEncrypt"}, 2, ""},
@@ -200,4 +202,31 @@ func writeTestCertKey(t *testing.T, dir string) (certPath, keyPath string) {
 		t.Fatal(err)
 	}
 	return certPath, keyPath
+}
+
+func TestConfig_RequireEndpoint(t *testing.T) {
+	t.Parallel()
+	if err := (&Config{}).RequireEndpoint(); err == nil {
+		t.Error("expected an error without endpoint and reverse listener")
+	}
+	if err := (&Config{Endpoint: "opc.tcp://h:4840"}).RequireEndpoint(); err != nil {
+		t.Errorf("endpoint set: %v", err)
+	}
+	// With reverse connect the server announces the endpoint.
+	if err := (&Config{ReverseListen: "127.0.0.1:4841"}).RequireEndpoint(); err != nil {
+		t.Errorf("reverse listener set: %v", err)
+	}
+}
+
+func TestConfig_DiscoveryOptions(t *testing.T) {
+	t.Parallel()
+	if n := len((&Config{}).DiscoveryOptions()); n != 0 {
+		t.Errorf("empty config: %d options, want 0", n)
+	}
+	if n := len((&Config{Timeout: time.Second}).DiscoveryOptions()); n != 2 {
+		t.Errorf("timeout: %d options, want 2", n)
+	}
+	if n := len((&Config{ReverseListen: "127.0.0.1:0", Timeout: time.Second}).DiscoveryOptions()); n != 3 {
+		t.Errorf("reverse + timeout: %d options, want 3", n)
+	}
 }

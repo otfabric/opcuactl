@@ -4,6 +4,7 @@ package conn
 
 import (
 	"context"
+	"crypto"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -35,12 +36,65 @@ type Config struct {
 	TrustedCertFiles   []string
 	InsecureSkipVerify bool
 	Timeout            time.Duration
+
+	// ReverseListen makes the client wait on this address ("host:port" or
+	// opc.tcp URL) for the server to connect (OPC UA reverse connect).
+	ReverseListen string
+	// ReverseServerURI restricts reverse connections to the server that
+	// announces this ApplicationUri.
+	ReverseServerURI string
+}
+
+// Reverse reports whether the server connects to the client (reverse connect).
+func (cfg *Config) Reverse() bool { return cfg.ReverseListen != "" }
+
+// RequireEndpoint returns an error unless an endpoint URL is configured.
+// With reverse connect the endpoint is optional: the client then uses the
+// EndpointUrl the server announces.
+func (cfg *Config) RequireEndpoint() error {
+	if cfg.Endpoint == "" && !cfg.Reverse() {
+		return fmt.Errorf("--endpoint is required (or set OPCUACTL_ENDPOINT)")
+	}
+	return nil
+}
+
+// DiscoveryOptions returns the options for the session-less discovery calls
+// (GetEndpoints, FindServers, FindServersOnNetwork): how to reach the server
+// and how long to wait for it.
+func (cfg *Config) DiscoveryOptions() []opcua.Option {
+	var opts []opcua.Option
+	if cfg.Reverse() {
+		var ropts []opcua.ReverseConnectOption
+		if cfg.ReverseServerURI != "" {
+			ropts = append(ropts, opcua.ReverseServerURI(cfg.ReverseServerURI))
+		}
+		opts = append(opts, opcua.ReverseConnect(cfg.ReverseListen, ropts...))
+	}
+	if cfg.Timeout > 0 {
+		opts = append(opts, opcua.DialTimeout(cfg.Timeout), opcua.RequestTimeout(cfg.Timeout))
+	}
+	return opts
+}
+
+// SelectEndpoint picks the most secure endpoint matching policy and mode
+// (either may be empty / invalid to match anything). When a client
+// certificate is configured, only endpoints usable with its key type are
+// considered, so an RSA certificate is not paired with an ECC endpoint.
+func (cfg *Config) SelectEndpoint(endpoints []*ua.EndpointDescription, policy string, mode ua.MessageSecurityMode) (*ua.EndpointDescription, error) {
+	if cfg.CertFile == "" {
+		return ua.SelectEndpoint(endpoints, policy, mode)
+	}
+	certs, err := loadCertificatesFile(cfg.CertFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading --cert: %w", err)
+	}
+	return opcua.SelectEndpoint(endpoints, policy, mode, certs[0].Raw)
 }
 
 // NewClient creates a connected OPC UA client from the config.
 func (cfg *Config) NewClient(ctx context.Context) (*opcua.Client, error) {
-	if cfg.Endpoint == "" {
-		return nil, fmt.Errorf("--endpoint is required (or set OPCUACTL_ENDPOINT)")
+	if err := cfg.RequireEndpoint(); err != nil {
+		return nil, err
 	}
 
 	opts, err := cfg.buildOptions(ctx)
@@ -61,6 +115,11 @@ func (cfg *Config) NewClient(ctx context.Context) (*opcua.Client, error) {
 	}
 
 	if err := c.Connect(connectCtx); err != nil {
+		// Release what a failed attempt holds, the reverse listener in particular.
+		_ = c.Close(context.WithoutCancel(ctx))
+		if cfg.Reverse() {
+			return nil, fmt.Errorf("waiting for reverse connection on %s: %w", cfg.ReverseListen, err)
+		}
 		return nil, fmt.Errorf("connecting to %s: %w", cfg.Endpoint, err)
 	}
 
@@ -108,9 +167,7 @@ func (cfg *Config) buildOptions(ctx context.Context) ([]opcua.Option, error) {
 		opts = append(opts, opcua.InsecureSkipVerify())
 	}
 
-	if cfg.Timeout > 0 {
-		opts = append(opts, opcua.DialTimeout(cfg.Timeout), opcua.RequestTimeout(cfg.Timeout))
-	}
+	opts = append(opts, cfg.DiscoveryOptions()...)
 
 	return opts, nil
 }
@@ -134,10 +191,11 @@ func (cfg *Config) authOptions() (ua.UserTokenType, []opcua.Option, error) {
 		if err != nil {
 			return 0, nil, fmt.Errorf("loading auth certificate: %w", err)
 		}
-		return ua.UserTokenTypeCertificate, []opcua.Option{
-			opcua.AuthCertificate(cert),
-			opcua.AuthPrivateKey(key),
-		}, nil
+		keyOpt := opcua.AuthPrivateKeySigner(key)
+		if rsaKey, ok := key.(*rsa.PrivateKey); ok {
+			keyOpt = opcua.AuthPrivateKey(rsaKey)
+		}
+		return ua.UserTokenTypeCertificate, []opcua.Option{opcua.AuthCertificate(cert), keyOpt}, nil
 
 	case "issued", "issuedtoken", "token":
 		token, err := cfg.loadIssuedToken()
@@ -172,19 +230,24 @@ func (cfg *Config) securityOptions(ctx context.Context, authType ua.UserTokenTyp
 	autoPolicy := strings.EqualFold(policy, "auto")
 	autoMode := strings.EqualFold(mode, "auto")
 
-	if autoPolicy || autoMode {
-		if cfg.Endpoint == "" {
-			return nil, fmt.Errorf("--endpoint is required for --security-policy/--security-mode auto")
+	// A secured channel needs the server certificate. Unless it was given
+	// with --server-cert it is taken from the matching endpoint of the server.
+	secured := policy != "" && !strings.EqualFold(policy, "None") && !autoPolicy
+	fromEndpoint := autoPolicy || autoMode || (secured && cfg.ServerCertFile == "")
+
+	if fromEndpoint {
+		if err := cfg.RequireEndpoint(); err != nil {
+			return nil, err
 		}
-		endpoints, err := opcua.GetEndpoints(ctx, cfg.Endpoint)
+		endpoints, err := opcua.GetEndpoints(ctx, cfg.Endpoint, cfg.DiscoveryOptions()...)
 		if err != nil {
-			return nil, fmt.Errorf("discovering endpoints for auto security: %w", err)
+			return nil, fmt.Errorf("discovering endpoints: %w", err)
 		}
 
 		var secPolicy string
 		var secMode ua.MessageSecurityMode
 		if !autoPolicy {
-			secPolicy = policy
+			secPolicy = ua.FormatSecurityPolicyURI(policy)
 		}
 		if !autoMode {
 			secMode = ua.MessageSecurityModeFromString(mode)
@@ -193,7 +256,7 @@ func (cfg *Config) securityOptions(ctx context.Context, authType ua.UserTokenTyp
 			}
 		}
 
-		ep, err := ua.SelectEndpoint(endpoints, secPolicy, secMode)
+		ep, err := cfg.SelectEndpoint(endpoints, secPolicy, secMode)
 		if err != nil {
 			return nil, fmt.Errorf("selecting endpoint: %w", err)
 		}
@@ -228,7 +291,8 @@ func (cfg *Config) channelCertOptions() ([]opcua.Option, error) {
 	}, nil
 }
 
-func loadCertKey(certFile, keyFile string) ([]byte, *rsa.PrivateKey, error) {
+// loadCertKey loads a certificate with its RSA, ECDSA or Ed25519 private key.
+func loadCertKey(certFile, keyFile string) ([]byte, crypto.Signer, error) {
 	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, nil, err
@@ -236,9 +300,9 @@ func loadCertKey(certFile, keyFile string) ([]byte, *rsa.PrivateKey, error) {
 	if len(pair.Certificate) == 0 {
 		return nil, nil, fmt.Errorf("certificate file %q contains no certificates", certFile)
 	}
-	key, ok := pair.PrivateKey.(*rsa.PrivateKey)
+	key, ok := pair.PrivateKey.(crypto.Signer)
 	if !ok {
-		return nil, nil, fmt.Errorf("private key must be RSA")
+		return nil, nil, fmt.Errorf("unsupported private key type %T", pair.PrivateKey)
 	}
 	return pair.Certificate[0], key, nil
 }

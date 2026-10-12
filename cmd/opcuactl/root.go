@@ -37,7 +37,11 @@ monitoring, and history retrieval capabilities.
 Examples:
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840
   opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258
-  opcuactl browse children --endpoint opc.tcp://localhost:4840 --node ns=0;i=85`,
+  opcuactl browse children --endpoint opc.tcp://localhost:4840 --node ns=0;i=85
+
+Servers that cannot be reached but can connect out (firewall, NAT) are
+supported with reverse connect: --reverse-listen host:port makes opcuactl
+wait for the server instead of dialling it.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -49,7 +53,7 @@ func init() {
 	pf := rootCmd.PersistentFlags()
 
 	pf.StringVarP(&connCfg.Endpoint, "endpoint", "e", "", "OPC UA server endpoint (opc.tcp://host:port)")
-	pf.StringVar(&connCfg.SecurityPolicy, "security-policy", "None", "Security policy (None|Basic128Rsa15|Basic256|Basic256Sha256|Aes128Sha256RsaOaep|Aes256Sha256RsaPss|auto)")
+	pf.StringVar(&connCfg.SecurityPolicy, "security-policy", "None", "Security policy (None|Basic256Sha256|Aes128Sha256RsaOaep|Aes256Sha256RsaPss|ECC_nistP256|ECC_nistP384|ECC_nistP256_AesGcm|ECC_nistP256_ChaChaPoly|ECC_curve25519|Basic128Rsa15|Basic256|auto)")
 	pf.StringVar(&connCfg.SecurityMode, "security-mode", "None", "Security mode (None|Sign|SignAndEncrypt|auto)")
 	pf.StringVar(&connCfg.Auth, "auth", "anonymous", "Authentication mode (anonymous|username|certificate|issued)")
 	pf.StringVar(&connCfg.Username, "username", "", "Username for --auth username")
@@ -57,11 +61,13 @@ func init() {
 	pf.StringVar(&connCfg.AuthPolicyID, "auth-policy-id", "", "User token PolicyId (usually set automatically with security auto)")
 	pf.StringVar(&connCfg.Token, "token", "", "Issued token (raw or base64) for --auth issued")
 	pf.StringVar(&connCfg.TokenFile, "token-file", "", "Issued token file for --auth issued")
-	pf.StringVar(&connCfg.CertFile, "cert", "", "Client certificate file (PEM/DER) for secure channel and/or certificate auth")
+	pf.StringVar(&connCfg.CertFile, "cert", "", "Client certificate file (PEM/DER; RSA, ECDSA or Ed25519) for secure channel and/or certificate auth")
 	pf.StringVar(&connCfg.KeyFile, "key", "", "Client private key file (PEM/DER)")
 	pf.StringVar(&connCfg.ServerCertFile, "server-cert", "", "Server certificate file (overrides endpoint cert when set)")
 	pf.StringArrayVar(&connCfg.TrustedCertFiles, "trusted-cert", nil, "Trusted CA or self-signed server cert (repeatable; PEM/DER)")
 	pf.BoolVar(&connCfg.InsecureSkipVerify, "insecure-skip-verify", false, "Skip server certificate verification (INSECURE)")
+	pf.StringVar(&connCfg.ReverseListen, "reverse-listen", "", "Reverse connect: listen on this address (host:port) and wait for the server to connect")
+	pf.StringVar(&connCfg.ReverseServerURI, "reverse-server-uri", "", "Reverse connect: only accept the server announcing this ApplicationUri")
 	pf.DurationVar(&connCfg.Timeout, "timeout", 10*time.Second, "Connection/operation timeout")
 	pf.StringVarP(&outputFormat, "format", "f", "table", "Output format (table|json|yaml)")
 	pf.BoolVar(&prettyOutput, "pretty", false, "Pretty-print structured output")
@@ -114,6 +120,8 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 	setString("cert", "OPCUACTL_CERT", &connCfg.CertFile)
 	setString("key", "OPCUACTL_KEY", &connCfg.KeyFile)
 	setString("server-cert", "OPCUACTL_SERVER_CERT", &connCfg.ServerCertFile)
+	setString("reverse-listen", "OPCUACTL_REVERSE_LISTEN", &connCfg.ReverseListen)
+	setString("reverse-server-uri", "OPCUACTL_REVERSE_SERVER_URI", &connCfg.ReverseServerURI)
 	setString("format", "OPCUACTL_FORMAT", &outputFormat)
 	setString("namespace", "OPCUACTL_NAMESPACE", &namespace)
 

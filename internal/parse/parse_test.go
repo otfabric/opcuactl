@@ -3,6 +3,8 @@
 package parse
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/otfabric/go-opcua/ua"
@@ -240,5 +242,106 @@ func TestNodeIDWithNamespace(t *testing.T) {
 				t.Errorf("NodeIDWithNamespace(%q, %q) = %q, want %q", tt.input, tt.namespace, id.String(), tt.wantStr)
 			}
 		})
+	}
+}
+
+func TestDataChangeTrigger(t *testing.T) {
+	for in, want := range map[string]ua.DataChangeTrigger{
+		"":                       ua.DataChangeTriggerStatusValue,
+		"status":                 ua.DataChangeTriggerStatus,
+		"status-value":           ua.DataChangeTriggerStatusValue,
+		"StatusValue":            ua.DataChangeTriggerStatusValue,
+		"status-value-timestamp": ua.DataChangeTriggerStatusValueTimestamp,
+		"status_value_timestamp": ua.DataChangeTriggerStatusValueTimestamp,
+	} {
+		got, err := DataChangeTrigger(in)
+		if err != nil || got != want {
+			t.Errorf("DataChangeTrigger(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	if _, err := DataChangeTrigger("sometimes"); err == nil {
+		t.Error("expected an error for an unknown trigger")
+	}
+}
+
+func TestDeadbandType(t *testing.T) {
+	for in, want := range map[string]ua.DeadbandType{
+		"": ua.DeadbandTypeNone, "none": ua.DeadbandTypeNone,
+		"absolute": ua.DeadbandTypeAbsolute, "ABS": ua.DeadbandTypeAbsolute,
+		"percent": ua.DeadbandTypePercent, "pct": ua.DeadbandTypePercent,
+	} {
+		got, err := DeadbandType(in)
+		if err != nil || got != want {
+			t.Errorf("DeadbandType(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	if _, err := DeadbandType("relative"); err == nil {
+		t.Error("expected an error for an unknown deadband type")
+	}
+}
+
+func TestUAEncoding(t *testing.T) {
+	v := ua.MustVariant([]int32{1, 2})
+	for name, want := range map[string]string{
+		"json":               `{"UaType":6,"Value":[1,2]}`,
+		"json-compact":       `{"UaType":6,"Value":[1,2]}`,
+		"json-verbose":       `{"UaType":6,"Value":[1,2]}`,
+		"json-reversible":    `{"Type":6,"Body":[1,2]}`,
+		"json-nonreversible": `[1,2]`,
+		"xml":                `<Variant xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd"><Value><ListOfInt32><Int32>1</Int32><Int32>2</Int32></ListOfInt32></Value></Variant>`,
+	} {
+		enc, err := ParseUAEncoding(name)
+		if err != nil {
+			t.Fatalf("ParseUAEncoding(%q): %v", name, err)
+		}
+		got, err := enc.Encode(v, false)
+		if err != nil || string(got) != want {
+			t.Errorf("%s: got %s, %v; want %s", name, got, err, want)
+		}
+	}
+	if _, err := ParseUAEncoding("bson"); err == nil {
+		t.Error("expected an error for an unknown encoding")
+	}
+
+	enc, _ := ParseUAEncoding("json")
+	pretty, err := enc.Encode(v, true)
+	if err != nil || !strings.Contains(string(pretty), "\n") {
+		t.Errorf("pretty output is not indented: %s, %v", pretty, err)
+	}
+}
+
+func TestUAVariant(t *testing.T) {
+	v, err := UAVariant(`{"UaType":6,"Value":[1,2]}`, "ua-json")
+	if err != nil || !reflect.DeepEqual(v.Value(), []int32{1, 2}) {
+		t.Errorf("ua-json: %v, %v", v, err)
+	}
+	v, err = UAVariant(`<Variant xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd"><Value><Double>1.5</Double></Value></Variant>`, "UA-XML")
+	if err != nil || v.Value() != 1.5 {
+		t.Errorf("ua-xml: %v, %v", v, err)
+	}
+	if _, err := UAVariant(`{"UaType":`, "ua-json"); err == nil {
+		t.Error("expected an error for malformed JSON")
+	}
+	if _, err := UAVariant("1", "int32"); err == nil {
+		t.Error("expected an error for a type that is not an OPC UA encoding")
+	}
+	if !IsUAEncodedType("ua-json") || !IsUAEncodedType("UA-XML") || IsUAEncodedType("json") {
+		t.Error("IsUAEncodedType misclassifies")
+	}
+}
+
+func TestSecurityPolicy_ECC(t *testing.T) {
+	for in, want := range map[string]string{
+		"ECC_nistP256":        ua.SecurityPolicyURIECCNistP256,
+		"ECC_curve25519":      ua.SecurityPolicyURIECCCurve25519,
+		"Aes128Sha256RsaOaep": ua.SecurityPolicyURIAes128Sha256RsaOaep,
+		"none":                ua.SecurityPolicyURINone,
+	} {
+		if got := SecurityPolicy(in); got != want {
+			t.Errorf("SecurityPolicy(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := SecurityPolicyShortName(ua.SecurityPolicyURIECCNistP256AesGcm); got != "ECC_nistP256_AesGcm" {
+		t.Errorf("short name = %q", got)
 	}
 }

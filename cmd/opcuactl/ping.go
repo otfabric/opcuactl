@@ -26,12 +26,14 @@ Each stage is tested and reported individually:
   2. Secure — SecureChannel + Session creation
   3. Browse — read the Root/Objects folder to confirm operability
 
+With --reverse-listen the TCP stage is skipped: the server connects to opcuactl.
+
 Examples:
   opcuactl ping --endpoint opc.tcp://localhost:4840
   opcuactl ping -e opc.tcp://localhost:4840 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if connCfg.Endpoint == "" {
-				return exitCodef(1, "--endpoint is required (or set OPCUACTL_ENDPOINT)")
+			if err := connCfg.RequireEndpoint(); err != nil {
+				return exitCode(1, err)
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -39,25 +41,27 @@ Examples:
 
 			var steps []model.PingStep
 
-			// Stage 1: TCP dial
-			tcpStart := time.Now()
-			conn, err := uacp.DialTCP(ctx, connCfg.Endpoint)
-			tcpDur := time.Since(tcpStart)
-			if err != nil {
+			// Stage 1: TCP dial (not with reverse connect: the server dials us)
+			if !connCfg.Reverse() {
+				tcpStart := time.Now()
+				conn, err := uacp.DialTCP(ctx, connCfg.Endpoint)
+				tcpDur := time.Since(tcpStart)
+				if err != nil {
+					steps = append(steps, model.PingStep{
+						Stage:   "tcp",
+						Status:  "fail",
+						Latency: tcpDur.String(),
+						Error:   err.Error(),
+					})
+					return outputPing(steps)
+				}
+				_ = conn.Close()
 				steps = append(steps, model.PingStep{
 					Stage:   "tcp",
-					Status:  "fail",
+					Status:  "ok",
 					Latency: tcpDur.String(),
-					Error:   err.Error(),
 				})
-				return outputPing(steps)
 			}
-			_ = conn.Close()
-			steps = append(steps, model.PingStep{
-				Stage:   "tcp",
-				Status:  "ok",
-				Latency: tcpDur.String(),
-			})
 
 			// Stage 2: Full connect (SecureChannel + Session)
 			secStart := time.Now()

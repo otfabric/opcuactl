@@ -23,6 +23,14 @@ type ServerOnNetwork struct {
 	ServerCapabilities []string `json:"serverCapabilities"`
 }
 
+// DiscoveryResult is what a Local Discovery Server knows.
+type DiscoveryResult struct {
+	DiscoveryServerURL string             `json:"discoveryServerUrl"`
+	MulticastSupported bool               `json:"multicastSupported"`
+	Servers            []DiscoveredServer `json:"servers"`
+	ServersOnNetwork   []ServerOnNetwork  `json:"serversOnNetwork"`
+}
+
 // Endpoint represents a server endpoint.
 type Endpoint struct {
 	EndpointURL       string            `json:"endpointUrl"`

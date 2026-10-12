@@ -1,6 +1,6 @@
 # opcuactl — OPC UA Command-Line Client: Discover, Browse, Read, Write, Call Methods, Monitor, History & Export
 
-[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/opcuactl.svg)](https://pkg.go.dev/github.com/otfabric/opcuactl)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/otfabric/opcuactl/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/opcuactl/actions/workflows/ci.yml)
@@ -19,14 +19,16 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 
 ## Why opcuactl?
 
-- **Find what is there** — `discover servers` and `discover endpoints` list the servers on a host or network and every endpoint with its security policy, mode and user-token types; `--best` picks the most secure one.
+- **Find what is there** — `discover servers`, `discover lds` and `discover endpoints` list the servers on a host, the ones registered with a Local Discovery Server or announced with mDNS, and every endpoint with its security policy, mode and user-token types; `--best` picks the most secure one.
 - **Explore the address space** — `browse children`, `browse tree`, `browse refs` and `browse path` walk the node hierarchy; `find node`, `find type` and `find namespace` search it.
 - **Read anything** — values (with timestamps and array index ranges), full node summaries, any attribute, server status, or every variable under an object in one batch.
 - **Write and call, carefully** — typed writes with a confirmation prompt and `--dry-run`; method calls with argument introspection.
-- **Watch a server live** — `monitor value`, `monitor event` and `monitor alarm` stay subscribed and print every change as it arrives, with queue size, sampling interval and event filters under your control.
+- **Watch a server live** — `monitor value`, `monitor event` and `monitor alarm` stay subscribed and print every change as it arrives, with queue size, sampling interval, deadband and trigger filters and event filters under your control.
 - **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
-- **Security that connects** — anonymous, username, X.509 and issued-token identities; `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for you.
+- **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
+- **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
+- **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
 - **Pre-built binaries** — Linux, macOS and Windows (x86-64 and ARM) from [GitHub Releases](https://github.com/otfabric/opcuactl/releases), with SHA-256 checksums; no runtime to install.
 
@@ -97,9 +99,12 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - [Output Formats](#output-formats)
 - [Exit Codes](#exit-codes)
 - [Security](#security)
+  - [Security policies](#security-policies)
+  - [Reverse connect](#reverse-connect)
 - [NodeID Formats](#nodeid-formats)
 - [Path Resolution](#path-resolution)
 - [Monitoring Intervals](#monitoring-intervals)
+  - [Data-change filters](#data-change-filters)
 - [FAQ](#faq)
 - [Development](#development)
 - [Supported Value Types](#supported-value-types)
@@ -109,16 +114,17 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 
 ## Features
 
-- **Discovery** — find servers on a network, list endpoints, select the most secure configuration
+- **Discovery** — find servers on a host, query a Local Discovery Server (registered servers and mDNS / FindServersOnNetwork with capability filter), list endpoints, select the most secure configuration
 - **Browse** — explore address-space trees, child nodes, references, and resolve browse paths
 - **Search** — find nodes by name, display name, type definition, data type, or namespace
-- **Read** — read values (including array IndexRange), node summaries, attributes, and server status
-- **Write** — write typed values with dry-run validation
+- **Read** — read values (including array IndexRange), node summaries, attributes, and server status; OPC UA JSON / XML output with `--ua-encoding`
+- **Write** — write typed values with dry-run validation; any data type as OPC UA JSON / XML
 - **Call** — invoke OPC UA methods with argument introspection
-- **Monitor** — subscribe to live value changes, filtered events, and alarms (queue window + overflow)
+- **Monitor** — subscribe to live value changes, filtered events, and alarms (queue window + overflow, DataChangeFilter with absolute / percent deadband and trigger, IndexRange)
 - **History** — raw, modified, processed (aggregates), and at-time historical reads
 - **Export** — bulk export node metadata and value snapshots or historical time-series
-- **AuthN/Z** — anonymous, username, X.509, and issued-token identities; `auto` endpoint security selection
+- **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
+- **Reverse connect** — let the server open the connection (`--reverse-listen`)
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
 
@@ -252,7 +258,7 @@ Run the same commands again. They always fetch the latest release and overwrite 
 
 ### Go install
 
-With Go 1.25 or later you can install straight from source. The binary lands in `$(go env GOPATH)/bin`; `opcuactl version` reports `dev` for builds made this way.
+With Go 1.26 or later you can install straight from source. The binary lands in `$(go env GOPATH)/bin`; `opcuactl version` reports `dev` for builds made this way.
 
 ```console
 go install github.com/otfabric/opcuactl@latest
@@ -260,7 +266,7 @@ go install github.com/otfabric/opcuactl@latest
 
 ### Build from source
 
-Requires Go 1.25 or later:
+Requires Go 1.26 or later:
 
 ```console
 git clone https://github.com/otfabric/opcuactl.git
@@ -282,6 +288,7 @@ make build
 opcuactl
 ├── discover
 │   ├── servers        Find OPC UA servers via FindServers / FindServersOnNetwork
+│   ├── lds            Query a Local Discovery Server (registered servers + mDNS)
 │   └── endpoints      List server endpoints and security configurations
 ├── browse
 │   ├── children       List direct child nodes
@@ -325,11 +332,21 @@ opcuactl
 # Find servers, including network discovery
 opcuactl discover servers -e opc.tcp://localhost:4840 --on-network
 
+# Servers on the network that offer data access and history (capability filter)
+opcuactl discover servers -e opc.tcp://localhost:4840 --on-network --capability DA --capability HD
+
+# Everything the Local Discovery Server of a host knows (port 4840):
+# registered servers and, with the multicast extension, servers found with mDNS
+opcuactl discover lds --host 192.168.1.10
+
 # Find the most secure endpoint
 opcuactl discover endpoints -e opc.tcp://localhost:4840 --best
 
 # Filter endpoints by security policy
 opcuactl discover endpoints -e opc.tcp://localhost:4840 --policy Basic256Sha256
+
+# The best endpoint your certificate can use (an ECC key gets an ECC endpoint)
+opcuactl discover endpoints -e opc.tcp://localhost:4840 --best --cert client-ecc.pem --key client-ecc.key
 ```
 
 ### Browsing
@@ -412,7 +429,30 @@ opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" --value
 
 # Validate without writing
 opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" --value 42.5 --type double --dry-run
+
+# Any data type as a Variant in the OPC UA JSON encoding: a whole array ...
+opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=ArrayNode" \
+  --value '{"UaType":6,"Value":[1,2,3]}' --type ua-json
+
+# ... or a LocalizedText
+opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Label" \
+  --value '{"UaType":21,"Value":{"Locale":"en","Text":"Tank 1"}}' --type ua-json
 ```
+
+### OPC UA JSON and XML Encodings
+
+`--format json` prints opcuactl's own, compact output. `--ua-encoding` prints the DataValue exactly as Part 6 of the OPC UA specification defines it, so it can be exchanged with other OPC UA stacks and tools:
+
+```sh
+# OPC UA JSON, 1.05 compact form (what open62541 reads and writes)
+opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=ArrayNode" --ua-encoding json
+# {"UaType":6,"Value":[1,2,3],"SourceTimestamp":"2026-10-12T09:15:02.118Z",...}
+
+# Other forms: json-verbose, json-reversible and json-nonreversible (OPC UA 1.04), xml
+opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=ArrayNode" --ua-encoding xml --pretty
+```
+
+One document is printed per `--node`. The `UaType` / `Value` pair of the JSON output is what `write value --type ua-json` accepts. This is a data encoding only: the connection to the server remains UA TCP with the binary encoding.
 
 ### Method Calls
 
@@ -448,6 +488,21 @@ opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 \
 
 # Overflow is marked in table output as [OVERFLOW] and in JSON as "overflow": true
 # when the server sets the DataValue Overflow InfoBit
+
+# Absolute deadband: only report when the value moved more than 0.5
+opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
+  --deadband-type absolute --deadband 0.5
+
+# Percent deadband: 2 % of the variable's EURange (AnalogItemType variables)
+opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=Level" \
+  --deadband-type percent --deadband 2
+
+# Also report when only the source timestamp changed (value unchanged)
+opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
+  --trigger status-value-timestamp
+
+# Monitor a slice of an array; changes outside it do not notify
+opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=ArrayNode" --index-range "0:3"
 
 # Monitor events
 opcuactl monitor event -e opc.tcp://localhost:4840 -n i=2253 \
@@ -542,7 +597,7 @@ Every networked command supports these connection and output flags:
 | Flag | Env Variable | Description |
 |------|-------------|-------------|
 | `-e, --endpoint` | `OPCUACTL_ENDPOINT` | OPC UA server endpoint (e.g. `opc.tcp://host:4840`) |
-| `--security-policy` | `OPCUACTL_SECURITY_POLICY` | Security policy (`None`, `Basic256Sha256`, …, or `auto`) |
+| `--security-policy` | `OPCUACTL_SECURITY_POLICY` | Security policy (`None`, `Basic256Sha256`, `ECC_nistP256`, …, or `auto`; see [Security](#security)) |
 | `--security-mode` | `OPCUACTL_SECURITY_MODE` | Security mode (`None`, `Sign`, `SignAndEncrypt`, or `auto`) |
 | `--auth` | `OPCUACTL_AUTH` | Auth mode (`anonymous`, `username`, `certificate`, `issued`) |
 | `--username` | `OPCUACTL_USERNAME` | Username for username auth |
@@ -550,12 +605,14 @@ Every networked command supports these connection and output flags:
 | `--auth-policy-id` | `OPCUACTL_AUTH_POLICY_ID` | User token PolicyId (usually set via security `auto`) |
 | `--token` | `OPCUACTL_TOKEN` | Issued token (raw or base64) for `--auth issued` |
 | `--token-file` | `OPCUACTL_TOKEN_FILE` | Issued token file for `--auth issued` |
-| `--cert` | `OPCUACTL_CERT` | Client certificate file (channel and/or certificate auth) |
+| `--cert` | `OPCUACTL_CERT` | Client certificate file (RSA, ECDSA or Ed25519; channel and/or certificate auth) |
 | `--key` | `OPCUACTL_KEY` | Client private key file |
-| `--server-cert` | `OPCUACTL_SERVER_CERT` | Server certificate file (overrides endpoint cert) |
+| `--server-cert` | `OPCUACTL_SERVER_CERT` | Server certificate file (overrides endpoint cert; skips the endpoint lookup for an explicit policy) |
 | `--trusted-cert` | `OPCUACTL_TRUSTED_CERT` | Trusted CA / self-signed cert (repeatable; env is CSV) |
 | `--insecure-skip-verify` | — | Skip server certificate verification (INSECURE) |
-| `--timeout` | `OPCUACTL_TIMEOUT` | Dial / request / connect timeout (default: `10s`) |
+| `--reverse-listen` | `OPCUACTL_REVERSE_LISTEN` | Reverse connect: listen on `host:port` and wait for the server to connect |
+| `--reverse-server-uri` | `OPCUACTL_REVERSE_SERVER_URI` | Reverse connect: only accept the server announcing this ApplicationUri |
+| `--timeout` | `OPCUACTL_TIMEOUT` | Dial / request / connect timeout, and how long to wait for a reverse connection (default: `10s`) |
 | `--namespace` | `OPCUACTL_NAMESPACE` | Default namespace index for node IDs |
 | `-f, --format` | `OPCUACTL_FORMAT` | Output format: `table`, `json`, `yaml`, `csv`, `jsonl` |
 | `--pretty` | — | Pretty-print JSON / YAML output |
@@ -592,9 +649,22 @@ All data goes to stdout, all errors go to stderr.
 |---------|----------------|
 | User identity | `--auth anonymous\|username\|certificate\|issued` |
 | Channel crypto | `--security-policy` / `--security-mode` (`None` … or `auto`) |
+| Who opens the connection | the client by default; the server with `--reverse-listen` ([reverse connect](#reverse-connect)) |
 | Client application cert | `--cert` + `--key` (required for Sign / SignAndEncrypt) |
 | Trust the server | `--trusted-cert` (repeatable), `--server-cert`, or `--insecure-skip-verify` (dev only) |
 | User token PolicyId | usually filled by `auto`; override with `--auth-policy-id` if needed |
+
+### Security policies
+
+| Policy | Certificate key | Notes |
+|--------|-----------------|-------|
+| `Basic256Sha256`, `Aes128Sha256RsaOaep`, `Aes256Sha256RsaPss` | RSA | The widely deployed RSA policies |
+| `ECC_nistP256`, `ECC_nistP384` | ECDSA P-256 / P-384 | ECC with ephemeral key agreement (OPC UA 1.05) |
+| `ECC_nistP256_AesGcm`, `ECC_nistP256_ChaChaPoly` | ECDSA P-256 | Authenticated encryption (OPC UA 1.05.07) |
+| `ECC_curve25519` | Ed25519 | Curve25519 key agreement, ChaCha20-Poly1305 |
+| `Basic128Rsa15`, `Basic256` | RSA | Deprecated; only for legacy servers |
+
+The key type of `--cert` decides which policies you can use: an RSA certificate cannot open an ECC channel and the other way round. `auto`, and `discover endpoints --best --cert …`, therefore only consider endpoints that fit your certificate — a server that offers both gets an ECC channel from a client with an ECC certificate and an RSA channel otherwise. With an explicit policy the server certificate is taken from the matching endpoint (or from `--server-cert`).
 
 **Recommended production pattern:** set `--security-policy auto --security-mode auto`, provide a client cert/key, and trust the server CA with `--trusted-cert`. `auto` discovers endpoints, picks the best match, and applies channel settings, remote certificate, and user-token PolicyId for you.
 
@@ -615,6 +685,12 @@ opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
   --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
   --cert client.pem --key client.key
 
+# ECC: an ECDSA P-256 certificate over an authenticated-encryption policy
+opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
+  --security-policy ECC_nistP256_AesGcm --security-mode SignAndEncrypt \
+  --cert client-ecc.pem --key client-ecc.key \
+  --trusted-cert server-ca.pem
+
 # X.509 user identity (same cert used for channel + user token)
 opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
   --auth certificate --cert client.pem --key client.key \
@@ -629,6 +705,26 @@ opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
 ```
 
 Store secrets in the environment when scripting (`OPCUACTL_PASSWORD`, `OPCUACTL_TOKEN`, …). Env vars apply when the matching flag is not set on the CLI. See [RECIPES.md](RECIPES.md) for copy-paste `CONN=(...)` blocks.
+
+### Reverse connect
+
+Some servers cannot be reached from where you sit — they are behind a firewall or NAT — but can open connections themselves. With OPC UA reverse connect the server dials the client. Configure the server with the address opcuactl listens on, then add `--reverse-listen` to any command:
+
+```sh
+# Wait (up to --timeout) for the server to connect to port 4841, then read
+opcuactl get value --reverse-listen 0.0.0.0:4841 --timeout 60s -n i=2258
+
+# Several servers may dial in: name the one you want by its ApplicationUri
+opcuactl get value --reverse-listen 0.0.0.0:4841 --timeout 60s -n i=2258 \
+  --reverse-server-uri urn:plant1:plc7
+
+# Everything else works unchanged, including discovery and secure channels
+opcuactl discover endpoints --reverse-listen 0.0.0.0:4841 --timeout 60s
+opcuactl monitor value --reverse-listen 0.0.0.0:4841 --timeout 60s -n "ns=2;s=Temperature" \
+  --security-policy auto --security-mode auto --cert client.pem --key client.key --trusted-cert server-ca.pem
+```
+
+`--endpoint` is optional with reverse connect: without it opcuactl uses the endpoint URL the server announces; with it the announcement has to match. The announcement itself is not authenticated — anyone who can reach the listener can send one — so use a security mode other than `None` and validate the server certificate when the network is not trusted. `ping` skips its TCP stage, as there is nothing to dial.
 
 ## NodeID Formats
 
@@ -732,6 +828,19 @@ opcuactl monitor value -e opc.tcp://host:4840 -n i=2258 \
 opcuactl monitor value -e opc.tcp://host:4840 -n i=2258
 ```
 
+### Data-change filters
+
+By default the server reports every change of value or status. A DataChangeFilter narrows that down on the server, which saves bandwidth on noisy analog signals:
+
+| Flag | Values | Description |
+|------|--------|-------------|
+| `--trigger` | `status`, `status-value` (default), `status-value-timestamp` | What counts as a change: the status only, status or value, or also a new source timestamp with an unchanged value. |
+| `--deadband-type` | `none` (default), `absolute`, `percent` | `absolute`: report when the value moved more than `--deadband` away from the last reported value. `percent`: `--deadband` is a percentage (0–100) of the variable's `EURange`. |
+| `--deadband` | number | The deadband value. |
+| `--index-range` | e.g. `0:3`, `1,0:1` | Monitor part of an array or matrix; changes outside the range do not notify. |
+
+Deadbands need a numeric variable, and a percent deadband needs an `EURange` property (AnalogItemType). The server answers per item: rejected items are reported on stderr with their status (`BadFilterNotAllowed`, `BadMonitoredItemFilterUnsupported`, `BadDeadbandFilterInvalid`, `BadIndexRangeInvalid`) while the others keep running; the command exits with code 3 when no item could be created. The filter is only sent when one of the flags is given, so servers without filter support are unaffected.
+
 > **Tip:** If the server revises your publishing interval (shown on stderr with `-v`), it cannot sustain the requested rate. Increase `--interval` until the revised value matches.
 ## FAQ
 
@@ -765,7 +874,7 @@ Use `--format json` (or `jsonl` for streams), `--quiet` when you only need the v
 
 ### Which servers has it been tested with?
 
-The client library underneath, [go-opcua](https://github.com/otfabric/go-opcua), runs an interoperability suite against open62541 and Eclipse Milo; [EXAMPLES.md](EXAMPLES.md) shows outputs captured against a WAGO PLC.
+The client library underneath, [go-opcua](https://github.com/otfabric/go-opcua), runs an interoperability suite against open62541 and Eclipse Milo — including the ECC security policies, reverse connect, discovery, data-change filters and the JSON / XML encodings; [EXAMPLES.md](EXAMPLES.md) shows outputs captured against a WAGO PLC.
 
 ## Development
 
@@ -822,6 +931,8 @@ internal/parse/        NodeID parsing, type coercion, security policy handling
 | `guid` | `12345678-1234-1234-1234-123456789012` |
 | `nodeid` | `i=2258`, `ns=2;s=Temp` |
 | `json` | `{"key":"val"}` |
+| `ua-json` | `{"UaType":6,"Value":[1,2,3]}` — a Variant in the OPC UA JSON encoding |
+| `ua-xml` | `<Variant xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd"><Value><Double>1.5</Double></Value></Variant>` |
 
 ## Built With
 

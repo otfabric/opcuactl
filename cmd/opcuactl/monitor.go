@@ -45,6 +45,10 @@ func newMonitorValueCmd() *cobra.Command {
 		duration      time.Duration
 		count         int
 		jsonl         bool
+		trigger       string
+		deadbandType  string
+		deadband      float64
+		indexRange    string
 	)
 
 	cmd := &cobra.Command{
@@ -58,10 +62,27 @@ Cancel with Ctrl+C. Optionally limit by --duration or --count.
 --queue-size and --discard-oldest control the server-side monitored-item queue
 (Part 4 window semantics). Overflow is reported when the queue drops samples.
 
+A DataChangeFilter reduces what the server reports:
+  --trigger         what counts as a change: status, status-value (default) or
+                    status-value-timestamp (also a new source timestamp)
+  --deadband-type   absolute: report when the value moved more than --deadband
+                    from the last reported one; percent: --deadband is a
+                    percentage (0-100) of the variable's EURange
+  --deadband        the deadband value
+Deadbands need a numeric variable; the server rejects the item otherwise.
+--index-range monitors a part of an array: changes outside it do not notify.
+
+Items the server rejects are reported on stderr; the command fails when none
+could be created.
+
 Examples:
   opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258
   opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 -n "ns=2;s=Temp" --interval 500ms
   opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 --queue-size 10 --sampling 100ms
+  opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=Temp" --deadband-type absolute --deadband 0.5
+  opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=Level" --deadband-type percent --deadband 2
+  opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=Temp" --trigger status-value-timestamp
+  opcuactl monitor value -e opc.tcp://localhost:4840 -n "ns=2;s=Array" --index-range "0:3"
   opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 --jsonl --duration 30s
   opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 --count 10 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -77,6 +98,30 @@ Examples:
 			ts := ua.TimestampsToReturnBoth
 			if timestamps != "" {
 				ts = ua.TimestampsToReturnFromString(timestamps)
+			}
+
+			// DataChangeFilter: only sent when asked for, so servers without
+			// filter support keep working with the defaults.
+			var filter *ua.ExtensionObject
+			flags := cmd.Flags()
+			if flags.Changed("trigger") || flags.Changed("deadband-type") || flags.Changed("deadband") {
+				trig, err := parse.DataChangeTrigger(trigger)
+				if err != nil {
+					return exitCodef(1, "invalid --trigger: %v", err)
+				}
+				dbType, err := parse.DeadbandType(deadbandType)
+				if err != nil {
+					return exitCodef(1, "invalid --deadband-type: %v", err)
+				}
+				switch {
+				case dbType == ua.DeadbandTypeNone && flags.Changed("deadband"):
+					return exitCodef(1, "--deadband needs --deadband-type absolute or percent")
+				case deadband < 0:
+					return exitCodef(1, "--deadband must not be negative")
+				case dbType == ua.DeadbandTypePercent && deadband > 100:
+					return exitCodef(1, "--deadband is a percentage (0-100) with --deadband-type percent")
+				}
+				filter = opcua.NewDataChangeFilter(trig, dbType, deadband)
 			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -99,19 +144,40 @@ Examples:
 				req.RequestedParameters.QueueSize = queueSize
 				req.RequestedParameters.DiscardOldest = discardOldest
 				req.RequestedParameters.SamplingInterval = samplingMs
+				req.RequestedParameters.Filter = filter
+				req.ItemToMonitor.IndexRange = indexRange
 				items[i] = req
 			}
 
-			sub, notifyCh, err := c.NewSubscription().
-				Interval(interval).
-				Timestamps(ts).
-				MonitorItems(items...).
-				Start(ctx)
+			notifyCh := make(chan *opcua.PublishNotificationData, 256)
+			sub, err := c.Subscribe(ctx, &opcua.SubscriptionParameters{Interval: interval}, notifyCh)
 			if err != nil {
 				format.Errf("starting subscription: %v", err)
 				return exitCode(3, err)
 			}
-			defer func() { _ = sub.Cancel(ctx) }()
+			defer func() { _ = sub.Cancel(context.Background()) }()
+
+			// The server answers per item: a filter it cannot apply (deadband
+			// on a non-numeric value, percent deadband without EURange) or a
+			// bad IndexRange rejects that item only.
+			created, err := sub.Monitor(ctx, ts, items...)
+			if err != nil {
+				format.Errf("creating monitored items: %v", err)
+				return exitCode(3, err)
+			}
+			accepted := 0
+			for i, res := range created.Results {
+				if res.StatusCode == ua.StatusOK {
+					accepted++
+					continue
+				}
+				if i < len(nodeIDs) {
+					format.Errf("monitoring %s: %s", nodeIDs[i], res.StatusCode.Symbol())
+				}
+			}
+			if accepted == 0 {
+				return exitCodef(3, "the server rejected all monitored items")
+			}
 
 			if sub.RevisedPublishingInterval != interval {
 				format.Errf("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
@@ -215,7 +281,13 @@ Examples:
 	cmd.Flags().DurationVar(&duration, "duration", 0, "Stop after this duration (0 = run until Ctrl+C)")
 	cmd.Flags().IntVar(&count, "count", 0, "Stop after this many notifications (0 = unlimited)")
 	cmd.Flags().BoolVar(&jsonl, "jsonl", false, "Output newline-delimited JSON (JSONL)")
+	cmd.Flags().StringVar(&trigger, "trigger", "status-value", "DataChangeFilter trigger (status|status-value|status-value-timestamp)")
+	cmd.Flags().StringVar(&deadbandType, "deadband-type", "none", "DataChangeFilter deadband type (none|absolute|percent)")
+	cmd.Flags().Float64Var(&deadband, "deadband", 0, "DataChangeFilter deadband value (absolute change, or percent of EURange)")
+	cmd.Flags().StringVar(&indexRange, "index-range", "", "IndexRange to monitor for array values (e.g. \"0:3\")")
 	_ = cmd.RegisterFlagCompletionFunc("timestamps", fixedCompletion(timestampValues))
+	_ = cmd.RegisterFlagCompletionFunc("trigger", fixedCompletion(triggerValues))
+	_ = cmd.RegisterFlagCompletionFunc("deadband-type", fixedCompletion(deadbandTypeValues))
 	return cmd
 }
 

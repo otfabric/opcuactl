@@ -2,9 +2,9 @@
 
 Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** industrial PLC at `opc.tcp://109.166.142.215:4840`.
 
-Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.5.0** (`opcuactl` **v0.2.1**).
+Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.6.0** (`opcuactl` **v0.3.0**).
 
-This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md).
+This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md). The [v0.3.0 features](#v030-features-captured-against-a-go-opcua-server) — ECC security policies, reverse connect, Local Discovery Server, data-change filters and the OPC UA JSON / XML encodings — are live captures against a go-opcua v1.6.0 demo server.
 
 > All captured commands use these connection flags:
 > ```bash
@@ -74,6 +74,12 @@ This PLC only offers anonymous / username over `None/None`, and does not support
   - [Find Type (by Data Type)](#find-type-by-data-type)
   - [Find Type (by Byte)](#find-type-by-byte)
 - [Version](#version)
+- [v0.3.0 features (captured against a go-opcua server)](#v030-features-captured-against-a-go-opcua-server)
+  - [ECC security policies](#ecc-security-policies)
+  - [Local Discovery Server and mDNS](#local-discovery-server-and-mdns)
+  - [Reverse connect](#reverse-connect)
+  - [OPC UA JSON and XML encodings](#opc-ua-json-and-xml-encodings)
+  - [Data-change filters (deadband)](#data-change-filters-deadband)
 - [v0.2.0 features (not exercised on this PLC)](#v020-features-not-exercised-on-this-plc)
   - [Secure connect](#secure-connect)
   - [IndexRange and timestamps](#indexrange-and-timestamps)
@@ -765,6 +771,168 @@ opcuactl dev
 ```
 
 With a release build, `tag` appears when `main.tag` is set at link time.
+
+---
+
+## v0.3.0 features (captured against a go-opcua server)
+
+The WAGO PLC above offers none of these, so the outputs below were captured against a [go-opcua](https://github.com/otfabric/go-opcua) v1.6.0 demo server on `localhost` that offers RSA and ECC endpoints, acts as a Local Discovery Server with multicast discovery, and is configured for reverse connect. Its test variables live in namespace 1.
+
+### ECC security policies
+
+```console
+$ opcuactl discover endpoints -e opc.tcp://localhost:52812
+
+ENDPOINT URL               SECURITY POLICY      SECURITY MODE                      LEVEL  CERT  TOKEN TYPES
+opc.tcp://localhost:52812  None                 MessageSecurityModeNone            1      yes   UserTokenTypeAnonymous
+opc.tcp://localhost:52812  Basic256Sha256       MessageSecurityModeSignAndEncrypt  33     yes   UserTokenTypeAnonymous
+opc.tcp://localhost:52812  ECC_nistP256         MessageSecurityModeSignAndEncrypt  63     yes   UserTokenTypeAnonymous
+opc.tcp://localhost:52812  ECC_nistP256_AesGcm  MessageSecurityModeSignAndEncrypt  83     yes   UserTokenTypeAnonymous
+```
+
+With an ECDSA P-256 client certificate, `--best` and `auto` pick the strongest endpoint that key can use:
+
+```console
+$ opcuactl discover endpoints -e opc.tcp://localhost:52812 --best --cert client-ecc.pem --key client-ecc.key
+
+ENDPOINT URL               SECURITY POLICY      SECURITY MODE                      LEVEL
+opc.tcp://localhost:52812  ECC_nistP256_AesGcm  MessageSecurityModeSignAndEncrypt  83
+```
+
+```console
+$ opcuactl get server -e opc.tcp://localhost:52812 --security-policy auto --security-mode auto \
+    --cert client-ecc.pem --key client-ecc.key --trusted-cert server.pem
+
+Server Status
+  State:          ServerStateRunning
+  Start Time:     2026-10-12T09:30:38.798959Z
+  Current Time:   2026-10-12T09:30:38.959869Z
+  Security:       ECC_nistP256_AesGcm / MessageSecurityModeSignAndEncrypt
+  Product:        otfabric OPC/UA Server 0.0.0-dev
+  Manufacturer:   otfabric
+  Build:           ()
+```
+
+> With an RSA client certificate the same two commands select `Basic256Sha256`: an RSA key cannot open an ECC channel.
+
+### Local Discovery Server and mDNS
+
+```console
+$ opcuactl discover lds --host opc.tcp://localhost:52812
+
+Discovery server: opc.tcp://localhost:52812
+
+Registered servers (FindServers):
+APPLICATION NAME  APPLICATION URI                    TYPE                   DISCOVERY URLS
+Demo              urn:otfabric:opcuactl:test:server  ApplicationTypeServer  opc.tcp://localhost:52812
+
+Servers on network (FindServersOnNetwork, mDNS):
+RECORD  SERVER NAME     DISCOVERY URL              CAPABILITIES
+0       Demo-demo-host  opc.tcp://demo-host:52812  LDS, DA
+```
+
+> `--host` takes a host name or IP address (port 4840 is added) or a complete URL. On a discovery server without the multicast extension the second table is replaced by a note; that is not an error.
+
+```console
+$ opcuactl discover servers -e opc.tcp://localhost:52812 --on-network --capability DA
+
+RECORD  SERVER NAME     DISCOVERY URL              CAPABILITIES
+0       Demo-demo-host  opc.tcp://demo-host:52812  LDS, DA
+```
+
+### Reverse connect
+
+The server is configured to dial `opc.tcp://127.0.0.1:52811`; opcuactl listens there and needs no `--endpoint`:
+
+```console
+$ opcuactl get value --reverse-listen 127.0.0.1:52811 --timeout 30s -n "ns=1;s=Int32"
+
+NODE ID       VALUE  TYPE         STATUS  SOURCE TIMESTAMP             SERVER TIMESTAMP
+ns=1;s=Int32  42     TypeIDInt32  Good    2026-10-12T09:30:38.994404Z
+```
+
+```console
+$ opcuactl ping --reverse-listen 127.0.0.1:52811 --timeout 30s
+
+  ✓ secure   53.713542ms
+  ✓ browse   402.166µs
+```
+
+> `ping` has no `tcp` stage here: with reverse connect the server opens the connection.
+
+### OPC UA JSON and XML encodings
+
+```console
+$ opcuactl get value -e opc.tcp://localhost:52812 -n "ns=1;s=Int32Array" --ua-encoding json
+
+{"UaType":6,"Value":[1,2,3,4,5],"SourceTimestamp":"2026-10-12T09:30:39.050837Z"}
+```
+
+```console
+$ opcuactl get value -e opc.tcp://localhost:52812 -n "ns=1;s=Int32Array" --ua-encoding json-reversible
+
+{"Value":{"Type":6,"Body":[1,2,3,4,5]},"SourceTimestamp":"2026-10-12T09:30:39.053299Z"}
+```
+
+```console
+$ opcuactl get value -e opc.tcp://localhost:52812 -n "ns=1;s=Double" --ua-encoding xml --pretty
+
+<DataValue xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">
+  <Value>
+    <Value>
+      <Double>100</Double>
+    </Value>
+  </Value>
+  <SourceTimestamp>2026-10-12T09:30:39.05567Z</SourceTimestamp>
+</DataValue>
+```
+
+Writing a whole array as a Variant in the OPC UA JSON encoding, and reading it back:
+
+```console
+$ opcuactl write value -e opc.tcp://localhost:52812 -n "ns=1;s=Int32Array" \
+    --value '{"UaType":6,"Value":[9,8,7]}' --type ua-json --yes
+
+NODE ID            STATUS  STATUS CODE
+ns=1;s=Int32Array  Good    0
+
+$ opcuactl get value -e opc.tcp://localhost:52812 -n "ns=1;s=Int32Array"
+
+NODE ID            VALUE    TYPE         STATUS  SOURCE TIMESTAMP  SERVER TIMESTAMP
+ns=1;s=Int32Array  9, 8, 7  TypeIDInt32  Good
+```
+
+### Data-change filters (deadband)
+
+While this ran, another client wrote 101, 110, 112 and 118 to the variable (starting from 100). With an absolute deadband of 5 only the moves of more than 5 from the last *reported* value arrive:
+
+```console
+$ opcuactl monitor value -e opc.tcp://localhost:52812 -n "ns=1;s=Double" --interval 50ms \
+    --deadband-type absolute --deadband 5 --duration 2500ms
+
+2026-10-12T09:30:39.063367Z  ns=1;s=Double  100  [Good]
+2026-10-12T11:30:39.915791+02:00  ns=1;s=Double  110  [Good]
+2026-10-12T11:30:40.7157+02:00  ns=1;s=Double  118  [Good]
+```
+
+The server decides per item whether it can apply a filter. A deadband on a string is rejected and reported on stderr, the analog item next to it keeps running:
+
+```console
+$ opcuactl monitor value -e opc.tcp://localhost:52812 -n "ns=1;s=String" -n "ns=1;s=Analog" \
+    --deadband-type percent --deadband 10 --count 1 --duration 5s --jsonl
+
+{"ts":"2026-10-12T11:30:41.672287+02:00","nodeId":"ns=1;s=Analog","value":100,"type":"TypeIDDouble","status":"Good","statusCode":0,"sourceTimestamp":"2026-10-12T09:30:41.570019Z"}
+Error: monitoring ns=1;s=String: BadFilterNotAllowed
+```
+
+A percent deadband needs an `EURange` property; without one nothing can be monitored and the command exits with code 3:
+
+```console
+$ opcuactl monitor value -e opc.tcp://localhost:52812 -n "ns=1;s=Double" \
+    --deadband-type percent --deadband 10 --duration 1s
+
+Error: monitoring ns=1;s=Double: BadMonitoredItemFilterUnsupported
+```
 
 ---
 

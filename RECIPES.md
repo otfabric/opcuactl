@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.2.1** (go-opcua v1.5.0): secure authN/Z, IndexRange reads, event WhereClause filters, monitored-item queues/overflow, and history `raw|modified|processed|attime`.
+Aligned with **v0.3.0** (go-opcua v1.6.0): secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
 
 ## Table of Contents
 
@@ -18,6 +18,7 @@ Aligned with **v0.2.1** (go-opcua v1.5.0): secure authN/Z, IndexRange reads, eve
 - [9. Inspect a Method Before Calling It](#9-inspect-a-method-before-calling-it)
 - [10. Use Standard Node Aliases](#10-use-standard-node-aliases)
 - [11. Collect All Variables from a Device](#11-collect-all-variables-from-a-device)
+- [12. Copy a Value Between Servers in the OPC UA JSON Encoding](#12-copy-a-value-between-servers-in-the-opc-ua-json-encoding)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -51,6 +52,15 @@ CONN=(-e opc.tcp://your-server:4840 --auth certificate \
 CONN=(-e opc.tcp://your-server:4840 --auth issued --token-file ./token.jwt \
   --security-policy auto --security-mode auto \
   --cert client.pem --key client.key --trusted-cert server-ca.pem)
+
+# ECC: with an ECDSA (or Ed25519) certificate, auto picks the server's best ECC endpoint
+CONN=(-e opc.tcp://your-server:4840 \
+  --security-policy auto --security-mode auto \
+  --cert client-ecc.pem --key client-ecc.key --trusted-cert server-ca.pem)
+
+# Reverse connect: the server dials opcuactl (server behind a firewall / NAT).
+# No --endpoint needed; --timeout is how long to wait for the server.
+CONN=(--reverse-listen 0.0.0.0:4841 --reverse-server-uri urn:plant1:plc7 --timeout 60s)
 ```
 
 Inspect advertised policies, modes, and token types first:
@@ -99,6 +109,13 @@ Discover what's running, check connectivity, and understand the address space.
 ```sh
 # Step 1: Discover servers on the network
 opcuactl discover servers "${CONN[@]}"
+
+# ... or ask the Local Discovery Server of a host (port 4840) what it knows:
+# registered servers and, with the multicast extension, servers found with mDNS
+opcuactl discover lds --host your-gateway
+
+# ... narrowed to servers with data access and history
+opcuactl discover servers -e opc.tcp://your-gateway:4840 --on-network --capability DA --capability HD
 
 # Step 2: List endpoints and pick the most secure one
 opcuactl discover endpoints "${CONN[@]}" --best
@@ -186,6 +203,20 @@ opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Temperature" \
 # Overflow appears as [OVERFLOW] in table / "overflow": true in JSONL
 opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Temperature" \
   --interval 1s --sampling 100ms --queue-size 10 --discard-oldest --jsonl
+
+# Noisy analog signal: only report moves of more than 0.5 (absolute deadband) ...
+opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Temperature" \
+  --deadband-type absolute --deadband 0.5 --jsonl
+
+# ... or of more than 2 % of the variable's EURange (percent deadband)
+opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Level" \
+  --deadband-type percent --deadband 2 --jsonl
+
+# Heartbeat-style tags: also report a new source timestamp with an unchanged value
+opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Counter" --trigger status-value-timestamp
+
+# First four elements of an array only
+opcuactl monitor value "${CONN[@]}" -n "ns=2;s=Recipe" --index-range "0:3"
 
 # Events: OfType + severity window (BaseEventType = i=2041)
 opcuactl monitor event "${CONN[@]}" -n i=2253 \
@@ -305,6 +336,10 @@ opcuactl get server -e opc.tcp://your-server:4840 \
   --insecure-skip-verify
 ```
 
+A `BadSecurityPolicyRejected` or "no endpoint" error with an ECC policy usually means the key type of `--cert` does not fit: the `ECC_nistP256*` policies need an ECDSA P-256 certificate, `ECC_nistP384` P-384 (or P-256), `ECC_curve25519` Ed25519, and the RSA policies an RSA certificate. `discover endpoints --best --cert … --key …` shows the best endpoint your certificate can use.
+
+With reverse connect (`--reverse-listen`), a timeout means the server never dialled in: check the client URL configured on the server, the firewall towards the listening port, and raise `--timeout` above the server's retry interval.
+
 If username/certificate auth fails with an opaque BadIdentityToken error, retry with `--security-policy auto --security-mode auto` so the correct user-token PolicyId is taken from the endpoint.
 
 ---
@@ -395,4 +430,26 @@ opcuactl get vars "${CONN[@]}" -n "ns=3;s=PLC" -f json
 opcuactl get vars "${CONN[@]}" -n "ns=3;s=PLC" -q | while read nid; do
   opcuactl get node "${CONN[@]}" -n "$nid" --full
 done
+```
+
+---
+
+## 12. Copy a Value Between Servers in the OPC UA JSON Encoding
+
+`--ua-encoding` prints values in the standard OPC UA DataEncoding (Part 6), which keeps the exact data type — arrays, LocalizedText, structures — and is understood by other OPC UA stacks. `write value --type ua-json` takes it back.
+
+```sh
+# Read a DataValue in the OPC UA JSON encoding
+opcuactl get value "${CONN[@]}" -n "ns=2;s=Recipe" --ua-encoding json
+# {"UaType":6,"Value":[10,20,30],"SourceTimestamp":"2026-10-12T09:15:02.118Z"}
+
+# Copy it to another server: keep the Variant part (UaType + Value, and
+# Dimensions for matrices) and write it with --type ua-json
+VALUE=$(opcuactl get value "${CONN[@]}" -n "ns=2;s=Recipe" --ua-encoding json \
+  | jq -c '{UaType, Value} + (if .Dimensions then {Dimensions} else {} end)')
+opcuactl write value -e opc.tcp://other-server:4840 -n "ns=2;s=Recipe" \
+  --value "$VALUE" --type ua-json --yes
+
+# XML instead, e.g. to paste into a NodeSet2 file or another tool
+opcuactl get value "${CONN[@]}" -n "ns=2;s=Recipe" --ua-encoding xml --pretty
 ```

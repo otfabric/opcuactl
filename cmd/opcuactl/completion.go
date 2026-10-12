@@ -11,16 +11,19 @@ import (
 // Shared completion values for reuse across commands.
 var (
 	formatValues         = []string{"table", "json", "yaml", "csv", "jsonl"}
-	securityPolicyValues = []string{"None", "Basic128Rsa15", "Basic256", "Basic256Sha256", "Aes128Sha256RsaOaep", "Aes256Sha256RsaPss", "auto"}
+	securityPolicyValues = []string{"None", "Basic256Sha256", "Aes128Sha256RsaOaep", "Aes256Sha256RsaPss", "ECC_nistP256", "ECC_nistP384", "ECC_nistP256_AesGcm", "ECC_nistP256_ChaChaPoly", "ECC_curve25519", "Basic128Rsa15", "Basic256", "auto"}
 	securityModeValues   = []string{"None", "Sign", "SignAndEncrypt", "auto"}
 	authValues           = []string{"anonymous", "username", "certificate", "issued"}
 	nodeClassValues      = []string{"all", "object", "variable", "method", "objecttype", "variabletype", "referencetype", "datatype", "view"}
 	directionValues      = []string{"forward", "inverse", "both"}
-	writeTypeValues      = []string{"bool", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float", "double", "string", "bytes", "datetime", "guid", "nodeid", "json"}
+	writeTypeValues      = []string{"bool", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float", "double", "string", "bytes", "datetime", "guid", "nodeid", "json", "ua-json", "ua-xml"}
 	historyModeValues    = []string{"raw", "modified", "processed", "attime"}
 	continuationValues   = []string{"all", "single"}
 	timestampValues      = []string{"source", "server", "both", "neither"}
 	aggregateValues      = []string{"average", "min", "max", "count"}
+	triggerValues        = []string{"status", "status-value", "status-value-timestamp"}
+	deadbandTypeValues   = []string{"none", "absolute", "percent"}
+	uaEncodingValues     = []string{"json", "json-verbose", "json-reversible", "json-nonreversible", "xml"}
 	attrValues           = []string{"NodeID", "NodeClass", "BrowseName", "DisplayName", "Description", "DataType", "Value", "AccessLevel", "UserAccessLevel", "WriteMask", "ValueRank", "Historizing", "MinimumSamplingInterval", "ArrayDimensions"}
 )
 

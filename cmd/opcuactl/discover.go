@@ -26,17 +26,21 @@ func newDiscoverCmd() *cobra.Command {
 
 Examples:
   opcuactl discover servers --endpoint opc.tcp://localhost:4840
+  opcuactl discover lds --host plc-gateway.local
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840`,
 	}
-	cmd.AddCommand(newDiscoverServersCmd(), newDiscoverEndpointsCmd())
+	cmd.AddCommand(newDiscoverServersCmd(), newDiscoverLDSCmd(), newDiscoverEndpointsCmd())
 	return cmd
 }
 
 func newDiscoverServersCmd() *cobra.Command {
 	var (
-		onNetwork bool
-		serverURI string
-		locale    string
+		onNetwork    bool
+		serverURI    string
+		locale       string
+		capabilities []string
+		startRecord  uint32
+		maxRecords   uint32
 	)
 
 	cmd := &cobra.Command{
@@ -44,13 +48,23 @@ func newDiscoverServersCmd() *cobra.Command {
 		Short: "Discover OPC UA servers",
 		Long: `Discover OPC UA application descriptions from a discovery endpoint.
 
+By default FindServers is called: the server itself and, on a Local Discovery
+Server (LDS), the servers registered with it.
+
+--on-network calls FindServersOnNetwork instead: the servers a discovery
+server with the multicast extension (LDS-ME) found on the subnet with mDNS.
+--capability keeps only servers that announce all given capabilities (for
+example DA, HD, AC, LDS), --start-record and --max-records page through a
+large table.
+
 Examples:
   opcuactl discover servers --endpoint opc.tcp://localhost:4840
   opcuactl discover servers --endpoint opc.tcp://localhost:4840 --on-network
+  opcuactl discover servers --endpoint opc.tcp://localhost:4840 --on-network --capability DA --capability HD
   opcuactl discover servers --endpoint opc.tcp://localhost:4840 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if connCfg.Endpoint == "" {
-				return exitCodef(1, "--endpoint is required")
+			if err := connCfg.RequireEndpoint(); err != nil {
+				return exitCode(1, err)
 			}
 
 			ctx, cancel := connCfg.TimeoutContext(context.Background())
@@ -59,7 +73,7 @@ Examples:
 			w := newWriter()
 
 			if onNetwork {
-				return discoverServersOnNetwork(ctx, w)
+				return discoverServersOnNetwork(ctx, w, startRecord, maxRecords, capabilities)
 			}
 			return discoverServers(ctx, w, serverURI, locale)
 		},
@@ -68,11 +82,14 @@ Examples:
 	cmd.Flags().BoolVar(&onNetwork, "on-network", false, "Use FindServersOnNetwork instead of FindServers")
 	cmd.Flags().StringVar(&serverURI, "server-uri", "", "Filter by server URI")
 	cmd.Flags().StringVar(&locale, "locale", "", "Preferred locale")
+	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "With --on-network: only servers with this capability (repeatable, e.g. DA, HD, LDS)")
+	cmd.Flags().Uint32Var(&startRecord, "start-record", 0, "With --on-network: first record id to return")
+	cmd.Flags().Uint32Var(&maxRecords, "max-records", 0, "With --on-network: maximum number of records (0 = no limit)")
 	return cmd
 }
 
 func discoverServers(ctx context.Context, w *format.Writer, serverURI, locale string) error {
-	var opts []opcua.Option
+	opts := connCfg.DiscoveryOptions()
 	if locale != "" {
 		opts = append(opts, opcua.Locales(locale))
 	}
@@ -88,59 +105,162 @@ func discoverServers(ctx context.Context, w *format.Writer, serverURI, locale st
 		if serverURI != "" && app.ApplicationURI != serverURI {
 			continue
 		}
-		s := model.DiscoveredServer{
-			ApplicationURI:      app.ApplicationURI,
-			ProductURI:          app.ProductURI,
-			ApplicationType:     app.ApplicationType.String(),
-			GatewayServerURI:    app.GatewayServerURI,
-			DiscoveryProfileURI: app.DiscoveryProfileURI,
-			DiscoveryURLs:       app.DiscoveryURLs,
-		}
-		if app.ApplicationName != nil {
-			s.ApplicationName = app.ApplicationName.Text
-		}
-		servers = append(servers, s)
+		servers = append(servers, discoveredServer(app))
 	}
 
-	f := format.ParseFormat(outputFormat)
-	if f == format.Table {
-		headers := []string{"APPLICATION NAME", "APPLICATION URI", "TYPE", "DISCOVERY URLS"}
-		rows := make([][]string, len(servers))
-		for i, s := range servers {
-			rows[i] = []string{s.ApplicationName, s.ApplicationURI, s.ApplicationType, strings.Join(s.DiscoveryURLs, ", ")}
-		}
-		return w.WriteTable(headers, rows)
+	if format.ParseFormat(outputFormat) == format.Table {
+		return writeServersTable(w, servers)
 	}
 	return w.Write(servers)
 }
 
-func discoverServersOnNetwork(ctx context.Context, w *format.Writer) error {
-	servers, err := opcua.FindServersOnNetwork(ctx, connCfg.Endpoint)
+func discoveredServer(app *ua.ApplicationDescription) model.DiscoveredServer {
+	s := model.DiscoveredServer{
+		ApplicationURI:      app.ApplicationURI,
+		ProductURI:          app.ProductURI,
+		ApplicationType:     app.ApplicationType.String(),
+		GatewayServerURI:    app.GatewayServerURI,
+		DiscoveryProfileURI: app.DiscoveryProfileURI,
+		DiscoveryURLs:       app.DiscoveryURLs,
+	}
+	if app.ApplicationName != nil {
+		s.ApplicationName = app.ApplicationName.Text
+	}
+	return s
+}
+
+func serverOnNetwork(s *ua.ServerOnNetwork) model.ServerOnNetwork {
+	return model.ServerOnNetwork{
+		RecordID:           s.RecordID,
+		ServerName:         s.ServerName,
+		DiscoveryURL:       s.DiscoveryURL,
+		ServerCapabilities: s.ServerCapabilities,
+	}
+}
+
+func writeServersTable(w *format.Writer, servers []model.DiscoveredServer) error {
+	headers := []string{"APPLICATION NAME", "APPLICATION URI", "TYPE", "DISCOVERY URLS"}
+	rows := make([][]string, len(servers))
+	for i, s := range servers {
+		rows[i] = []string{s.ApplicationName, s.ApplicationURI, s.ApplicationType, strings.Join(s.DiscoveryURLs, ", ")}
+	}
+	return w.WriteTable(headers, rows)
+}
+
+func writeServersOnNetworkTable(w *format.Writer, servers []model.ServerOnNetwork) error {
+	headers := []string{"RECORD", "SERVER NAME", "DISCOVERY URL", "CAPABILITIES"}
+	rows := make([][]string, len(servers))
+	for i, s := range servers {
+		rows[i] = []string{fmt.Sprintf("%d", s.RecordID), s.ServerName, s.DiscoveryURL, strings.Join(s.ServerCapabilities, ", ")}
+	}
+	return w.WriteTable(headers, rows)
+}
+
+func discoverServersOnNetwork(ctx context.Context, w *format.Writer, startRecord, maxRecords uint32, capabilities []string) error {
+	// FindServersOnNetwork needs a connection but no session.
+	c, err := opcua.NewClient(connCfg.Endpoint, append(connCfg.DiscoveryOptions(), opcua.AutoReconnect(false))...)
+	if err != nil {
+		return exitCode(1, err)
+	}
+	if err := c.Dial(ctx); err != nil {
+		format.Errf("discovering servers on network: %v", err)
+		return exitCode(2, err)
+	}
+	defer func() { _ = c.Close(ctx) }()
+
+	resp, err := c.FindServersOnNetworkWithFilter(ctx, startRecord, maxRecords, capabilities)
 	if err != nil {
 		format.Errf("discovering servers on network: %v", err)
 		return exitCode(2, err)
 	}
 
-	var results []model.ServerOnNetwork
-	for _, s := range servers {
-		results = append(results, model.ServerOnNetwork{
-			RecordID:           s.RecordID,
-			ServerName:         s.ServerName,
-			DiscoveryURL:       s.DiscoveryURL,
-			ServerCapabilities: s.ServerCapabilities,
-		})
+	results := make([]model.ServerOnNetwork, 0, len(resp.Servers))
+	for _, s := range resp.Servers {
+		results = append(results, serverOnNetwork(s))
 	}
 
-	f := format.ParseFormat(outputFormat)
-	if f == format.Table {
-		headers := []string{"SERVER NAME", "DISCOVERY URL", "CAPABILITIES"}
-		rows := make([][]string, len(results))
-		for i, s := range results {
-			rows[i] = []string{s.ServerName, s.DiscoveryURL, strings.Join(s.ServerCapabilities, ", ")}
-		}
-		return w.WriteTable(headers, rows)
+	if format.ParseFormat(outputFormat) == format.Table {
+		return writeServersOnNetworkTable(w, results)
 	}
 	return w.Write(results)
+}
+
+func newDiscoverLDSCmd() *cobra.Command {
+	var host string
+
+	cmd := &cobra.Command{
+		Use:   "lds",
+		Short: "Query a Local Discovery Server",
+		Long: `Ask the Local Discovery Server (LDS) of a host which servers it knows.
+
+--host is a host name or IP address; the well-known discovery port 4840 is
+added. A complete opc.tcp URL, or --endpoint, works as well.
+
+Two lists are returned: the applications registered with the discovery server
+(FindServers) and the servers it found on the network with mDNS
+(FindServersOnNetwork). The second needs the multicast extension (LDS-ME);
+a discovery server without it is not an error.
+
+Examples:
+  opcuactl discover lds --host 192.168.1.10
+  opcuactl discover lds --host opc.tcp://gateway.local:4840 --format json --pretty
+  opcuactl discover lds --endpoint opc.tcp://localhost:4840`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := host
+			if target == "" {
+				target = connCfg.Endpoint
+			}
+			if target == "" {
+				return exitCodef(1, "--host or --endpoint is required")
+			}
+
+			ctx, cancel := connCfg.TimeoutContext(context.Background())
+			defer cancel()
+
+			res, err := opcua.DiscoverServers(ctx, target, connCfg.DiscoveryOptions()...)
+			if err != nil {
+				format.Errf("querying discovery server: %v", err)
+				return exitCode(2, err)
+			}
+
+			result := model.DiscoveryResult{
+				DiscoveryServerURL: res.DiscoveryServerURL,
+				MulticastSupported: res.MulticastSupported,
+				Servers:            make([]model.DiscoveredServer, 0, len(res.Servers)),
+				ServersOnNetwork:   make([]model.ServerOnNetwork, 0, len(res.ServersOnNetwork)),
+			}
+			for _, app := range res.Servers {
+				result.Servers = append(result.Servers, discoveredServer(app))
+			}
+			for _, s := range res.ServersOnNetwork {
+				result.ServersOnNetwork = append(result.ServersOnNetwork, serverOnNetwork(s))
+			}
+
+			w := newWriter()
+			if f := format.ParseFormat(outputFormat); f != format.Table && f != format.CSV {
+				return w.Write(result)
+			}
+			if format.ParseFormat(outputFormat) == format.Table {
+				fmt.Printf("Discovery server: %s\n\nRegistered servers (FindServers):\n", result.DiscoveryServerURL)
+			}
+			if err := writeServersTable(w, result.Servers); err != nil {
+				return err
+			}
+			if !result.MulticastSupported {
+				if format.ParseFormat(outputFormat) == format.Table {
+					fmt.Println("\nServers on network: not supported by this discovery server (no multicast extension)")
+				}
+				return nil
+			}
+			if format.ParseFormat(outputFormat) == format.Table {
+				fmt.Println("\nServers on network (FindServersOnNetwork, mDNS):")
+			}
+			return writeServersOnNetworkTable(w, result.ServersOnNetwork)
+		},
+	}
+
+	cmd.Flags().StringVar(&host, "host", "", "Host name, IP address or opc.tcp URL of the discovery server (port 4840 by default)")
+	return cmd
 }
 
 func newDiscoverEndpointsCmd() *cobra.Command {
@@ -156,19 +276,23 @@ func newDiscoverEndpointsCmd() *cobra.Command {
 		Short: "List server endpoints",
 		Long: `List server endpoints with security and user token information.
 
+--best selects the most secure endpoint. With --cert it only considers
+endpoints the key of that certificate can use (RSA or ECC).
+
 Examples:
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --best
+  opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --best --cert ecc-cert.pem --key ecc-key.pem
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --policy Basic256Sha256 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if connCfg.Endpoint == "" {
-				return exitCodef(1, "--endpoint is required")
+			if err := connCfg.RequireEndpoint(); err != nil {
+				return exitCode(1, err)
 			}
 
 			ctx, cancel := connCfg.TimeoutContext(context.Background())
 			defer cancel()
 
-			eps, err := opcua.GetEndpoints(ctx, connCfg.Endpoint)
+			eps, err := opcua.GetEndpoints(ctx, connCfg.Endpoint, connCfg.DiscoveryOptions()...)
 			if err != nil {
 				format.Errf("getting endpoints: %v", err)
 				return exitCode(2, err)
@@ -270,16 +394,24 @@ func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter 
 
 	// If the user explicitly set --policy or --mode, try an exact match first.
 	if policyFilter != "" || modeFilter != "" {
-		policy := policyFilter
-		if policy == "" {
-			policy = "Basic256Sha256"
+		policy := ""
+		if policyFilter != "" {
+			policy = parse.SecurityPolicy(policyFilter)
 		}
-		mode := ua.MessageSecurityModeSignAndEncrypt
+		mode := ua.MessageSecurityModeInvalid
 		if modeFilter != "" {
 			mode = ua.MessageSecurityModeFromString(modeFilter)
 		}
-		matched, err := ua.SelectEndpoint(eps, parse.SecurityPolicy(policy), mode)
+		matched, err := connCfg.SelectEndpoint(eps, policy, mode)
 		if err == nil {
+			ep = matched
+		}
+	}
+
+	// With a client certificate (--cert): the best endpoint its key can use,
+	// so an RSA certificate is not paired with an ECC endpoint.
+	if ep == nil && connCfg.CertFile != "" {
+		if matched, err := connCfg.SelectEndpoint(eps, "", ua.MessageSecurityModeInvalid); err == nil {
 			ep = matched
 		}
 	}

@@ -48,6 +48,11 @@ func newWriteValueCmd() *cobra.Command {
 The --type flag controls type coercion (bool, int16, uint16, int32, uint32, int64, uint64,
 float, double, string, bytes, datetime, guid, nodeid, json). If omitted, the value is sent as a string.
 
+--type ua-json and --type ua-xml take a Variant in the OPC UA JSON or XML
+DataEncoding (Part 6), which reaches every data type: arrays, LocalizedText,
+structures. It is the format "get value --ua-encoding json|xml" prints inside
+"Value"; for JSON: {"UaType":<built-in type id>,"Value":<value>}.
+
 Use --dry-run to validate parsing without sending the write to the server.
 Use --index-range for writing to specific array elements (e.g. "0:2").
 Use --yes to skip the safety confirmation prompt.
@@ -56,7 +61,9 @@ Examples:
   opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Temp" --value 42.5 --type double
   opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Active" --value true --type bool
   opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Temp" --value 42.5 --type double --dry-run
-  opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Arr" --value 42 --type int32 --index-range 0`,
+  opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Arr" --value 42 --type int32 --index-range 0
+  opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Arr" --value '{"UaType":6,"Value":[1,2,3]}' --type ua-json
+  opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Label" --value '{"UaType":21,"Value":{"Locale":"en","Text":"Tank 1"}}' --type ua-json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
 				return exitCodef(1, "--node is required")
@@ -70,9 +77,18 @@ Examples:
 				return exitCode(1, err)
 			}
 
-			goVal, err := parse.CoerceValue(value, typeName)
-			if err != nil {
-				return exitCodef(1, "type coercion failed: %v", err)
+			var goVal interface{}
+			if parse.IsUAEncodedType(typeName) {
+				variant, vErr := parse.UAVariant(value, typeName)
+				if vErr != nil {
+					return exitCodef(1, "decoding %s value: %v", typeName, vErr)
+				}
+				goVal = variant.Value()
+			} else {
+				goVal, err = parse.CoerceValue(value, typeName)
+				if err != nil {
+					return exitCodef(1, "type coercion failed: %v", err)
+				}
 			}
 
 			// TTY safety confirmation
@@ -192,7 +208,7 @@ Examples:
 
 	cmd.Flags().StringVarP(&nodeStr, "node", "n", "", "Target node ID (required)")
 	cmd.Flags().StringVar(&value, "value", "", "Value to write (required)")
-	cmd.Flags().StringVar(&typeName, "type", "string", "Value type (bool|int16|uint16|int32|uint32|int64|uint64|float|double|string|bytes|datetime|guid|nodeid|json)")
+	cmd.Flags().StringVar(&typeName, "type", "string", "Value type (bool|int16|uint16|int32|uint32|int64|uint64|float|double|string|bytes|datetime|guid|nodeid|json|ua-json|ua-xml)")
 	cmd.Flags().StringVar(&indexRange, "index-range", "", "OPC UA index range for array writes (e.g. \"0:2\")")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate and parse only, do not send to server")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip write confirmation prompt")

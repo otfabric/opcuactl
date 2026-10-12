@@ -69,12 +69,100 @@ func NodeIDsWithNamespace(ss []string, namespace string) ([]*ua.NodeID, error) {
 // SecurityPolicy normalizes a security policy name to a full URI.
 func SecurityPolicy(s string) string {
 	if s == "" || strings.EqualFold(s, "none") {
-		return "http://opcfoundation.org/UA/SecurityPolicy#None"
+		return ua.SecurityPolicyURINone
 	}
 	if strings.HasPrefix(s, "http") {
 		return s
 	}
-	return "http://opcfoundation.org/UA/SecurityPolicy#" + s
+	return ua.FormatSecurityPolicyURI(s)
+}
+
+// DataChangeTrigger parses the trigger of a data-change filter.
+func DataChangeTrigger(s string) (ua.DataChangeTrigger, error) {
+	switch strings.ToLower(strings.NewReplacer("-", "", "_", "").Replace(s)) {
+	case "status":
+		return ua.DataChangeTriggerStatus, nil
+	case "", "statusvalue":
+		return ua.DataChangeTriggerStatusValue, nil
+	case "statusvaluetimestamp":
+		return ua.DataChangeTriggerStatusValueTimestamp, nil
+	}
+	return 0, fmt.Errorf("unknown trigger %q (status|status-value|status-value-timestamp)", s)
+}
+
+// DeadbandType parses the deadband type of a data-change filter.
+func DeadbandType(s string) (ua.DeadbandType, error) {
+	switch strings.ToLower(s) {
+	case "", "none":
+		return ua.DeadbandTypeNone, nil
+	case "absolute", "abs":
+		return ua.DeadbandTypeAbsolute, nil
+	case "percent", "pct":
+		return ua.DeadbandTypePercent, nil
+	}
+	return 0, fmt.Errorf("unknown deadband type %q (none|absolute|percent)", s)
+}
+
+// UAEncoding describes one of the standard OPC UA data encodings of Part 6.
+type UAEncoding struct {
+	XML  bool
+	Form ua.JSONForm
+}
+
+// ParseUAEncoding parses the name of an OPC UA data encoding.
+func ParseUAEncoding(s string) (UAEncoding, error) {
+	switch strings.ToLower(s) {
+	case "json", "json-compact":
+		return UAEncoding{Form: ua.JSONCompact}, nil
+	case "json-verbose":
+		return UAEncoding{Form: ua.JSONVerbose}, nil
+	case "json-reversible":
+		return UAEncoding{Form: ua.JSONLegacyReversible}, nil
+	case "json-nonreversible":
+		return UAEncoding{Form: ua.JSONLegacyNonReversible}, nil
+	case "xml":
+		return UAEncoding{XML: true}, nil
+	}
+	return UAEncoding{}, fmt.Errorf("unknown OPC UA encoding %q (json|json-verbose|json-reversible|json-nonreversible|xml)", s)
+}
+
+// Encode encodes a value (built-in type, structure or DataValue) in the
+// OPC UA JSON or XML DataEncoding.
+func (e UAEncoding) Encode(v interface{}, pretty bool) ([]byte, error) {
+	var opts []ua.CodecOption
+	if pretty {
+		opts = append(opts, ua.WithIndent("  "))
+	}
+	if e.XML {
+		return ua.EncodeXML(v, opts...)
+	}
+	return ua.EncodeJSON(v, append(opts, ua.WithJSONForm(e.Form))...)
+}
+
+// UAVariant decodes a Variant written in the OPC UA JSON ("ua-json") or XML
+// ("ua-xml") DataEncoding. It gives access to every data type, including
+// arrays, LocalizedText and structures.
+func UAVariant(value, typeName string) (*ua.Variant, error) {
+	v := new(ua.Variant)
+	var err error
+	switch strings.ToLower(typeName) {
+	case "ua-json":
+		err = ua.DecodeJSON([]byte(value), v)
+	case "ua-xml":
+		err = ua.DecodeXML([]byte(value), v)
+	default:
+		return nil, fmt.Errorf("%q is not an OPC UA encoding", typeName)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// IsUAEncodedType reports whether a --type value names an OPC UA encoding.
+func IsUAEncodedType(typeName string) bool {
+	t := strings.ToLower(typeName)
+	return t == "ua-json" || t == "ua-xml"
 }
 
 // SecurityPolicyShortName extracts the short name from a policy URI.

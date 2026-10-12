@@ -1,5 +1,74 @@
 # opcuactl Releases
 
+## v0.3.0
+
+**Date:** 2026-10-12  
+**Previous release:** v0.2.1
+
+### Summary
+
+Feature release on **[go-opcua v1.6.0](https://github.com/otfabric/go-opcua/releases/tag/v1.6.0)**: the CLI gains the ECC security policies, reverse connect, Local Discovery Server and mDNS queries, data-change filters (deadband, trigger) and the OPC UA JSON / XML data encodings. All new functionality is covered by end-to-end tests that run the CLI against a go-opcua server.
+
+Existing commands, flags and output formats keep working; see **Behaviour changes** for the three things that differ.
+
+### Behaviour changes
+
+- **Minimum Go version is 1.26** for `go install` and source builds (required by go-opcua v1.6.0). Pre-built binaries are unaffected.
+- **An explicit secure `--security-policy` now looks up the server certificate.** `--security-policy Basic256Sha256 --security-mode SignAndEncrypt` used to fail unless `--server-cert` was given; opcuactl now takes the certificate (and the user-token PolicyId) from the matching endpoint, as `auto` does. This costs one GetEndpoints round trip; pass `--server-cert` to skip it.
+- **`auto` and `discover endpoints --best` respect the key type of `--cert`.** With a client certificate only endpoints that key can use are considered: an RSA certificate no longer selects an ECC endpoint it cannot open. `--best` with `--mode` alone no longer assumes `Basic256Sha256`.
+- `discover servers --on-network` has a new first table column `RECORD` (JSON output is unchanged).
+
+### Added — security
+
+- **ECC security policies:** `ECC_nistP256`, `ECC_nistP384`, `ECC_nistP256_AesGcm`, `ECC_nistP256_ChaChaPoly` and `ECC_curve25519` for `--security-policy`, `discover endpoints --policy` and shell completion.
+- **ECDSA and Ed25519 certificates** for `--cert` / `--key`, for the secure channel and for `--auth certificate` (previously RSA only).
+
+### Added — reverse connect
+
+- **`--reverse-listen host:port`** (`OPCUACTL_REVERSE_LISTEN`): opcuactl listens and waits for the server to connect, for servers behind a firewall or NAT. Works with every command, including discovery and secured sessions. `--endpoint` becomes optional: the endpoint URL announced by the server is used.
+- **`--reverse-server-uri`** (`OPCUACTL_REVERSE_SERVER_URI`): only accept the server announcing this ApplicationUri.
+- `--timeout` bounds the wait for the server. `ping` skips its TCP stage with reverse connect.
+
+### Added — discovery
+
+- **`discover lds --host <host>`**: asks the Local Discovery Server of a host (port 4840 by default) for the servers registered with it and, with the multicast extension, the servers it found with mDNS.
+- **`discover servers --on-network`**: `--capability` (repeatable server capability filter, e.g. `DA`, `HD`), `--start-record` and `--max-records` for paging.
+
+### Added — monitoring
+
+- **DataChangeFilter on `monitor value`:** `--trigger status|status-value|status-value-timestamp`, `--deadband-type none|absolute|percent`, `--deadband <value>`.
+- **`monitor value --index-range`** to monitor part of an array.
+- Monitored items the server rejects are reported on stderr with their status code while the others keep running; the command exits with code 3 when none could be created. Before, a rejected item was silently never reported.
+
+### Added — data encoding
+
+- **`get value --ua-encoding json|json-verbose|json-reversible|json-nonreversible|xml`** prints DataValues in the OPC UA JSON (Part 6 §5.4) or XML (§5.3) DataEncoding; `--pretty` indents.
+- **`write value --type ua-json|ua-xml`** takes a Variant in those encodings, which reaches every data type (arrays, LocalizedText, structures).
+
+### Fixed
+
+- A failed connection attempt now releases its resources before the command returns.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.5.0 → **[v1.6.0](https://github.com/otfabric/go-opcua/releases/tag/v1.6.0)**
+- **Go**: 1.25 → 1.26; CI runs on Go 1.26 and 1.27.
+- `golang.org/x/crypto` v0.58.0 (new, indirect; ChaCha20-Poly1305 for the ECC policies), `golang.org/x/sys` v0.49.0, `golang.org/x/term` v0.47.0. opcuactl remains a pure-Go, statically linked binary.
+
+### What the library update brings to existing commands
+
+- **Stricter channel security:** sequence numbers of secured channels are verified, so replayed or reordered messages are rejected.
+- **Subscriptions survive more failures:** `monitor` sessions recreate subscriptions that went silent or lost their session, and no longer deliver a republished notification twice.
+- **Clearer errors:** a server's error at OpenSecureChannel surfaces with its status code instead of `EOF`; malformed responses no longer crash the client.
+
+### Documentation
+
+- **README**: security policy table, reverse connect, data-change filters, OPC UA JSON / XML encodings, new flags.
+- **EXAMPLES**: live captures of the new features against a go-opcua v1.6.0 server.
+- **RECIPES**: ECC and reverse-connect connection presets, LDS discovery, deadband monitoring, copying a value between servers in the OPC UA JSON encoding.
+
+---
+
 ## v0.2.1
 
 **Date:** 2026-10-11  

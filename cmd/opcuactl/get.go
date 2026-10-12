@@ -35,6 +35,7 @@ func newGetValueCmd() *cobra.Command {
 		timestamps         bool
 		timestampsToReturn string
 		indexRange         string
+		uaEncoding         string
 	)
 
 	cmd := &cobra.Command{
@@ -46,11 +47,20 @@ Use --index-range for array/matrix subsets (e.g. "0:2" or "0:1,0:1").
 Use --timestamps-to-return to control which timestamps the server returns
 (source|server|both|neither). --timestamps only affects CLI display.
 
+--ua-encoding prints each DataValue in a standard OPC UA DataEncoding of
+Part 6 instead of the opcuactl output format: json (1.05 compact),
+json-verbose, json-reversible and json-nonreversible (1.04), or xml. One
+document per node, in the order of the --node flags; --pretty indents. The
+output can be exchanged with other OPC UA stacks and fed to
+"write value --type ua-json|ua-xml".
+
 Examples:
   opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258
   opcuactl get value -e opc.tcp://localhost:4840 -n i=2258 -n "ns=2;s=Temperature" --format json
   opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258 --timestamps
-  opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Array" --index-range "0:2"`,
+  opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Array" --index-range "0:2"
+  opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Recipe" --ua-encoding json --pretty
+  opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Recipe" --ua-encoding xml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(nodes) == 0 {
 				return exitCodef(1, "at least one --node is required")
@@ -64,6 +74,15 @@ Examples:
 			tsReturn := ua.TimestampsToReturnBoth
 			if timestampsToReturn != "" {
 				tsReturn = ua.TimestampsToReturnFromString(timestampsToReturn)
+			}
+
+			var encoding *parse.UAEncoding
+			if uaEncoding != "" {
+				enc, err := parse.ParseUAEncoding(uaEncoding)
+				if err != nil {
+					return exitCodef(1, "invalid --ua-encoding: %v", err)
+				}
+				encoding = &enc
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -96,6 +115,17 @@ Examples:
 				return exitCode(3, err)
 			}
 
+			if encoding != nil {
+				for _, dv := range resp.Results {
+					data, err := encoding.Encode(dv, prettyOutput)
+					if err != nil {
+						return exitCodef(3, "encoding value: %v", err)
+					}
+					fmt.Println(string(data))
+				}
+				return nil
+			}
+
 			showTS := timestamps
 			if timestampsToReturn != "neither" && (timestampsToReturn == "source" || timestampsToReturn == "server" || timestampsToReturn == "both") {
 				showTS = true
@@ -108,7 +138,9 @@ Examples:
 	cmd.Flags().BoolVar(&timestamps, "timestamps", false, "Show source and server timestamps in output")
 	cmd.Flags().StringVar(&timestampsToReturn, "timestamps-to-return", "both", "Timestamps to request (source|server|both|neither)")
 	cmd.Flags().StringVar(&indexRange, "index-range", "", "IndexRange for array/matrix Value reads")
+	cmd.Flags().StringVar(&uaEncoding, "ua-encoding", "", "Print DataValues in an OPC UA DataEncoding (json|json-verbose|json-reversible|json-nonreversible|xml)")
 	_ = cmd.RegisterFlagCompletionFunc("timestamps-to-return", fixedCompletion(timestampValues))
+	_ = cmd.RegisterFlagCompletionFunc("ua-encoding", fixedCompletion(uaEncodingValues))
 	return cmd
 }
 
