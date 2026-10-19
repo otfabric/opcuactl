@@ -880,7 +880,7 @@ The client library underneath, [go-opcua](https://github.com/otfabric/go-opcua),
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - [staticcheck](https://staticcheck.dev/) (for linting)
 - [golangci-lint](https://golangci-lint.run/) (for CI linting)
 

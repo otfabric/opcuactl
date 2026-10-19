@@ -19,7 +19,7 @@ Thank you for your interest in contributing to `opcuactl`! This document covers 
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.26+
 - [staticcheck](https://staticcheck.dev/) for linting
 - Access to an OPC UA server for integration testing (optional)
 
