@@ -6,7 +6,7 @@ If you discover a security vulnerability in `opcuactl`, please report it respons
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email **security@otfabric.com** with:
+Instead, please email **security@otfabric.io** with:
 
 - A description of the vulnerability
 - Steps to reproduce the issue
