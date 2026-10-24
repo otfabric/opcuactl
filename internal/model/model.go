@@ -385,6 +385,42 @@ type PubSubAdded struct {
 	Results []PubSubResult `json:"results,omitempty"`
 }
 
+// PubSubDiagnostics are the diagnostics counters of a PubSub component
+// (Part 14 §9.1.11): of a server's component, or of what a pubsub command
+// sent and received.
+type PubSubDiagnostics struct {
+	Component        string                 `json:"component"`
+	Name             string                 `json:"name,omitempty"`
+	NodeID           string                 `json:"nodeId,omitempty"`
+	Level            string                 `json:"diagnosticsLevel"`
+	TotalInformation uint64                 `json:"totalInformation"`
+	TotalError       uint64                 `json:"totalError"`
+	SubError         bool                   `json:"subError,omitempty"`
+	Counters         []PubSubCounter        `json:"counters"`
+	LiveValues       map[string]interface{} `json:"liveValues,omitempty"`
+}
+
+// PubSubCounter is one diagnostics counter (PubSubDiagnosticsCounterType).
+type PubSubCounter struct {
+	Name            string `json:"name"`
+	Value           uint64 `json:"value"`
+	Classification  string `json:"classification"` // Information or Error
+	Level           string `json:"diagnosticsLevel"`
+	Active          bool   `json:"active"`
+	TimeFirstChange string `json:"timeFirstChange,omitempty"`
+}
+
+// PubSubAnnouncement is a UADP discovery announcement (Part 14 §7.2.4.6)
+// other than DataSetMetaData, which is a PubSubMetaData.
+type PubSubAnnouncement struct {
+	PubSubReceived
+	PublisherID    string                 `json:"publisherId"`
+	Type           string                 `json:"announcement"`
+	SequenceNumber uint16                 `json:"sequenceNumber"`
+	Status         string                 `json:"status,omitempty"`
+	Details        map[string]interface{} `json:"details,omitempty"`
+}
+
 // PubSubResult is the per-variable result of AddPublishedDataItems.
 type PubSubResult struct {
 	Field      string `json:"field"`
