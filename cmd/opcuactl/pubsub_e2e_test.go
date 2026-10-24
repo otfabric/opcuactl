@@ -780,6 +780,41 @@ func TestE2E_PubSubConfig(t *testing.T) {
 	out = run("show")
 	wantContains(t, out, "reader-group", "rg", "reader", rd, "WriterGroupId=1", "Value:Int32")
 
+	// Diagnostics of the root and of the writer group.
+	out = run("diagnostics")
+	wantContains(t, out, "diagnostics PublishSubscribe", "COUNTER", "StateError")
+	var wgDiag model.PubSubDiagnostics
+	if err := json.Unmarshal([]byte(run("diagnostics", "--node", wg, "--format", "json")), &wgDiag); err != nil {
+		t.Fatal(err)
+	}
+	sent := func(m model.PubSubDiagnostics) (model.PubSubCounter, bool) {
+		for _, c := range m.Counters {
+			if c.Name == "SentNetworkMessages" {
+				return c, true
+			}
+		}
+		return model.PubSubCounter{}, false
+	}
+	if c, ok := sent(wgDiag); wgDiag.Component != "writer-group" || wgDiag.Name != "wg" || !ok || !c.Active || c.Value == 0 || c.TimeFirstChange == "" {
+		t.Errorf("writer group diagnostics: %+v", wgDiag)
+	}
+	var reset model.PubSubDiagnostics
+	if err := json.Unmarshal([]byte(run("diagnostics", "--node", wg, "--reset", "--format", "json")), &reset); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := sent(wgDiag)
+	if c, _ := sent(reset); c.Value >= before.Value {
+		t.Errorf("reset did not clear SentNetworkMessages: %d", c.Value)
+	}
+	for _, args := range [][]string{
+		{"diagnostics", "--node", "bogus"},
+		{"diagnostics", "--node", dst.ID().String()},
+	} {
+		if _, _, err := runCLI(t, append(append([]string{"pubsub", "config"}, args...), ep...)...); err == nil {
+			t.Errorf("config %v: expected an error", args)
+		}
+	}
+
 	// Enable and disable.
 	wantContains(t, run("disable", "--node", wg), "Disabled")
 	wantContains(t, run("enable", "--node", wg, "--format", "json"), `"state":"Operational"`)

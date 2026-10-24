@@ -55,6 +55,7 @@ Examples:
 		newPubSubRemoveCmd(),
 		newPubSubEnableCmd(true),
 		newPubSubEnableCmd(false),
+		newPubSubConfigDiagnosticsCmd(),
 	)
 	return cmd
 }
