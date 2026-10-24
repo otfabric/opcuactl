@@ -3,7 +3,7 @@ module github.com/otfabric/opcuactl
 go 1.26.0
 
 require (
-	github.com/otfabric/go-opcua v1.8.2-0.20261024121008-c132c6fa809e
+	github.com/otfabric/go-opcua v1.8.2-0.20261024131511-78f4c4d7d2e0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/term v0.47.0
