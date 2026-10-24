@@ -13,7 +13,7 @@ Existing commands and output formats are unchanged. The `--mqtt-*` broker flags 
 
 ### Dependency
 
-- **`github.com/otfabric/go-opcua`**: v1.8.1 → **[v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**: PubSub Ethernet, MQTT 5.0 and AMQP 1.0 transports, chunked NetworkMessages, UADP discovery, Part 14 diagnostics counters, and the PubSub diagnostics objects in the server. PubSub Actions need go-opcua main 78f4c4d or later (`PubSub.CallAction`, `PublishedActions`, `WithActionHandler`, `ActionOptions`).
+- **`github.com/otfabric/go-opcua`**: v1.8.1 → **[v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**: PubSub Ethernet, MQTT 5.0 and AMQP 1.0 transports, chunked NetworkMessages, UADP discovery, Part 14 diagnostics counters, and the PubSub diagnostics objects in the server. PubSub Actions (`PubSub.CallAction`, `PublishedActions`, `WithActionHandler`, `ActionOptions`).
 
 ### Added: transports
 
