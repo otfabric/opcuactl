@@ -19,6 +19,7 @@ import (
 
 	"github.com/otfabric/go-opcua/pubsub"
 	"github.com/otfabric/go-opcua/pubsub/security"
+	"github.com/otfabric/go-opcua/server"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/model"
 )
@@ -483,4 +484,16 @@ func TestActionHelpers(t *testing.T) {
 	if id := randomRequestorID(); !strings.HasPrefix(id, "opcuactl-") || len(id) != len("opcuactl-")+8 {
 		t.Errorf("requestor id %q", id)
 	}
+}
+
+// TestE2E_PubSubConfigShowActions lists a server's PublishedAction: the
+// server shows it as a PublishedDataSetType object with its writer.
+func TestE2E_PubSubConfigShowActions(t *testing.T) {
+	pds := pubsub.PublishedActions("Calc", []pubsub.Field{{Name: "A", Type: ua.TypeIDInt32}}, nil, pubsub.ActionTargetOf(1, "Run"))
+	cfg := pubsub.NewConfiguration([]*ua.PublishedDataSetDataType{pds},
+		pubsub.AttachWriterGroups(pubsub.UDPConnection("conn", freeUDPURL(t), uint16(4)),
+			pubsub.WriterGroup("Actions", 2, time.Second, pubsub.DataSetWriter("CalcWriter", 3, "Calc"))))
+	s := startServer(t, server.WithPubSub(cfg))
+	out := mustRun(t, "pubsub", "config", "show", "-e", s.url)
+	wantContains(t, out, "dataset", "Calc", "CalcWriter")
 }
