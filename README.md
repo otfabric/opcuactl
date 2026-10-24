@@ -27,7 +27,7 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
-- **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast) or MQTT, `pubsub publish` sends test DataSets, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server.
+- **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
@@ -131,7 +131,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
-- **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast) and MQTT, decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, and remote configuration of a server's PublishSubscribe object
+- **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
 
@@ -327,9 +327,10 @@ opcuactl
 │   ├── nodes          Export node metadata from a subtree
 │   └── values         Export value snapshots or historical time-series
 ├── pubsub
-│   ├── subscribe      Listen on UDP / MQTT and print received DataSetMessages
+│   ├── subscribe      Listen on UDP / Ethernet / MQTT / AMQP and print received DataSetMessages
 │   ├── publish        Publish a DataSet built from the command line (testing)
-│   ├── decode         Decode a captured UADP or JSON NetworkMessage
+│   ├── discover       Send UADP discovery probes and print the announcements
+│   ├── decode         Decode captured UADP or JSON NetworkMessages (chunks too)
 │   ├── sks
 │   │   └── get-keys   Get the keys of a SecurityGroup (GetSecurityKeys)
 │   └── config
@@ -337,7 +338,8 @@ opcuactl
 │       ├── add-connection / add-dataset / add-writer-group / add-writer
 │       ├── add-reader-group / add-reader
 │       ├── remove     Remove a connection, group, writer, reader or data set
-│       └── enable / disable
+│       ├── enable / disable
+│       └── diagnostics Read (and reset) the diagnostics counters of a component
 ├── ping               Test connectivity to an OPC UA server
 ├── version            Print version, build, and runtime info
 └── completion         Generate shell completion scripts (bash|zsh|fish|powershell)
@@ -640,8 +642,34 @@ opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --publisher-id 2234 --wr
 opcuactl pubsub publish --url mqtt://broker:1883 --topic plant/line1 --encoding json \
   --field Temp:Double=21.5 --metadata-topic plant/line1/meta
 
-# Decode a captured message (raw bytes, hex or base64; UADP or JSON)
+# MQTT 5.0 with QoS 1 and broker credentials: content type, UAMessageType and user properties are shown
+OPCUACTL_BROKER_PASSWORD=secret opcuactl pubsub subscribe --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 \
+  --broker-username plant --topic 'plant/#'
+
+# AMQP 1.0: a RabbitMQ queue (vhost via connection-hostname) and an Artemis anycast queue
+opcuactl pubsub subscribe --url amqp://rabbit:5672 --topic /queues/plant --transport-property connection-hostname=vhost:plant
+opcuactl pubsub publish --url amqp://artemis:5672 --topic plant.line1 --encoding json --field Temp:Double=21.5 \
+  --transport-property target-capabilities=queue
+
+# Raw Ethernet (UADP; needs root or CAP_NET_RAW)
+sudo opcuactl pubsub subscribe --url opc.eth://01-00-5E-00-00-01 --interface eth0
+
+# NetworkMessages above 512 bytes are sent as chunks; subscribe reassembles them
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --field "Readings:String=$(seq -s, 1 500)" --max-message-size 512
+
+# UADP discovery: who publishes here, and the DataSetMetaData of writer 1 of publisher 2234
+opcuactl pubsub discover --url opc.udp://224.0.0.22:4840
+opcuactl pubsub discover --url opc.udp://224.0.0.22:4840 --probe metadata,writers --publisher-id 2234 --writer-id 1
+# A publisher that answers probes and announces its metadata every 10 s; a subscriber that probes for it
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --field Temp:Double=21.5 --count 0 --answer-probes --announce-interval 10s
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --probe
+
+# Diagnostics counters (Part 14 §9.1.11) every 10 s and on exit
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --diagnostics-interval 10s --diagnostics-level advanced
+
+# Decode a captured message (raw bytes, hex or base64; UADP or JSON); chunks as separate files
 opcuactl pubsub decode capture.hex --field Counter:UInt32 --field Temp:Double
+opcuactl pubsub decode chunk1.bin chunk2.bin chunk3.bin
 
 # Keys of a SecurityGroup; --show-keys --format json writes a --keys-file
 opcuactl pubsub sks get-keys -e opc.tcp://sks:4840 --security-group sg1 --future-keys 2 \
@@ -656,6 +684,8 @@ opcuactl pubsub config add-writer-group -e opc.tcp://localhost:4840 --connection
 opcuactl pubsub config add-writer -e opc.tcp://localhost:4840 --group "ns=2;i=179" --name DiagWriter --writer-id 1 --dataset Diag
 opcuactl pubsub config disable -e opc.tcp://localhost:4840 --node "ns=2;i=179"
 opcuactl pubsub config remove connection -e opc.tcp://localhost:4840 --node "ns=2;i=166"
+opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name Broker --url mqtt://broker:1883 --mqtt-version 5.0 --encoding json
+opcuactl pubsub config diagnostics -e opc.tcp://localhost:4840 --node "ns=2;i=179"
 ```
 
 See [PubSub](#pubsub) for the flags and how security works.
@@ -798,11 +828,23 @@ opcuactl monitor value --reverse-listen 0.0.0.0:4841 --timeout 60s -n "ns=2;s=Te
 
 ## PubSub
 
-OPC UA PubSub (Part 14) sends DataSets from publishers to subscribers without sessions. The `pubsub` commands work with the UADP and JSON message mappings over UDP (`opc.udp://host:port`, unicast or multicast; `--interface` picks the interface for multicast) and MQTT 3.1.1 brokers (`mqtt://`, `mqtts://`; `--topic`, `--qos`, `--mqtt-username`, `--mqtt-password` / `OPCUACTL_MQTT_PASSWORD`, `--mqtt-client-id`).
+OPC UA PubSub (Part 14) sends DataSets from publishers to subscribers without sessions. The `pubsub` commands work with the UADP and JSON message mappings over these transports (`--url`):
+
+| Transport | URL | Mappings | Notes |
+|-----------|-----|----------|-------|
+| UDP | `opc.udp://host:port` | UADP | unicast or multicast; `--interface` picks the interface for multicast |
+| Ethernet | `opc.eth://MAC[:VID[.PCP]]` | UADP | `--interface` required; Linux, macOS, FreeBSD; needs root or `sudo setcap cap_net_raw+ep "$(command -v opcuactl)"` |
+| MQTT | `mqtt://`, `mqtts://` | UADP, JSON | `--mqtt-version 3.1.1\|5.0\|BestAvailable`, `--qos 0..2`, `--topic`; `--retain` on publish |
+| AMQP 1.0 | `amqp://`, `amqps://` | UADP, JSON | `--topic` is the AMQP address: RabbitMQ `/queues/<q>` (vhost with `--transport-property connection-hostname=vhost:<name>`), Artemis a plain address (anycast with `source-capabilities=queue` / `target-capabilities=queue`); `--qos 2` acts as 1 |
+
+Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BROKER_PASSWORD`; `OPCUACTL_MQTT_PASSWORD` still works) and `--broker-client-id` (MQTT client id, AMQP container-id). `--username` and `--password` are the OPC UA session's. The 0.4 flags `--mqtt-username`, `--mqtt-password` and `--mqtt-client-id` still work but are deprecated. `--transport-property key=value` (repeatable) passes connection properties to the transport: MQTT 5.0 `connection-*` properties, AMQP `source-capabilities`, `target-capabilities`, `connection-hostname`, and so on.
 
 | Concern | Flags |
 |---------|-------|
-| Transport | `--url`, `--interface`, `--topic`, `--qos`, `--mqtt-*` |
+| Transport | `--url`, `--interface`, `--topic`, `--qos`, `--mqtt-version`, `--broker-*`, `--transport-property` |
+| Chunks | publish `--max-message-size`; subscribe `--chunk-max-message-size`, `--chunk-max-pending`, `--chunk-max-pending-bytes`, `--chunk-timeout` |
+| Discovery | `pubsub discover`; subscribe `--probe`; publish `--answer-probes`, `--announce-metadata`, `--announce-interval`; `--discovery-url`, `--discovery-layout spec\|dotnet` |
+| Diagnostics | `--diagnostics`, `--diagnostics-interval`, `--diagnostics-level basic\|advanced\|info\|log\|debug`; `pubsub config diagnostics` |
 | Message mapping | `--encoding auto\|uadp\|json` (subscribe and decode detect it) |
 | Which DataSets | `--publisher-id`, `--writer-group-id` (UADP), `--writer-id` |
 | Field names and types | `--field Name:Type` (repeatable, `Type[]` for arrays), `--metadata file`, `--metadata-node NodeId`, or announced on the wire |
@@ -817,7 +859,15 @@ OPC UA PubSub (Part 14) sends DataSets from publishers to subscribers without se
 
 **Configuration.** `pubsub config` calls the methods of the server's PublishSubscribe object (AddConnection, AddPublishedDataItems, AddWriterGroup, AddDataSetWriter, AddReaderGroup, AddDataSetReader, the Remove methods, Enable / Disable); components are addressed by the NodeIds `config show` and the add commands print (`-q` prints only the NodeId). It works with go-opcua (`server.WithPubSub`) and open62541 servers.
 
-**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). Not supported: Ethernet (`opc.eth://`) and AMQP transports, chunked NetworkMessages and UADP discovery requests.
+**Broker messages.** `subscribe` shows the topic, content type, UAMessageType (`ua-data`, `ua-metadata`, …) and the user properties (MQTT 5.0, AMQP application properties) of each broker message, and picks the decoder by content type (`application/opcua+uadp`, `application/json`), falling back to detecting it. `publish` sends the UAMessageType of its data and metadata messages; the content type comes from the transport.
+
+**Chunked NetworkMessages.** UADP NetworkMessages larger than `--max-message-size` (default: the transport's limit, such as the UDP datagram size) are split into chunks (Part 14 §7.2.4.4.4), each secured on its own. `subscribe` and `decode` reassemble them; `--chunk-max-message-size` (default 2 MiB), `--chunk-max-pending` (512), `--chunk-max-pending-bytes` (32 MiB) and `--chunk-timeout` (5 s) bound the memory the reassembly uses. JSON messages have no chunks.
+
+**Discovery.** UADP discovery (Part 14 §7.2.4.6) works on UDP and Ethernet. `pubsub discover` sends probes (`--probe applications|endpoints|metadata|writers|group|connections`) and prints the announcements; `subscribe --probe` asks for the DataSetMetaData of writers it sees without one; `publish --answer-probes` answers probes for its application state, DataSetMetaData, writer and group configuration and connection, and `--announce-metadata` / `--announce-interval` announce the DataSetMetaData. Probes go to the multicast group or Ethernet address of `--url`, or to `--discovery-url` (the DiscoveryAddress). A unicast DiscoveryAddress is bound by the publisher, so other tools on the same host only send probes to it. `--discovery-layout dotnet` speaks the layout of the OPC Foundation .NET stack 2.x (which has no group and connections probes).
+
+**Diagnostics.** `subscribe`, `publish` and `discover` count what they send and receive with the counters of the Part 14 diagnostics objects (§9.1.11: SentNetworkMessages, FailedTransmissions, ReceivedNetworkMessages, ReceivedInvalidNetworkMessages, DecryptionErrors, …) plus counters for chunks and discovery messages, and print them on stderr when done (`--diagnostics`), every `--diagnostics-interval`, as a JSON line with `--format json`. `--diagnostics-level` selects the counters by DiagnosticsLevel. `pubsub config diagnostics [--node X] [--reset]` reads the diagnostics object of a server's PublishSubscribe object, connection, group, writer or reader: the totals, every counter with its classification, level and first change, and the LiveValues.
+
+**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). Not supported yet: PubSub Actions (request / response), and the gzip-compressed JSON content type.
 
 ## NodeID Formats
 

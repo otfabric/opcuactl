@@ -4,7 +4,7 @@ Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** i
 
 Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.6.0** (`opcuactl` **v0.3.0**).
 
-This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md). The [v0.3.0 features](#v030-features-captured-against-a-go-opcua-server) — ECC security policies, reverse connect, Local Discovery Server, data-change filters and the OPC UA JSON / XML encodings — are live captures against a go-opcua v1.6.0 demo server. The [v0.4.0 PubSub features](#v040-features-captured-against-a-go-opcua-server) are live captures against the go-opcua v1.7.0 PubSub example server.
+This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md). The [v0.3.0 features](#v030-features-captured-against-a-go-opcua-server) — ECC security policies, reverse connect, Local Discovery Server, data-change filters and the OPC UA JSON / XML encodings — are live captures against a go-opcua v1.6.0 demo server. The [v0.4.0 PubSub features](#v040-features-captured-against-a-go-opcua-server) are live captures against the go-opcua v1.7.0 PubSub example server. The [v0.5.0 PubSub features](#v050-features-captured-against-brokers-and-a-go-opcua-server) (MQTT 5.0, AMQP 1.0, Ethernet, chunks, discovery and diagnostics) are live captures against real brokers, Linux containers and the go-opcua v1.9.0 PubSub example server.
 
 > All captured commands use these connection flags:
 > ```bash
@@ -74,6 +74,13 @@ This PLC only offers anonymous / username over `None/None`, and does not support
   - [Find Type (by Data Type)](#find-type-by-data-type)
   - [Find Type (by Byte)](#find-type-by-byte)
 - [Version](#version)
+- [v0.5.0 features (captured against brokers and a go-opcua server)](#v050-features-captured-against-brokers-and-a-go-opcua-server)
+  - [MQTT 5.0](#mqtt-50)
+  - [AMQP 1.0: RabbitMQ and Artemis](#amqp-10-rabbitmq-and-artemis)
+  - [Ethernet](#ethernet)
+  - [Chunked NetworkMessages](#chunked-networkmessages)
+  - [UADP discovery](#uadp-discovery)
+  - [Diagnostics of a server](#diagnostics-of-a-server)
 - [v0.4.0 features (captured against a go-opcua server)](#v040-features-captured-against-a-go-opcua-server)
   - [PubSub configuration of a server](#pubsub-configuration-of-a-server)
   - [Subscribe](#subscribe)
@@ -776,6 +783,252 @@ opcuactl dev
 ```
 
 With a release build, `tag` appears when `main.tag` is set at link time.
+
+---
+
+## v0.5.0 features (captured against brokers and a go-opcua server)
+
+Captured with Eclipse Mosquitto 2 (MQTT 5.0, port 18831), RabbitMQ 4.1.4 (AMQP 1.0, port 15681) and ActiveMQ Artemis 2.42.0 (AMQP 1.0, port 15682) in Docker on `localhost`, raw Ethernet between two Linux containers (Docker Desktop, `CAP_NET_RAW`), UDP on the loopback interface of macOS, and the PubSub example server of go-opcua v1.9.0 (`examples/pubsub/server -port 48400 -pubsub opc.udp://127.0.0.1:47200`).
+
+### MQTT 5.0
+
+The subscriber shows the topic, content type, UAMessageType and (if any) the user properties of each message, and its diagnostics counters on exit. The publisher sends the retained `ua-metadata` message first:
+
+```console
+$ opcuactl pubsub subscribe --url mqtt://127.0.0.1:18831 --mqtt-version 5.0 --qos 1 --topic 'plant/#' --show-metadata --count 2 --diagnostics
+
+$ opcuactl pubsub publish --url mqtt://127.0.0.1:18831 --mqtt-version 5.0 --qos 1 --topic plant/line1 --encoding json \
+    --publisher-id str:line1 --field Temp:Double=21.5 --field Running:Boolean=true --metadata-topic plant/line1/meta \
+    --count 2 --interval 500ms --transport-property "connection-Session Expiry Interval=60"
+published 2 message(s), 846 bytes, to mqtt://127.0.0.1:18831 topic plant/line1
+```
+
+Output of the subscriber:
+
+```console
+metadata pub=line1 writer=1 "DataSet" version=846161288.846161288 topic=plant/line1/meta content-type=application/json ua-message-type=ua-metadata fields: Temp:Double, Running:Boolean
+2026-10-24T12:48:08.583143Z  pub=line1 wg=opcuactl writer=1 seq=1 keyframe topic=plant/line1 content-type=application/json ua-message-type=ua-data  Temp=21.5 Running=true
+2026-10-24T12:48:09.083364Z  pub=line1 wg=opcuactl writer=1 seq=2 keyframe topic=plant/line1 content-type=application/json ua-message-type=ua-data  Temp=21.5 Running=true
+diagnostics reader-group (level Basic): information=3 error=0
+  ReceivedNetworkMessages    3
+  ChunksReceived             0
+  ChunkedMessagesReceived    0
+  ChunksDiscarded            0 (error)
+  DiscoveryRequestsSent      0
+  DiscoveryResponsesReceived 0
+```
+
+### AMQP 1.0: RabbitMQ and Artemis
+
+RabbitMQ 4 addresses a queue as `/queues/<name>` (here `plant`, declared beforehand; another vhost would be `--transport-property connection-hostname=vhost:<name>`). The broker password comes from the environment:
+
+```console
+$ export OPCUACTL_BROKER_PASSWORD=...
+$ opcuactl pubsub subscribe --url amqp://127.0.0.1:15681 --broker-username plant --topic /queues/plant --count 2 --jsonl
+
+$ opcuactl pubsub publish --url amqp://127.0.0.1:15681 --broker-username plant --topic /queues/plant --encoding json \
+    --publisher-id 2234 --field Temp:Double=21.5 --count 2 --interval 500ms
+published 2 message(s), 772 bytes, to amqp://127.0.0.1:15681 topic /queues/plant
+```
+
+```console
+{"ts":"2026-10-24T12:48:39.052451Z","topic":"/queues/plant","contentType":"application/json","uaMessageType":"ua-data","encoding":"json","publisherId":"2234","writerGroupName":"opcuactl","dataSetWriterId":1,"messageType":"keyframe","sequenceNumber":1,"timestamp":"2026-10-24T12:48:39.049118Z","metaDataVersion":"846161319.846161319","security":"None","fields":[{"index":0,"name":"Temp","value":21.5,"type":"Double"}]}
+{"ts":"2026-10-24T12:48:39.553727Z","topic":"/queues/plant","contentType":"application/json","uaMessageType":"ua-data","encoding":"json","publisherId":"2234","writerGroupName":"opcuactl","dataSetWriterId":1,"messageType":"keyframe","sequenceNumber":2,"timestamp":"2026-10-24T12:48:39.550221Z","metaDataVersion":"846161319.846161319","security":"None","fields":[{"index":0,"name":"Temp","value":21.5,"type":"Double"}]}
+```
+
+Artemis takes plain addresses; the capabilities make the address an anycast queue instead of a multicast topic. UADP this time, decoded by its content type:
+
+```console
+$ opcuactl pubsub subscribe --url amqp://127.0.0.1:15682 --broker-username plant --topic plant.line1 \
+    --transport-property source-capabilities=queue --transport-property target-capabilities=queue --count 1
+
+$ opcuactl pubsub publish --url amqp://127.0.0.1:15682 --broker-username plant --topic plant.line1 \
+    --transport-property source-capabilities=queue --transport-property target-capabilities=queue \
+    --publisher-id 2234 --writer-group-id 100 --field Temp:Double=21.5
+published 1 message(s), 51 bytes, to amqp://127.0.0.1:15682 topic plant.line1
+```
+
+```console
+2026-10-24T12:48:58.672606Z  pub=2234 wg=100 writer=1 seq=1 keyframe topic=plant.line1 content-type=application/opcua+uadp ua-message-type=ua-data  #0=21.5
+```
+
+### Ethernet
+
+UADP frames to the multicast MAC address `01-00-5E-00-00-01`, between two containers on one Docker network:
+
+```console
+sub$ opcuactl pubsub subscribe --url opc.eth://01-00-5E-00-00-01 --interface eth0 --count 3 --show-metadata
+
+pub$ opcuactl pubsub publish --url opc.eth://01-00-5E-00-00-01 --interface eth0 --publisher-id 2234 --writer-group-id 100 \
+       --field Temp:Double=21.5 --announce-metadata --count 2 --interval 500ms
+published 2 message(s), 102 bytes, to opc.eth://01-00-5E-00-00-01
+```
+
+```console
+metadata pub=2234 writer=1 "DataSet" version=846161446.846161446 fields: Temp:Double
+2026-10-24T12:50:46.0635119Z  pub=2234 wg=100 writer=1 seq=1 keyframe  Temp=21.5
+2026-10-24T12:50:46.564521Z  pub=2234 wg=100 writer=1 seq=2 keyframe  Temp=21.5
+```
+
+Without the raw-socket capability, and without `--interface`:
+
+```console
+$ opcuactl pubsub subscribe --url opc.eth://01-00-5E-00-00-01 --interface eth0
+Error: pubsub/transport/eth: open AF_PACKET socket: operation not permitted (raw Ethernet access needs CAP_NET_RAW or root); run as root, or on Linux grant the capability: sudo setcap cap_net_raw+ep "$(command -v opcuactl)"
+
+$ opcuactl pubsub subscribe --url opc.eth://01-00-5E-00-00-01
+Error: --interface is required with opc.eth:// (the network interface the frames are sent and received on, e.g. eth0)
+```
+
+### Chunked NetworkMessages
+
+A 1.6 KB DataSet with `--max-message-size 512` goes out as four chunks, and the subscriber reassembles it. Both print their diagnostics:
+
+```console
+$ opcuactl pubsub subscribe --url opc.udp://127.0.0.1:47300 --count 1 --field Readings:String --diagnostics
+
+$ opcuactl pubsub publish --url opc.udp://127.0.0.1:47300 --publisher-id 2234 --writer-group-id 100 \
+    --field "Readings:String=$(seq -s, 1 400)" --max-message-size 512 --diagnostics
+published 1 message(s), 1649 bytes in 4 chunks, to opc.udp://127.0.0.1:47300
+diagnostics writer-group (level Basic): information=8 error=0
+  SentNetworkMessages       4
+  FailedTransmissions       0 (error)
+  ChunksSent                4
+  DiscoveryRequestsReceived 0
+  DiscoveryRequestsIgnored  0
+  DiscoveryResponsesSent    0
+```
+
+Output of the subscriber (the field is cut here):
+
+```console
+2026-10-24T12:49:12.795243Z  pub=2234 wg=100 writer=1 seq=1 keyframe  Readings=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,...
+diagnostics reader-group (level Basic): information=6 error=0
+  ReceivedNetworkMessages    1
+  ChunksReceived             4
+  ChunkedMessagesReceived    1
+  ChunksDiscarded            0 (error)
+  DiscoveryRequestsSent      0
+  DiscoveryResponsesReceived 0
+```
+
+### UADP discovery
+
+A publisher on a multicast group that answers discovery probes:
+
+```console
+$ opcuactl pubsub publish --url opc.udp://224.0.0.22:47301 --interface lo0 --publisher-id 2234 --writer-group-id 100 \
+    --dataset-name Line1 --field Temp:Double=21.5 --field Running:Boolean=true --count 0 --duration 8s --answer-probes --diagnostics
+```
+
+Who publishes on the group, and the DataSetMetaData and writer configuration of writer 1:
+
+```console
+$ opcuactl pubsub discover --url opc.udp://224.0.0.22:47301 --interface lo0 --duration 2s
+announcement ApplicationInformation pub=2234 seq=1 isCyclic=false state=Operational
+
+$ opcuactl pubsub discover --url opc.udp://224.0.0.22:47301 --interface lo0 --probe metadata,writers --publisher-id 2234 --writer-id 1 --duration 2s
+metadata pub=2234 writer=1 "Line1" version=846161352.846161352 fields: Temp:Double, Running:Boolean
+announcement DataSetWriterConfiguration pub=2234 seq=3 dataSetWriterIds=[1] dataSetWriters=1:opcuactl(Line1) writerGroup=opcuactl writerGroupId=100
+```
+
+A subscriber that probes for the metadata of the writers it sees without one. The first message has unnamed fields; the following ones are named:
+
+```console
+$ opcuactl pubsub subscribe --url opc.udp://224.0.0.22:47301 --interface lo0 --probe --count 2 --show-metadata --diagnostics
+2026-10-24T12:49:18.817656Z  pub=2234 wg=100 writer=1 seq=7 keyframe  #0=21.5 #1=true
+metadata pub=2234 writer=1 "Line1" version=846161352.846161352 fields: Temp:Double, Running:Boolean
+2026-10-24T12:49:19.817624Z  pub=2234 wg=100 writer=1 seq=8 keyframe  Temp=21.5 Running=true
+diagnostics reader-group (level Basic): information=5 error=0
+  ReceivedNetworkMessages    3
+  ChunksReceived             0
+  ChunkedMessagesReceived    0
+  ChunksDiscarded            0 (error)
+  DiscoveryRequestsSent      1
+  DiscoveryResponsesReceived 1
+```
+
+The publisher at the end, after answering the four probes:
+
+```console
+published 8 message(s), 424 bytes, to opc.udp://224.0.0.22:47301
+diagnostics writer-group (level Basic): information=20 error=0
+  SentNetworkMessages       12
+  FailedTransmissions       0 (error)
+  ChunksSent                0
+  DiscoveryRequestsReceived 4
+  DiscoveryRequestsIgnored  0
+  DiscoveryResponsesSent    4
+```
+
+### Diagnostics of a server
+
+The diagnostics objects of the go-opcua PubSub example server, starting with the PublishSubscribe object and its LiveValues:
+
+```console
+$ opcuactl pubsub config diagnostics -e opc.tcp://localhost:48400
+
+diagnostics PublishSubscribe "PublishSubscribe" i=14443 (level Basic): information=2 error=0
+COUNTER                    VALUE  CLASSIFICATION  LEVEL  ACTIVE  FIRST CHANGE
+StateDisabledByMethod      0      Information     Basic  true
+StateError                 0      Error           Basic  true
+StateOperationalByMethod   0      Information     Basic  true
+StateOperationalByParent   1      Information     Basic  true    2026-10-24T12:49:35.02623Z
+StateOperationalFromError  0      Information     Basic  true
+StatePausedByParent        1      Information     Basic  true    2026-10-24T12:49:35.023142Z
+
+LIVE VALUE                 VALUE
+ConfiguredDataSetReaders   1
+ConfiguredDataSetWriters   1
+OperationalDataSetReaders  1
+OperationalDataSetWriters  1
+```
+
+A writer group (NodeIds from `pubsub config show`). EncryptionErrors is an Advanced counter, so it is inactive at the Basic level:
+
+```console
+$ opcuactl pubsub config diagnostics -e opc.tcp://localhost:48400 --node "ns=2;i=161"
+
+diagnostics writer-group "Publisher" ns=2;i=161 (level Basic): information=32 error=0
+COUNTER                    VALUE  CLASSIFICATION  LEVEL     ACTIVE  FIRST CHANGE
+EncryptionErrors           -      Error           Advanced  false
+FailedTransmissions        0      Error           Basic     true
+SentNetworkMessages        30     Information     Basic     true    2026-10-24T12:49:35.026689Z
+StateDisabledByMethod      0      Information     Basic     true
+StateError                 0      Error           Basic     true
+StateOperationalByMethod   0      Information     Basic     true
+StateOperationalByParent   1      Information     Basic     true    2026-10-24T12:49:35.026463Z
+StateOperationalFromError  0      Information     Basic     true
+StatePausedByParent        1      Information     Basic     true    2026-10-24T12:49:35.023166Z
+
+LIVE VALUE                 VALUE
+ConfiguredDataSetWriters   1
+OperationalDataSetWriters  1
+```
+
+`--reset` calls the Reset method first, then reads the counters (abridged):
+
+```console
+$ opcuactl pubsub config diagnostics -e opc.tcp://localhost:48400 --node "ns=2;i=161" --reset --format json --pretty
+{
+  "component": "writer-group",
+  "name": "Publisher",
+  "nodeId": "ns=2;i=161",
+  "diagnosticsLevel": "Basic",
+  "totalInformation": 0,
+  "totalError": 0,
+  "counters": [
+    { "name": "EncryptionErrors", "value": 0, "classification": "Error", "diagnosticsLevel": "Advanced", "active": false },
+    { "name": "FailedTransmissions", "value": 0, "classification": "Error", "diagnosticsLevel": "Basic", "active": true },
+    { "name": "SentNetworkMessages", "value": 0, "classification": "Information", "diagnosticsLevel": "Basic", "active": true },
+    ...
+  ],
+  "liveValues": {
+    "ConfiguredDataSetWriters": 1,
+    "OperationalDataSetWriters": 1
+  }
+}
+```
 
 ---
 
