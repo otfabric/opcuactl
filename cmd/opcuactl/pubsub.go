@@ -365,6 +365,23 @@ func (d *pubsubDecoder) writerMatches(id uint16) bool {
 	return d.filter.writerID == 0 || d.filter.writerID == id
 }
 
+// encodingOf picks the decoder of a message: by the content type the
+// transport carried (MQTT 5.0, AMQP), else by looking at the payload.
+func encodingOf(b []byte, msg *transport.Message) (parse.PubSubEncoding, error) {
+	if msg != nil && msg.ContentType != "" {
+		ct, _, _ := strings.Cut(msg.ContentType, ";")
+		switch strings.ToLower(strings.TrimSpace(ct)) {
+		case transport.ContentTypeUADP:
+			return parse.EncodingUADP, nil
+		case transport.ContentTypeJSON:
+			return parse.EncodingJSON, nil
+		case transport.ContentTypeJSONGzip:
+			return "", fmt.Errorf("content type %s: compressed JSON is not supported", msg.ContentType)
+		}
+	}
+	return detectEncoding(b), nil
+}
+
 // detectEncoding tells JSON from UADP: JSON messages are objects or arrays.
 func detectEncoding(b []byte) parse.PubSubEncoding {
 	for _, c := range b {
@@ -388,7 +405,10 @@ var errFiltered = errors.New("filtered")
 func (d *pubsubDecoder) decode(b []byte, msg *transport.Message) (*pubsubResult, error) {
 	enc := d.encoding
 	if enc == parse.EncodingAuto || enc == "" {
-		enc = detectEncoding(b)
+		var err error
+		if enc, err = encodingOf(b, msg); err != nil {
+			return nil, err
+		}
 	}
 	if enc == parse.EncodingJSON {
 		return d.decodeJSON(b, msg)
@@ -468,6 +488,9 @@ func (d *pubsubDecoder) decodeJSON(b []byte, msg *transport.Message) (*pubsubRes
 		if !m.Timestamp.IsZero() {
 			res.Status["timestamp"] = model.FormatTimestamp(m.Timestamp)
 		}
+		if r := receivedModel(msg); r.ContentType != "" || r.UAMessageType != "" {
+			res.Status["contentType"], res.Status["uaMessageType"] = r.ContentType, r.UAMessageType
+		}
 	case *message.NetworkMessage:
 		res.DataSets = d.dataSets(m, msg, "json")
 		if len(res.DataSets) == 0 {
@@ -527,13 +550,7 @@ func (d *pubsubDecoder) dataSets(nm *message.NetworkMessage, msg *transport.Mess
 			SecurityTokenID:   token,
 			Fields:            []model.PubSubField{},
 		}
-		if msg != nil {
-			m.Received = model.FormatTimestamp(msg.Received.UTC())
-			m.Topic = msg.Topic
-			if msg.Source != nil {
-				m.Source = msg.Source.String()
-			}
-		}
+		m.PubSubReceived = receivedModel(msg)
 		if ds.Status != 0 {
 			m.Status = ds.Status.Symbol()
 		}
@@ -610,6 +627,28 @@ func jsonSafeValue(v interface{}) interface{} {
 	return v
 }
 
+// receivedModel describes how msg arrived; nil for a decoded file.
+func receivedModel(msg *transport.Message) model.PubSubReceived {
+	var out model.PubSubReceived
+	if msg == nil {
+		return out
+	}
+	out.Received = model.FormatTimestamp(msg.Received.UTC())
+	out.Topic = msg.Topic
+	if msg.Source != nil {
+		out.Source = msg.Source.String()
+	}
+	out.ContentType = msg.ContentType
+	for _, p := range msg.UserProperties {
+		if p.Name == transport.UAMessageTypeProperty && out.UAMessageType == "" {
+			out.UAMessageType = p.Value
+			continue
+		}
+		out.UserProperties = append(out.UserProperties, model.PubSubProperty{Name: p.Name, Value: p.Value})
+	}
+	return out
+}
+
 func metaDataModel(msg *transport.Message, enc string, p message.PublisherID, writerID uint16, md *ua.DataSetMetaDataType) model.PubSubMetaData {
 	out := model.PubSubMetaData{
 		Encoding:        enc,
@@ -618,13 +657,7 @@ func metaDataModel(msg *transport.Message, enc string, p message.PublisherID, wr
 		Name:            md.Name,
 		Fields:          []model.PubSubFieldMeta{},
 	}
-	if msg != nil {
-		out.Received = model.FormatTimestamp(msg.Received.UTC())
-		out.Topic = msg.Topic
-		if msg.Source != nil {
-			out.Source = msg.Source.String()
-		}
-	}
+	out.PubSubReceived = receivedModel(msg)
 	if v := md.ConfigurationVersion; v != nil {
 		out.Version = fmt.Sprintf("%d.%d", v.MajorVersion, v.MinorVersion)
 	}
@@ -665,9 +698,7 @@ func dataSetLine(ds model.PubSubDataSet) string {
 	if ds.Status != "" && ds.Status != "OK" {
 		fmt.Fprintf(&b, " [%s]", ds.Status)
 	}
-	if ds.Topic != "" {
-		fmt.Fprintf(&b, " topic=%s", ds.Topic)
-	}
+	b.WriteString(receivedSuffix(ds.PubSubReceived))
 	b.WriteString(" ")
 	for _, f := range ds.Fields {
 		name := f.Name
@@ -682,13 +713,31 @@ func dataSetLine(ds model.PubSubDataSet) string {
 	return b.String()
 }
 
+// receivedSuffix is the table form of the transport headers of a message.
+func receivedSuffix(r model.PubSubReceived) string {
+	var b strings.Builder
+	if r.Topic != "" {
+		fmt.Fprintf(&b, " topic=%s", r.Topic)
+	}
+	if r.ContentType != "" {
+		fmt.Fprintf(&b, " content-type=%s", r.ContentType)
+	}
+	if r.UAMessageType != "" {
+		fmt.Fprintf(&b, " ua-message-type=%s", r.UAMessageType)
+	}
+	for _, p := range r.UserProperties {
+		fmt.Fprintf(&b, " [%s=%s]", p.Name, p.Value)
+	}
+	return b.String()
+}
+
 func metaDataLine(md model.PubSubMetaData) string {
 	fields := make([]string, len(md.Fields))
 	for i, f := range md.Fields {
 		fields[i] = f.Name + ":" + f.Type
 	}
-	return fmt.Sprintf("metadata pub=%s writer=%d %q version=%s fields: %s",
-		md.PublisherID, md.DataSetWriterID, md.Name, md.Version, strings.Join(fields, ", "))
+	return fmt.Sprintf("metadata pub=%s writer=%d %q version=%s%s fields: %s",
+		md.PublisherID, md.DataSetWriterID, md.Name, md.Version, receivedSuffix(md.PubSubReceived), strings.Join(fields, ", "))
 }
 
 func statusLine(st map[string]interface{}) string {

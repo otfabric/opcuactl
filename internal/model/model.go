@@ -278,11 +278,31 @@ type VarNode struct {
 	Status         string      `json:"status,omitempty"`
 }
 
+// PubSubReceived tells how a PubSub NetworkMessage arrived: when, from
+// where, and the message headers of the transport (MQTT 5.0, AMQP).
+type PubSubReceived struct {
+	Received string `json:"ts,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Topic    string `json:"topic,omitempty"`
+	// ContentType is the MIME type the transport carried
+	// ("application/opcua+uadp", "application/json").
+	ContentType string `json:"contentType,omitempty"`
+	// UAMessageType is "ua-data", "ua-metadata", ... (MQTT 5.0 user
+	// property, AMQP subject).
+	UAMessageType string `json:"uaMessageType,omitempty"`
+	// UserProperties are the other message properties, in order.
+	UserProperties []PubSubProperty `json:"userProperties,omitempty"`
+}
+
+// PubSubProperty is a name and value pair of a message header.
+type PubSubProperty struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // PubSubDataSet is one decoded DataSetMessage of a PubSub NetworkMessage.
 type PubSubDataSet struct {
-	Received          string        `json:"ts,omitempty"`
-	Source            string        `json:"source,omitempty"`
-	Topic             string        `json:"topic,omitempty"`
+	PubSubReceived
 	Encoding          string        `json:"encoding"`
 	PublisherID       string        `json:"publisherId"`
 	WriterGroupID     uint16        `json:"writerGroupId,omitempty"`
@@ -311,9 +331,7 @@ type PubSubField struct {
 
 // PubSubMetaData is a DataSetMetaData announcement seen on the wire.
 type PubSubMetaData struct {
-	Received        string            `json:"ts,omitempty"`
-	Source          string            `json:"source,omitempty"`
-	Topic           string            `json:"topic,omitempty"`
+	PubSubReceived
 	Encoding        string            `json:"encoding"`
 	PublisherID     string            `json:"publisherId"`
 	DataSetWriterID uint16            `json:"dataSetWriterId"`

@@ -115,8 +115,9 @@ func TestFieldModel(t *testing.T) {
 
 func TestPubSubLines(t *testing.T) {
 	line := dataSetLine(model.PubSubDataSet{
-		Received: "r", PublisherID: "p", WriterGroupName: "G", DataSetWriterID: 2, SequenceNumber: 3,
-		MessageType: "deltaframe", Security: "Sign", SecurityTokenID: 4, Status: "Bad", Topic: "t",
+		PubSubReceived: model.PubSubReceived{Received: "r", Topic: "t"},
+		PublisherID:    "p", WriterGroupName: "G", DataSetWriterID: 2, SequenceNumber: 3,
+		MessageType: "deltaframe", Security: "Sign", SecurityTokenID: 4, Status: "Bad",
 		Fields: []model.PubSubField{{Index: 1, Value: 5, Status: "Uncertain"}, {Name: "N", Value: []int{1, 2}}},
 	})
 	for _, want := range []string{"r  pub=p wg=G writer=2 seq=3 deltaframe", "[Sign token=4]", "[Bad]", "topic=t", "#1=5[Uncertain]", "N=1, 2"} {
