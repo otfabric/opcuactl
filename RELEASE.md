@@ -34,8 +34,13 @@ Existing commands, flags and output formats are unchanged.
 - **`call method` against go-opcua v1.7.0 servers:** they accept subtypes of the declared argument types (IntegerId, Duration, …) and empty arrays.
 - **Structures:** several generated structures whose Go name differs from the OPC UA name (`ReadValueID`, `NetworkAddressURLDataType`, …) are now registered, so they decode instead of arriving empty.
 
+### Fixed
+
+- **Silent failures:** a command that failed on a missing or invalid flag, an unknown flag or an unknown command exited with status 1 without a message. Every error is now printed on stderr, once.
+
 ### Tests
 
+- Every command is checked to print exactly one error line when it fails.
 - End-to-end tests run the CLI in-process against the go-opcua PubSub runtime and server: UADP over UDP in both directions (Variant, DataValue and RawData fields, metadata announcements, filters), JSON and UADP through an in-test MQTT 3.1.1 broker (retained metadata, QoS 1), a Security Key Service with a Basic256Sha256 SignAndEncrypt session and a username identity (GetSecurityKeys, refused callers, Aes256-CTR secured messages both ways, keys files), and the configuration methods of a server with `WithPubSub` (a reader writing what a writer publishes to a target variable, enable / disable, removal, error paths).
 - Unit tests for the new parsers (built-in types, field specs, PublisherIds, message security, encodings) and output helpers.
 

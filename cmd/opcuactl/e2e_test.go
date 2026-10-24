@@ -73,7 +73,7 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	stopErr := capture(&os.Stderr)
 
 	rootCmd.SetArgs(args)
-	err = rootCmd.Execute()
+	err = Execute()
 
 	return stopOut(), stopErr(), err
 }

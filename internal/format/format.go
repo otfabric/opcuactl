@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"gopkg.in/yaml.v3"
@@ -181,9 +182,38 @@ func toSlice(v interface{}) ([]interface{}, bool) {
 	}
 }
 
+var (
+	printedMu sync.Mutex
+	printed   []string
+)
+
 // Errf prints an error message to stderr.
 func Errf(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", args...)
+	msg := fmt.Sprintf(format, args...)
+	printedMu.Lock()
+	printed = append(printed, msg)
+	printedMu.Unlock()
+	fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
+}
+
+// ErrPrinted reports whether an Errf message since the last ResetPrinted
+// contains msg: a command that printed its error before returning it.
+func ErrPrinted(msg string) bool {
+	printedMu.Lock()
+	defer printedMu.Unlock()
+	for _, p := range printed {
+		if strings.Contains(p, msg) {
+			return true
+		}
+	}
+	return false
+}
+
+// ResetPrinted forgets the messages printed by Errf.
+func ResetPrinted() {
+	printedMu.Lock()
+	printed = nil
+	printedMu.Unlock()
 }
 
 // FormatValue converts a value to a display string suitable for table/CSV output.

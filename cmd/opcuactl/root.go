@@ -160,7 +160,14 @@ func splitCSV(s string) []string {
 	return out
 }
 
-// Execute runs the root command.
+// Execute runs the root command. An error the command did not print itself
+// (flag validation, cobra's own errors) is printed on stderr, so that no
+// command fails silently.
 func Execute() error {
-	return rootCmd.Execute()
+	format.ResetPrinted()
+	err := rootCmd.Execute()
+	if err != nil && !format.ErrPrinted(err.Error()) {
+		format.Errf("%v", err)
+	}
+	return err
 }
