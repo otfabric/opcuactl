@@ -109,6 +109,12 @@ func (s *testServer) node(name string) string {
 
 func startServer(t *testing.T, opts ...server.Option) *testServer {
 	t.Helper()
+	return startServerWith(t, nil, opts...)
+}
+
+// startServerWith is startServer with a hook that runs before Start.
+func startServerWith(t *testing.T, beforeStart func(*server.Server), opts ...server.Option) *testServer {
+	t.Helper()
 	all := append([]server.Option{
 		server.EndPoint("localhost", 0),
 		server.EnableSecurity("None", ua.MessageSecurityModeNone),
@@ -159,6 +165,9 @@ func startServer(t *testing.T, opts ...server.Option) *testServer {
 	ns.AddNode(prop)
 	analog.AddRef(prop, id.HasProperty, true)
 
+	if beforeStart != nil {
+		beforeStart(srv)
+	}
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatalf("server start: %v", err)
 	}

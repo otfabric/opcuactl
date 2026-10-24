@@ -277,3 +277,100 @@ type VarNode struct {
 	Value          interface{} `json:"value,omitempty"`
 	Status         string      `json:"status,omitempty"`
 }
+
+// PubSubDataSet is one decoded DataSetMessage of a PubSub NetworkMessage.
+type PubSubDataSet struct {
+	Received          string        `json:"ts,omitempty"`
+	Source            string        `json:"source,omitempty"`
+	Topic             string        `json:"topic,omitempty"`
+	Encoding          string        `json:"encoding"`
+	PublisherID       string        `json:"publisherId"`
+	WriterGroupID     uint16        `json:"writerGroupId,omitempty"`
+	WriterGroupName   string        `json:"writerGroupName,omitempty"`
+	DataSetWriterID   uint16        `json:"dataSetWriterId"`
+	DataSetWriterName string        `json:"dataSetWriterName,omitempty"`
+	MessageType       string        `json:"messageType"`
+	SequenceNumber    uint32        `json:"sequenceNumber"`
+	Timestamp         string        `json:"timestamp,omitempty"`
+	Status            string        `json:"status,omitempty"`
+	MetaDataVersion   string        `json:"metaDataVersion,omitempty"`
+	Security          string        `json:"security"`
+	SecurityTokenID   uint32        `json:"securityTokenId,omitempty"`
+	Fields            []PubSubField `json:"fields"`
+}
+
+// PubSubField is one field of a DataSetMessage.
+type PubSubField struct {
+	Index           uint16      `json:"index"`
+	Name            string      `json:"name,omitempty"`
+	Value           interface{} `json:"value"`
+	Type            string      `json:"type,omitempty"`
+	Status          string      `json:"status,omitempty"`
+	SourceTimestamp string      `json:"sourceTimestamp,omitempty"`
+}
+
+// PubSubMetaData is a DataSetMetaData announcement seen on the wire.
+type PubSubMetaData struct {
+	Received        string            `json:"ts,omitempty"`
+	Source          string            `json:"source,omitempty"`
+	Topic           string            `json:"topic,omitempty"`
+	Encoding        string            `json:"encoding"`
+	PublisherID     string            `json:"publisherId"`
+	DataSetWriterID uint16            `json:"dataSetWriterId"`
+	Name            string            `json:"name"`
+	Version         string            `json:"version,omitempty"`
+	Fields          []PubSubFieldMeta `json:"fields"`
+}
+
+// PubSubFieldMeta describes one field of a DataSet.
+type PubSubFieldMeta struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	ValueRank int32  `json:"valueRank,omitempty"`
+}
+
+// SecurityKeys is the result of GetSecurityKeys. Key material is only
+// included when asked for.
+type SecurityKeys struct {
+	SecurityGroupID   string        `json:"securityGroupId"`
+	SecurityPolicyURI string        `json:"securityPolicyUri"`
+	FirstTokenID      uint32        `json:"firstTokenId"`
+	TimeToNextKey     string        `json:"timeToNextKey"`
+	KeyLifetime       string        `json:"keyLifetime"`
+	Keys              []SecurityKey `json:"keys"`
+}
+
+// SecurityKey is one key of a SecurityGroup.
+type SecurityKey struct {
+	TokenID uint32 `json:"tokenId"`
+	Length  int    `json:"length"`
+	Key     string `json:"key,omitempty"` // base64
+}
+
+// PubSubComponent is a component of the PublishSubscribe configuration of
+// a server.
+type PubSubComponent struct {
+	Kind       string            `json:"kind"`
+	Name       string            `json:"name"`
+	NodeID     string            `json:"nodeId"`
+	State      string            `json:"state,omitempty"`
+	Properties map[string]string `json:"properties,omitempty"`
+	Children   []PubSubComponent `json:"children,omitempty"`
+}
+
+// PubSubAdded is the result of a PubSub configuration method that adds a
+// component.
+type PubSubAdded struct {
+	Kind    string         `json:"kind"`
+	Name    string         `json:"name"`
+	NodeID  string         `json:"nodeId"`
+	Results []PubSubResult `json:"results,omitempty"`
+}
+
+// PubSubResult is the per-variable result of AddPublishedDataItems.
+type PubSubResult struct {
+	Field      string `json:"field"`
+	NodeID     string `json:"nodeId"`
+	Status     string `json:"status"`
+	StatusCode uint32 `json:"statusCode"`
+}
