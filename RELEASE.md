@@ -1,5 +1,30 @@
 # opcuactl Releases
 
+## v0.5.1
+
+**Date:** 2026-10-24  
+**Previous release:** v0.5.0
+
+### Summary
+
+Patch release: bump to **[go-opcua v1.9.1](https://github.com/otfabric/go-opcua/releases/tag/v1.9.1)** for its PubSub, MQTT, NodeId and secure channel fixes. No CLI flags, commands or output formats changed.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.9.0 → **[v1.9.1](https://github.com/otfabric/go-opcua/releases/tag/v1.9.1)**
+- No source changes were needed.
+
+### What the library update brings to the CLI
+
+- **`pubsub subscribe` with discovery:** a reader that learns its DataSetMetaData from an announcement keeps the sequence numbers of its writers, so a late or duplicated datagram is no longer printed again out of order.
+- **`pubsub publish`:** the first message of a writer group is sent once the connection's own subscriptions are in place, so a one-shot publish to a group the same process listens on is not lost.
+- **SKS key timing:** a key from a Security Key Service changes when the SKS changes it, so `pubsub subscribe --security-group` verifies messages right after a key change.
+- **MQTT:** two connections with one client identifier no longer take the session from each other in a tight loop; the client waits its back-off after the broker disconnects it.
+- **NodeIds with `nsu=`:** a namespace URI with a `;` or `%` is escaped in the JSON and XML encodings (`--encoding json|xml`) and read back correctly.
+- **Servers closing channels:** a go-opcua server now ends a secure channel with an Error message (`Bad_SecureChannelClosed`), so `monitor` and other long-running commands report why the server closed the connection.
+
+---
+
 ## v0.5.0
 
 **Date:** 2026-10-24  
