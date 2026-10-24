@@ -108,7 +108,7 @@ Examples:
 
 			msgs := make(chan *transport.Message, 1024)
 			var dropped atomic.Int64
-			cancelSub, err := conn.Subscribe(ctx, topic, tf.qos, func(m *transport.Message) {
+			cancelSub, err := tf.subscribe(ctx, conn, topic, func(m *transport.Message) {
 				select {
 				case msgs <- m:
 				default:
@@ -116,7 +116,7 @@ Examples:
 				}
 			})
 			if err != nil {
-				return exitCodef(2, "subscribing to %s: %v", tf.url, err)
+				return err
 			}
 			defer func() { _ = cancelSub() }()
 			if verbose {

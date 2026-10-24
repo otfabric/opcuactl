@@ -13,23 +13,34 @@ import (
 	"testing"
 )
 
-// testBroker is a minimal MQTT 3.1.1 broker for the PubSub tests: CONNECT,
-// PUBLISH (QoS 0 and 1, retain), SUBSCRIBE / UNSUBSCRIBE with wildcards,
-// PINGREQ and DISCONNECT. Subscribers receive everything at QoS 0.
+// testBroker is a minimal MQTT 3.1.1 and 5.0 broker for the PubSub tests:
+// CONNECT, PUBLISH (QoS 0, 1 and 2, retain), SUBSCRIBE / UNSUBSCRIBE with
+// wildcards, PINGREQ and DISCONNECT. Subscribers receive everything at QoS 0;
+// 5.0 subscribers get the properties of the PUBLISH (Content Type, User
+// Properties, ...), 3.1.1 subscribers the bare message.
 type testBroker struct {
 	ln net.Listener
 	wg sync.WaitGroup
 
 	mu       sync.Mutex
 	clients  map[*brokerClient]struct{}
-	retained map[string][]byte
+	retained map[string]brokerMessage
+}
+
+// brokerMessage is a payload with the encoded MQTT 5.0 properties of its
+// PUBLISH (nil from a 3.1.1 client).
+type brokerMessage struct {
+	payload, props []byte
 }
 
 type brokerClient struct {
 	conn    net.Conn
 	wmu     sync.Mutex
+	version byte // 4: 3.1.1, 5: 5.0
 	filters []string
 }
+
+const mqtt5 = 5
 
 func startBroker(t *testing.T) *testBroker {
 	t.Helper()
@@ -37,7 +48,7 @@ func startBroker(t *testing.T) *testBroker {
 	if err != nil {
 		t.Fatalf("broker listen: %v", err)
 	}
-	b := &testBroker{ln: ln, clients: map[*brokerClient]struct{}{}, retained: map[string][]byte{}}
+	b := &testBroker{ln: ln, clients: map[*brokerClient]struct{}{}, retained: map[string]brokerMessage{}}
 	b.wg.Add(1)
 	go b.serve()
 	t.Cleanup(b.close)
@@ -126,6 +137,43 @@ func mqttString(b []byte) (string, []byte, bool) {
 	return string(b[2 : 2+n]), b[2+n:], true
 }
 
+// readVarint reads a variable byte integer (the length of MQTT 5.0
+// properties) from b.
+func readVarint(b []byte) (n, used int, ok bool) {
+	mult := 1
+	for i := 0; i < 4 && i < len(b); i++ {
+		n += int(b[i]&0x7f) * mult
+		if b[i]&0x80 == 0 {
+			return n, i + 1, true
+		}
+		mult *= 128
+	}
+	return 0, 0, false
+}
+
+func appendVarint(b []byte, n int) []byte {
+	for {
+		d := byte(n % 128)
+		n /= 128
+		if n > 0 {
+			d |= 0x80
+		}
+		b = append(b, d)
+		if n == 0 {
+			return b
+		}
+	}
+}
+
+// cutProps splits the MQTT 5.0 properties (with their length) off b.
+func cutProps(b []byte) (props, rest []byte, ok bool) {
+	n, used, ok := readVarint(b)
+	if !ok || len(b) < used+n {
+		return nil, nil, false
+	}
+	return b[used : used+n], b[used+n:], true
+}
+
 func appendMQTTString(b []byte, s string) []byte {
 	b = binary.BigEndian.AppendUint16(b, uint16(len(s)))
 	return append(b, s...)
@@ -148,28 +196,60 @@ func (b *testBroker) handle(c *brokerClient) {
 		}
 		switch h >> 4 {
 		case 1: // CONNECT
-			c.write(0x20, []byte{0, 0})
+			_, rest, ok := mqttString(body)
+			if !ok || len(rest) < 1 {
+				return
+			}
+			c.version = rest[0]
+			if c.version == mqtt5 {
+				c.write(0x20, []byte{0, 0, 0})
+			} else {
+				c.write(0x20, []byte{0, 0})
+			}
 		case 3: // PUBLISH
 			qos := (h >> 1) & 3
 			topic, rest, ok := mqttString(body)
 			if !ok {
 				return
 			}
+			var id []byte
 			if qos > 0 {
 				if len(rest) < 2 {
 					return
 				}
-				id := rest[:2]
-				rest = rest[2:]
-				c.write(0x40, id) // PUBACK (QoS 2 is not used by the tests)
+				id, rest = rest[:2], rest[2:]
 			}
-			b.publish(topic, rest, h&1 == 1)
+			var props []byte
+			if c.version == mqtt5 {
+				if props, rest, ok = cutProps(rest); !ok {
+					return
+				}
+			}
+			switch qos {
+			case 1:
+				c.write(0x40, id) // PUBACK
+			case 2:
+				c.write(0x50, id) // PUBREC; PUBCOMP follows the PUBREL
+			}
+			b.publish(topic, brokerMessage{payload: rest, props: props}, h&1 == 1)
+		case 6: // PUBREL
+			if len(body) < 2 {
+				return
+			}
+			c.write(0x70, body[:2]) // PUBCOMP
 		case 8: // SUBSCRIBE
 			if len(body) < 2 {
 				return
 			}
 			id, rest := body[:2], body[2:]
 			ack := append([]byte{}, id...)
+			if c.version == mqtt5 {
+				var ok bool
+				if _, rest, ok = cutProps(rest); !ok {
+					return
+				}
+				ack = append(ack, 0)
+			}
 			var filters []string
 			for len(rest) > 0 {
 				f, r2, ok := mqttString(rest)
@@ -182,25 +262,33 @@ func (b *testBroker) handle(c *brokerClient) {
 			}
 			b.mu.Lock()
 			c.filters = append(c.filters, filters...)
-			var retained [][2]string
-			for topic, payload := range b.retained {
+			retained := map[string]brokerMessage{}
+			for topic, m := range b.retained {
 				for _, f := range filters {
 					if topicMatches(f, topic) {
-						retained = append(retained, [2]string{topic, string(payload)})
+						retained[topic] = m
 						break
 					}
 				}
 			}
 			b.mu.Unlock()
 			c.write(0x90, ack)
-			for _, m := range retained {
-				c.write(0x31, append(appendMQTTString(nil, m[0]), m[1]...))
+			for topic, m := range retained {
+				c.write(0x31, c.publishBody(topic, m))
 			}
 		case 10: // UNSUBSCRIBE
 			if len(body) < 2 {
 				return
 			}
 			id, rest := body[:2], body[2:]
+			ack := append([]byte{}, id...)
+			if c.version == mqtt5 {
+				var ok bool
+				if _, rest, ok = cutProps(rest); !ok {
+					return
+				}
+				ack = append(ack, 0)
+			}
 			b.mu.Lock()
 			for len(rest) > 0 {
 				f, r2, ok := mqttString(rest)
@@ -208,6 +296,9 @@ func (b *testBroker) handle(c *brokerClient) {
 					break
 				}
 				rest = r2
+				if c.version == mqtt5 {
+					ack = append(ack, 0)
+				}
 				for i, have := range c.filters {
 					if have == f {
 						c.filters = append(c.filters[:i], c.filters[i+1:]...)
@@ -216,7 +307,7 @@ func (b *testBroker) handle(c *brokerClient) {
 				}
 			}
 			b.mu.Unlock()
-			c.write(0xb0, id)
+			c.write(0xb0, ack)
 		case 12: // PINGREQ
 			c.write(0xd0, nil)
 		case 14: // DISCONNECT
@@ -225,13 +316,22 @@ func (b *testBroker) handle(c *brokerClient) {
 	}
 }
 
-func (b *testBroker) publish(topic string, payload []byte, retain bool) {
+// publishBody is the body of a QoS 0 PUBLISH of m to the client.
+func (c *brokerClient) publishBody(topic string, m brokerMessage) []byte {
+	body := appendMQTTString(nil, topic)
+	if c.version == mqtt5 {
+		body = append(appendVarint(body, len(m.props)), m.props...)
+	}
+	return append(body, m.payload...)
+}
+
+func (b *testBroker) publish(topic string, m brokerMessage, retain bool) {
 	b.mu.Lock()
 	if retain {
-		if len(payload) == 0 {
+		if len(m.payload) == 0 {
 			delete(b.retained, topic)
 		} else {
-			b.retained[topic] = append([]byte(nil), payload...)
+			b.retained[topic] = brokerMessage{payload: append([]byte(nil), m.payload...), props: append([]byte(nil), m.props...)}
 		}
 	}
 	var targets []*brokerClient
@@ -244,9 +344,8 @@ func (b *testBroker) publish(topic string, payload []byte, retain bool) {
 		}
 	}
 	b.mu.Unlock()
-	pkt := append(appendMQTTString(nil, topic), payload...)
 	for _, c := range targets {
-		c.write(0x30, pkt)
+		c.write(0x30, c.publishBody(topic, m))
 	}
 }
 

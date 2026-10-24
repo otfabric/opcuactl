@@ -3,14 +3,20 @@
 package opcuactl
 
 import (
+	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/otfabric/go-opcua/pubsub/message"
+	"github.com/otfabric/go-opcua/pubsub/transport"
+	"github.com/otfabric/go-opcua/pubsub/transport/eth"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
+	"github.com/spf13/pflag"
 )
 
 func TestDetectEncoding(t *testing.T) {
@@ -139,19 +145,113 @@ func TestMetaDataModel(t *testing.T) {
 
 func TestTransportProfile(t *testing.T) {
 	for _, tc := range []struct {
-		url     string
-		enc     parse.PubSubEncoding
-		wantErr bool
+		url  string
+		enc  parse.PubSubEncoding
+		want string // "" = error
 	}{
-		{"opc.udp://1.2.3.4:4840", parse.EncodingUADP, false},
-		{"opc.udp://1.2.3.4:4840", parse.EncodingJSON, true},
-		{"mqtt://b:1883", parse.EncodingJSON, false},
-		{"mqtts://b:8883", parse.EncodingUADP, false},
-		{"opc.eth://x", parse.EncodingUADP, true},
-		{"nonsense", parse.EncodingUADP, true},
+		{"opc.udp://1.2.3.4:4840", parse.EncodingUADP, transport.ProfileUDPUADP},
+		{"opc.udp://1.2.3.4:4840", parse.EncodingAuto, transport.ProfileUDPUADP},
+		{"opc.udp://1.2.3.4:4840", parse.EncodingJSON, ""},
+		{"mqtt://b:1883", parse.EncodingJSON, transport.ProfileMQTTJSON},
+		{"mqtts://b:8883", parse.EncodingUADP, transport.ProfileMQTTUADP},
+		{"opc.eth://01-00-5E-00-00-01", parse.EncodingUADP, transport.ProfileEthUADP},
+		{"opc.eth://01-00-5E-00-00-01:5.3", parse.EncodingAuto, transport.ProfileEthUADP},
+		{"opc.eth://01-00-5E-00-00-01", parse.EncodingJSON, ""},
+		{"amqp://b:5672", parse.EncodingUADP, transport.ProfileAMQPUADP},
+		{"amqps://b:5671", parse.EncodingJSON, transport.ProfileAMQPJSON},
+		{"wss://b", parse.EncodingUADP, ""},
+		{"nonsense", parse.EncodingUADP, ""},
 	} {
-		if _, err := transportProfile(tc.url, tc.enc); (err != nil) != tc.wantErr {
-			t.Errorf("transportProfile(%s, %s): %v", tc.url, tc.enc, err)
+		got, err := transportProfile(tc.url, tc.enc)
+		if got != tc.want || (err != nil) != (tc.want == "") {
+			t.Errorf("transportProfile(%s, %s) = %q, %v; want %q", tc.url, tc.enc, got, err, tc.want)
+		}
+	}
+	_, err := transportProfile("opc.eth://01-00-5E-00-00-01", parse.EncodingJSON)
+	if err == nil || !strings.Contains(err.Error(), "not available over Ethernet") {
+		t.Errorf("JSON over Ethernet: %v", err)
+	}
+}
+
+func TestTransportConfig(t *testing.T) {
+	t.Setenv("OPCUACTL_BROKER_PASSWORD", "")
+	t.Setenv("OPCUACTL_MQTT_PASSWORD", "")
+	f := pubsubTransportFlags{
+		url: "mqtt://b:1883", username: "u", password: "p", clientID: "c", mqttVersion: "5", qos: 2,
+		properties: []string{"connection-Session Expiry Interval=60"},
+	}
+	cfg, err := f.config(parse.EncodingAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProfileURI != transport.ProfileMQTTUADP || cfg.MQTTVersion != "5.0" || cfg.Username != "u" || cfg.Password != "p" ||
+		cfg.ClientID != "c" || cfg.Properties["connection-Session Expiry Interval"] != "60" {
+		t.Errorf("unexpected config %+v", cfg)
+	}
+
+	// The broker password comes from the environment, the new variable first.
+	t.Setenv("OPCUACTL_MQTT_PASSWORD", "old")
+	f = pubsubTransportFlags{url: "amqp://b:5672"}
+	if cfg, _ := f.config(parse.EncodingJSON); cfg.Password != "old" || cfg.ProfileURI != transport.ProfileAMQPJSON {
+		t.Errorf("OPCUACTL_MQTT_PASSWORD: %+v", cfg)
+	}
+	t.Setenv("OPCUACTL_BROKER_PASSWORD", "new")
+	if cfg, _ := f.config(parse.EncodingJSON); cfg.Password != "new" {
+		t.Errorf("OPCUACTL_BROKER_PASSWORD: %+v", cfg)
+	}
+
+	f = pubsubTransportFlags{url: "opc.eth://01-00-5E-00-00-01", iface: "eth0"}
+	if cfg, err := f.config(parse.EncodingAuto); err != nil || cfg.ProfileURI != transport.ProfileEthUADP || cfg.Interface != "eth0" {
+		t.Errorf("ethernet: %+v, %v", cfg, err)
+	}
+
+	for _, tc := range []struct {
+		f    pubsubTransportFlags
+		enc  parse.PubSubEncoding
+		want string
+	}{
+		{pubsubTransportFlags{}, parse.EncodingAuto, "--url is required"},
+		{pubsubTransportFlags{url: "mqtt://b", qos: 3}, parse.EncodingAuto, "--qos must be 0, 1 or 2"},
+		{pubsubTransportFlags{url: "opc.eth://01-00-5E-00-00-01"}, parse.EncodingUADP, "--interface is required"},
+		{pubsubTransportFlags{url: "opc.eth://01-00-5E-00-00-01", iface: "eth0"}, parse.EncodingJSON, "not available over Ethernet"},
+		{pubsubTransportFlags{url: "amqp://b", mqttVersion: "5.0"}, parse.EncodingAuto, "--mqtt-version needs an MQTT broker"},
+		{pubsubTransportFlags{url: "mqtt://b", mqttVersion: "4"}, parse.EncodingAuto, "unknown MQTT version"},
+		{pubsubTransportFlags{url: "mqtt://b", properties: []string{"x"}}, parse.EncodingAuto, "want key=value"},
+		{pubsubTransportFlags{url: "http://b"}, parse.EncodingAuto, "unsupported transport"},
+	} {
+		_, err := tc.f.config(tc.enc)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("config(%+v): %v, want %q", tc.f, err, tc.want)
+		}
+	}
+}
+
+func TestTransportError(t *testing.T) {
+	perm := fmt.Errorf("open: %w", os.ErrPermission)
+	if err := transportError("opc.eth://01-00-5E-00-00-01", perm); !errors.Is(err, os.ErrPermission) || !strings.Contains(err.Error(), "cap_net_raw") {
+		t.Errorf("permission: %v", err)
+	}
+	if err := transportError("opc.eth://01-00-5E-00-00-01", eth.ErrNotSupported); !strings.Contains(err.Error(), "Linux, macOS or FreeBSD") {
+		t.Errorf("not supported: %v", err)
+	}
+	if err := transportError("opc.udp://1.2.3.4:4840", perm); err != perm {
+		t.Errorf("UDP errors are unchanged: %v", err)
+	}
+}
+
+func TestPubSubTransportFlagsAliases(t *testing.T) {
+	var f pubsubTransportFlags
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	f.register(fs)
+	if err := fs.Parse([]string{"--mqtt-username", "a", "--mqtt-password", "b", "--mqtt-client-id", "c", "--transport-property", "k=v"}); err != nil {
+		t.Fatal(err)
+	}
+	if f.username != "a" || f.password != "b" || f.clientID != "c" || len(f.properties) != 1 {
+		t.Errorf("the --mqtt-* flags no longer set the broker settings: %+v", f)
+	}
+	for _, name := range []string{"mqtt-username", "mqtt-password", "mqtt-client-id"} {
+		if fl := fs.Lookup(name); fl == nil || fl.Deprecated == "" {
+			t.Errorf("--%s is not a deprecated alias", name)
 		}
 	}
 }

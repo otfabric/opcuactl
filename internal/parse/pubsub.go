@@ -255,3 +255,68 @@ func FieldEncoding(s string) (ua.DataSetFieldContentMask, error) {
 	}
 	return 0, fmt.Errorf("unknown field encoding %q (variant|datavalue|rawdata)", s)
 }
+
+// MQTTVersion parses the MQTT protocol version of a broker connection
+// (3.1.1|5.0|BestAvailable) into the value of the MqttVersion connection
+// property (Part 14 §7.3.4.4). Empty selects 3.1.1.
+func MQTTVersion(s string) (string, error) {
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), "-", "")) {
+	case "", "3.1.1", "311":
+		return pubsub.MQTTVersion311, nil
+	case "5.0", "5":
+		return pubsub.MQTTVersion5, nil
+	case "bestavailable", "best":
+		return pubsub.MQTTVersionBestAvailable, nil
+	}
+	return "", fmt.Errorf("unknown MQTT version %q (3.1.1|5.0|BestAvailable)", s)
+}
+
+// TransportProperties parses "key=value" connection properties. The key is
+// everything before the first "=" (MQTT 5.0 property names have spaces, as
+// in "connection-Session Expiry Interval=60"); a later key replaces an
+// earlier one.
+func TransportProperties(specs []string) (map[string]string, error) {
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(specs))
+	for _, s := range specs {
+		k, v, ok := strings.Cut(s, "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			return nil, fmt.Errorf("invalid transport property %q: want key=value", s)
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+// DiagnosticsLevel parses a PubSub DiagnosticsLevel
+// (basic|advanced|info|log|debug, Part 14 §9.1.11.4).
+func DiagnosticsLevel(s string) (ua.DiagnosticsLevel, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "basic":
+		return ua.DiagnosticsLevelBasic, nil
+	case "advanced":
+		return ua.DiagnosticsLevelAdvanced, nil
+	case "info":
+		return ua.DiagnosticsLevelInfo, nil
+	case "log":
+		return ua.DiagnosticsLevelLog, nil
+	case "debug":
+		return ua.DiagnosticsLevelDebug, nil
+	}
+	return 0, fmt.Errorf("unknown diagnostics level %q (basic|advanced|info|log|debug)", s)
+}
+
+// DiscoveryLayout parses the byte layout of UADP discovery messages: spec
+// (Part 14) or dotnet (the OPC Foundation .NET stack 2.x).
+func DiscoveryLayout(s string) (message.DiscoveryLayout, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "spec":
+		return message.DiscoveryLayoutSpec, nil
+	case "dotnet", ".net":
+		return message.DiscoveryLayoutDotNet, nil
+	}
+	return 0, fmt.Errorf("unknown discovery layout %q (spec|dotnet)", s)
+}

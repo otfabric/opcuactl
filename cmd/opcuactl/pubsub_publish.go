@@ -235,12 +235,12 @@ Examples:
 			if err != nil && tf.url != "" {
 				return exitCode(1, err)
 			}
-			broker := scheme == "mqtt" || scheme == "mqtts"
+			broker := isBrokerScheme(scheme)
 			switch {
 			case broker && topic == "":
-				return exitCodef(1, "--topic is required with an MQTT broker")
+				return exitCodef(1, "--topic is required with a broker (MQTT topic, AMQP address)")
 			case !broker && metaTopic != "":
-				return exitCodef(1, "--metadata-topic needs an MQTT broker; use --announce-metadata over UDP")
+				return exitCodef(1, "--metadata-topic needs a broker; use --announce-metadata over UDP or Ethernet")
 			case mode > ua.MessageSecurityModeNone && enc == parse.EncodingJSON:
 				return exitCodef(1, "--message-security is only available with the UADP encoding")
 			case mode == ua.MessageSecurityModeNone && (sf.group != "" || sf.keysFile != ""):
@@ -292,7 +292,7 @@ Examples:
 				if err != nil {
 					return exitCodef(3, "encoding the DataSetMetaData: %v", err)
 				}
-				if err := send(b, transport.PublishOptions{Topic: metaTopic, QoS: tf.qos, Retain: true}); err != nil {
+				if err := send(b, transport.PublishOptions{Topic: metaTopic, QoS: tf.qos, Retain: true, MessageType: transport.MessageTypeMetaData}); err != nil {
 					return exitCodef(2, "sending the DataSetMetaData: %v", err)
 				}
 				if verbose {
@@ -314,7 +314,7 @@ Examples:
 				if err != nil {
 					return exitCodef(3, "encoding message %d: %v", seq, err)
 				}
-				if err := send(b, transport.PublishOptions{Topic: topic, QoS: tf.qos, Retain: retain}); err != nil {
+				if err := send(b, transport.PublishOptions{Topic: topic, QoS: tf.qos, Retain: retain, MessageType: transport.MessageTypeData}); err != nil {
 					return exitCodef(2, "sending message %d: %v", seq, err)
 				}
 				sent++

@@ -467,7 +467,7 @@ func TestE2E_PubSubMQTT(t *testing.T) {
 			{"publish", "--url", "opc.udp://127.0.0.1:1", "--field", "A:Int32=1", "--encoding", "json"}, // JSON over UDP
 			{"publish", "--url", "opc.udp://127.0.0.1:1", "--field", "A:Int32=1", "--metadata-topic", "x"},
 			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--encoding", "json", "--message-security", "sign", "--keys-file", "k"},
-			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--qos", "2"},
+			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--qos", "3"},
 			{"publish", "--url", "http://x", "--field", "A:Int32=1"},
 			{"publish", "--field", "A:Int32=1"},
 			{"publish", "--url", b.url(), "--topic", "t"},

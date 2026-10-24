@@ -195,3 +195,66 @@ func TestFieldEncoding(t *testing.T) {
 		t.Error("expected an error")
 	}
 }
+
+func TestMQTTVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "3.1.1", "3.1.1": "3.1.1", "5.0": "5.0", "5": "5.0", "BestAvailable": "BestAvailable", "best-available": "BestAvailable",
+	} {
+		if got, err := MQTTVersion(in); err != nil || got != want {
+			t.Errorf("MQTTVersion(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := MQTTVersion("4"); err == nil {
+		t.Error("MQTTVersion(4): expected an error")
+	}
+}
+
+func TestTransportProperties(t *testing.T) {
+	got, err := TransportProperties([]string{"connection-hostname=vhost:plant", "connection-Session Expiry Interval=60", "a=1", "a=2", "empty=", "k=v=w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"connection-hostname": "vhost:plant", "connection-Session Expiry Interval": "60", "a": "2", "empty": "", "k": "v=w"}
+	if len(got) != len(want) {
+		t.Fatalf("TransportProperties = %v", got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if m, err := TransportProperties(nil); m != nil || err != nil {
+		t.Errorf("TransportProperties(nil) = %v, %v", m, err)
+	}
+	for _, bad := range []string{"novalue", "=x", " =x"} {
+		if _, err := TransportProperties([]string{bad}); err == nil {
+			t.Errorf("TransportProperties(%q): expected an error", bad)
+		}
+	}
+}
+
+func TestDiagnosticsLevel(t *testing.T) {
+	for in, want := range map[string]ua.DiagnosticsLevel{
+		"": ua.DiagnosticsLevelBasic, "Basic": ua.DiagnosticsLevelBasic, "advanced": ua.DiagnosticsLevelAdvanced,
+		"info": ua.DiagnosticsLevelInfo, "log": ua.DiagnosticsLevelLog, "DEBUG": ua.DiagnosticsLevelDebug,
+	} {
+		if got, err := DiagnosticsLevel(in); err != nil || got != want {
+			t.Errorf("DiagnosticsLevel(%q) = %v, %v", in, got, err)
+		}
+	}
+	if _, err := DiagnosticsLevel("verbose"); err == nil {
+		t.Error("DiagnosticsLevel(verbose): expected an error")
+	}
+}
+
+func TestDiscoveryLayout(t *testing.T) {
+	if l, err := DiscoveryLayout("spec"); err != nil || l != message.DiscoveryLayoutSpec {
+		t.Errorf("spec: %v, %v", l, err)
+	}
+	if l, err := DiscoveryLayout("dotnet"); err != nil || l != message.DiscoveryLayoutDotNet {
+		t.Errorf("dotnet: %v, %v", l, err)
+	}
+	if _, err := DiscoveryLayout("x"); err == nil {
+		t.Error("DiscoveryLayout(x): expected an error")
+	}
+}
