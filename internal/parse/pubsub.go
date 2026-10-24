@@ -320,3 +320,46 @@ func DiscoveryLayout(s string) (message.DiscoveryLayout, error) {
 	}
 	return 0, fmt.Errorf("unknown discovery layout %q (spec|dotnet)", s)
 }
+
+// StatusCode parses a StatusCode: its symbolic name ("Good",
+// "BadInternalError", case-insensitive) or its number (0x80020000, or
+// decimal).
+func StatusCode(s string) (ua.StatusCode, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty status code")
+	}
+	lower := strings.ToLower(s)
+	if strings.HasPrefix(lower, "0x") {
+		n, err := strconv.ParseUint(lower[2:], 16, 32)
+		if err != nil {
+			return 0, fmt.Errorf("invalid status code %q: %w", s, err)
+		}
+		return ua.StatusCode(n), nil
+	}
+	if n, err := strconv.ParseUint(s, 10, 32); err == nil {
+		return ua.StatusCode(n), nil
+	}
+	name := strings.TrimPrefix(lower, "status")
+	for code := range ua.StatusCodes {
+		if strings.ToLower(code.Symbol()) == name {
+			return code, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown status code %q (a name like BadInternalError, or 0x80020000)", s)
+}
+
+// ActionTarget parses an Action target "ID[:Name]" of a PublishedAction.
+// Without a name the target is called "Target<ID>".
+func ActionTarget(s string) (uint16, string, error) {
+	idStr, name, _ := strings.Cut(s, ":")
+	id, err := strconv.ParseUint(strings.TrimSpace(idStr), 10, 16)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid Action target %q: want ID[:Name] with a UInt16 ID", s)
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = fmt.Sprintf("Target%d", id)
+	}
+	return uint16(id), name, nil
+}

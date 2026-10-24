@@ -258,3 +258,39 @@ func TestDiscoveryLayout(t *testing.T) {
 		t.Error("DiscoveryLayout(x): expected an error")
 	}
 }
+
+func TestStatusCode(t *testing.T) {
+	for in, want := range map[string]ua.StatusCode{
+		"Good": ua.StatusGood, "good": ua.StatusGood, "BadInternalError": ua.StatusBadInternalError,
+		"StatusBadTimeout": ua.StatusBadTimeout, "badtypemismatch": ua.StatusBadTypeMismatch,
+		"0x80020000": ua.StatusBadInternalError, "2147614720": ua.StatusBadInternalError, " Uncertain ": ua.StatusUncertain,
+	} {
+		if got, err := StatusCode(in); err != nil || got != want {
+			t.Errorf("StatusCode(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "Bogus", "0xZZ", "0x100000000"} {
+		if _, err := StatusCode(bad); err == nil {
+			t.Errorf("StatusCode(%q): expected an error", bad)
+		}
+	}
+}
+
+func TestActionTarget(t *testing.T) {
+	for in, want := range map[string]struct {
+		id   uint16
+		name string
+	}{
+		"1": {1, "Target1"}, "2:Add": {2, "Add"}, " 3 : Stop ": {3, "Stop"}, "4:": {4, "Target4"},
+	} {
+		id, name, err := ActionTarget(in)
+		if err != nil || id != want.id || name != want.name {
+			t.Errorf("ActionTarget(%q) = %d, %q, %v", in, id, name, err)
+		}
+	}
+	for _, bad := range []string{"", "x", "70000", ":Add", "-1:Add"} {
+		if _, _, err := ActionTarget(bad); err == nil {
+			t.Errorf("ActionTarget(%q): expected an error", bad)
+		}
+	}
+}
