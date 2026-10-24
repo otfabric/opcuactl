@@ -9,7 +9,7 @@
 
 **opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, reads historical data, exports whole subtrees, and listens to, publishes and configures OPC UA PubSub — from a terminal, over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
 
-It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is tested against open62541 and Eclipse Milo.
+It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is interop-tested against open62541, Eclipse Milo, async-opcua, the OPC Foundation UA-.NETStandard stack, node-opcua and opcua-asyncio.
 
 **Quick links:** [Quick start](#quick-start) · [Features](#features) · [Installation](#installation) · [Commands](#command-reference) · [Examples](#usage-examples) · [Security](#security) · [FAQ](#faq)
 
@@ -967,7 +967,7 @@ Use `--format json` (or `jsonl` for streams), `--quiet` when you only need the v
 
 ### Which servers has it been tested with?
 
-The client library underneath, [go-opcua](https://github.com/otfabric/go-opcua), runs an interoperability suite against open62541 and Eclipse Milo — including the ECC security policies, reverse connect, discovery, data-change filters, the JSON / XML encodings and PubSub (UADP and JSON, UDP and MQTT, message security, SKS and the configuration methods, against open62541); [EXAMPLES.md](EXAMPLES.md) shows outputs captured against a WAGO PLC.
+The client library underneath, [go-opcua](https://github.com/otfabric/go-opcua), runs an interoperability suite against six OPC UA stacks — open62541, Eclipse Milo, async-opcua (Rust), UA-.NETStandard (C#), node-opcua and opcua-asyncio (Python), see its [interop comparison](https://github.com/otfabric/go-opcua#go-opcua-compared-with-other-opc-ua-stacks) — including the ECC security policies, reverse connect, discovery, data-change filters, the JSON / XML encodings and PubSub (UADP and JSON, UDP and MQTT, message security, SKS and the configuration methods, against open62541); [EXAMPLES.md](EXAMPLES.md) shows outputs captured against a WAGO PLC.
 
 ## Development
 

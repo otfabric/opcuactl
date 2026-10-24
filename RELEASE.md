@@ -1,5 +1,35 @@
 # opcuactl Releases
 
+## v0.4.1
+
+**Date:** 2026-10-24  
+**Previous release:** v0.4.0
+
+### Summary
+
+Patch release: bump to **[go-opcua v1.8.1](https://github.com/otfabric/go-opcua/releases/tag/v1.8.1)** for its secure channel, client and interoperability fixes. No CLI flags, commands or output formats changed.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.7.0 → **[v1.8.1](https://github.com/otfabric/go-opcua/releases/tag/v1.8.1)**
+- No source changes were needed.
+
+### What the library update brings to the CLI
+
+- **Secured channels stay up (v1.8.0, v1.8.1):** a request that fails to encode or is cancelled no longer leaves a gap in the sequence numbers (the server then refused every later chunk), and a security token replaced early is not renewed a second time (servers such as opcua-asyncio closed the channel). This matters for long-running `monitor` and `export` sessions.
+- **Aes256_Sha256_RsaPss with UA-.NETStandard servers (v1.8.1):** the asymmetric block size is correct, so connecting with `--security-policy Aes256_Sha256_RsaPss` to an OPC Foundation .NET server works.
+- **Fewer spurious reconnects (v1.8.0):** a fault for a session the client already left, or a stale `Bad_NoSubscription`, no longer reconnects or recreates subscriptions of `monitor` commands.
+- **Republish recovery (v1.8.1):** a server that answers Republish without the requested message no longer makes `monitor` loop on recovery.
+- **Errors instead of panics (v1.8.0):** malformed browse and attribute responses are reported as errors.
+- **PubSub keys (v1.7.1):** keys from a Security Key Service are refetched in time, so `pubsub subscribe --security-group` keeps verifying messages across key changes.
+
+### Documentation
+
+- **README**: go-opcua's interop suite now covers six OPC UA stacks.
+- **RECIPES**: aligned with v0.4.1.
+
+---
+
 ## v0.4.0
 
 **Date:** 2026-10-24  
