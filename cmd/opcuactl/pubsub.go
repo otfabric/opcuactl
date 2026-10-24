@@ -42,7 +42,7 @@ var (
 func newPubSubCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pubsub",
-		Short: "OPC UA PubSub: subscribe, publish, discover, decode, keys, configuration and diagnostics",
+		Short: "OPC UA PubSub: subscribe, publish, Actions, discover, decode, keys, configuration and diagnostics",
 		Long: `Work with OPC UA PubSub (Part 14).
 
 PubSub sends DataSets from publishers to subscribers without sessions, as
@@ -52,6 +52,8 @@ multicast), raw Ethernet (opc.eth://, UADP), an MQTT 3.1.1 or 5.0 broker
 
   subscribe  listen on a transport and print the DataSetMessages received
   publish    send a DataSet built from the command line (for testing)
+  call       call a PubSub Action (request / response) of a Responder
+  respond    answer PubSub Action requests (a test Responder)
   discover   send UADP discovery probes and print the announcements
   decode     decode captured UADP or JSON NetworkMessages
   sks        get the keys of a SecurityGroup from a Security Key Service
@@ -73,16 +75,18 @@ Examples:
   opcuactl pubsub subscribe --url mqtt://broker:1883 --topic 'plant/#' --mqtt-version 5.0
   opcuactl pubsub subscribe --url amqp://rabbitmq:5672 --topic /queues/opcua
   opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --field Counter:UInt32=42
+  opcuactl pubsub respond --url mqtt://broker:1883 --input A:Int32 --input B:Int32
+  opcuactl pubsub call --url mqtt://broker:1883 --input A:Int32=2 --input B:Int32=3
   opcuactl pubsub discover --url opc.udp://224.0.0.22:4840
   opcuactl pubsub decode capture.bin --field Counter:UInt32
   opcuactl pubsub sks get-keys -e opc.tcp://sks:4840 --security-group sg ...
   opcuactl pubsub config show -e opc.tcp://localhost:4840`,
 	}
-	// PubSub Actions (request / response over PubSub, Part 14 1.05) get
-	// their commands here once go-opcua supports them.
 	cmd.AddCommand(
 		newPubSubSubscribeCmd(),
 		newPubSubPublishCmd(),
+		newPubSubCallCmd(),
+		newPubSubRespondCmd(),
 		newPubSubDiscoverCmd(),
 		newPubSubDecodeCmd(),
 		newPubSubSKSCmd(),
@@ -831,7 +835,8 @@ func dataSetLine(ds model.PubSubDataSet) string {
 			fmt.Fprintf(&b, "[%s]", f.Status)
 		}
 	}
-	return b.String()
+	// A message without fields (an action acknowledgement, a keep-alive).
+	return strings.TrimRight(b.String(), " ")
 }
 
 // actionSuffix is the table form of the action header of a message.

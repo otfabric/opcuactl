@@ -53,6 +53,9 @@ type pubsubDiagnostics struct {
 	component string
 	counters  []*pubsubCounter
 	byName    map[string]*pubsubCounter
+	// refresh, if set, updates the counters before a snapshot (counters
+	// kept by go-opcua's runtime).
+	refresh func(d *pubsubDiagnostics)
 }
 
 func newPubSubDiagnostics(component string, std []pubsub.DiagnosticsCounterID, extra ...string) *pubsubDiagnostics {
@@ -62,7 +65,8 @@ func newPubSubDiagnostics(component string, std []pubsub.DiagnosticsCounterID, e
 			error: id.Classification() == ua.PubSubDiagnosticsCounterClassificationError})
 	}
 	for _, name := range extra {
-		d.addCounter(&pubsubCounter{name: name, level: ua.DiagnosticsLevelBasic, error: name == ctrChunksDiscarded})
+		d.addCounter(&pubsubCounter{name: name, level: ua.DiagnosticsLevelBasic,
+			error: name == ctrChunksDiscarded || name == ctrActionRequestsRejected || name == ctrActionTimeouts})
 	}
 	return d
 }
@@ -85,6 +89,21 @@ func (d *pubsubDiagnostics) add(name string, n int) {
 	c.value.Add(uint64(n))
 }
 
+// set sets a counter to v.
+func (d *pubsubDiagnostics) set(name string, v uint64) {
+	if d == nil {
+		return
+	}
+	c := d.byName[name]
+	if c == nil {
+		return
+	}
+	if v > 0 {
+		c.first.CompareAndSwap(0, time.Now().UnixNano())
+	}
+	c.value.Store(v)
+}
+
 // value returns the value of a counter.
 func (d *pubsubDiagnostics) value(name string) uint64 {
 	if d == nil || d.byName[name] == nil {
@@ -95,6 +114,9 @@ func (d *pubsubDiagnostics) value(name string) uint64 {
 
 // snapshot returns the counters up to level; the others are not active.
 func (d *pubsubDiagnostics) snapshot(level ua.DiagnosticsLevel) model.PubSubDiagnostics {
+	if d.refresh != nil {
+		d.refresh(d)
+	}
 	out := model.PubSubDiagnostics{Component: d.component, Level: diagnosticsLevelName(level), Counters: []model.PubSubCounter{}}
 	for _, c := range d.counters {
 		if c.level > level {

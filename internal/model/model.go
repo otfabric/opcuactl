@@ -336,6 +336,33 @@ type PubSubAction struct {
 	TimeoutHint float64 `json:"timeoutHint,omitempty"`
 }
 
+// PubSubActionResult is the result of a PubSub Action call: the Done
+// response of the Responder.
+type PubSubActionResult struct {
+	PublisherID     string        `json:"publisherId"`
+	DataSetWriterID uint16        `json:"dataSetWriterId"`
+	ActionTargetID  uint16        `json:"actionTargetId"`
+	RequestID       uint16        `json:"requestId"`
+	Status          string        `json:"status"`
+	StatusCode      uint32        `json:"statusCode"`
+	Duration        string        `json:"duration"`
+	Outputs         []PubSubField `json:"outputs"`
+}
+
+// PubSubActionRequest is a PubSub Action request a Responder served, and
+// its result.
+type PubSubActionRequest struct {
+	Timestamp       string        `json:"ts"`
+	RequestorID     string        `json:"requestorId,omitempty"`
+	DataSetWriterID uint16        `json:"dataSetWriterId"`
+	ActionTargetID  uint16        `json:"actionTargetId"`
+	RequestID       uint16        `json:"requestId"`
+	Inputs          []PubSubField `json:"inputs"`
+	Status          string        `json:"status"`
+	StatusCode      uint32        `json:"statusCode"`
+	Outputs         []PubSubField `json:"outputs"`
+}
+
 // PubSubField is one field of a DataSetMessage.
 type PubSubField struct {
 	Index           uint16      `json:"index"`
