@@ -1032,7 +1032,7 @@ $ opcuactl pubsub config diagnostics -e opc.tcp://localhost:48400 --node "ns=2;i
 
 ### PubSub Actions over UDP
 
-`pubsub respond` and `pubsub call` (go-opcua main 78f4c4d) on the loopback interface of macOS. The Responder echoes two inputs, serves three requests and prints its diagnostics; the Requestor listens on port 4841 and sends to the Responder on port 4840:
+`pubsub respond` and `pubsub call` (go-opcua v1.9.0) on the loopback interface of macOS. The Responder echoes two inputs, serves three requests and prints its diagnostics; the Requestor listens on port 4841 and sends to the Responder on port 4840:
 
 ```console
 $ opcuactl pubsub respond --url opc.udp://127.0.0.1:4840 --target 1:Echo --input A:Int32 --input B:String --count 3 --diagnostics
