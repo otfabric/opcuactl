@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.3.0** (go-opcua v1.6.0): secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
+Aligned with **v0.4.0** (go-opcua v1.7.0): OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
 
 ## Table of Contents
 
@@ -19,6 +19,10 @@ Aligned with **v0.3.0** (go-opcua v1.6.0): secure authN/Z over RSA and ECC polic
 - [10. Use Standard Node Aliases](#10-use-standard-node-aliases)
 - [11. Collect All Variables from a Device](#11-collect-all-variables-from-a-device)
 - [12. Copy a Value Between Servers in the OPC UA JSON Encoding](#12-copy-a-value-between-servers-in-the-opc-ua-json-encoding)
+- [13. Find Out What a PubSub Publisher Sends](#13-find-out-what-a-pubsub-publisher-sends)
+- [14. Read Secured PubSub Messages with Keys from an SKS](#14-read-secured-pubsub-messages-with-keys-from-an-sks)
+- [15. Test a PubSub Subscriber](#15-test-a-pubsub-subscriber)
+- [16. Reconfigure the PubSub of a Server](#16-reconfigure-the-pubsub-of-a-server)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -452,4 +456,110 @@ opcuactl write value -e opc.tcp://other-server:4840 -n "ns=2;s=Recipe" \
 
 # XML instead, e.g. to paste into a NodeSet2 file or another tool
 opcuactl get value "${CONN[@]}" -n "ns=2;s=Recipe" --ua-encoding xml --pretty
+```
+
+---
+
+## 13. Find Out What a PubSub Publisher Sends
+
+```sh
+# Everything on the multicast group, for 10 seconds: publisher ids, writer group
+# and writer ids, sequence numbers, security, field values
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --interface eth0 --duration 10s
+
+# Unnamed fields (#0, #1, ...)? Read the DataSetMetaData from the publishing server:
+# "pubsub config show" lists its published data sets and readers with their NodeIds
+opcuactl pubsub config show "${CONN[@]}"
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --metadata-node "ns=2;i=101" "${CONN[@]}"
+
+# Record one publisher's writer as JSON Lines for later analysis
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --publisher-id 2234 --writer-id 1 \
+  --jsonl --duration 1h > capture.jsonl
+
+# MQTT: JSON publishers usually announce their metadata (retained ua-metadata)
+opcuactl pubsub subscribe --url mqtt://broker:1883 --topic 'plant/#' --show-metadata
+
+# A message captured elsewhere (Wireshark "Copy as hex stream", MQTT client, ...)
+opcuactl pubsub decode message.hex --field Counter:UInt32 --field Temp:Double
+```
+
+`--format json` / `--jsonl` give `publisherId`, `writerGroupId`, `dataSetWriterId`, `sequenceNumber`, `security` and one entry per field — easy to check with `jq` (e.g. gaps in sequence numbers).
+
+---
+
+## 14. Read Secured PubSub Messages with Keys from an SKS
+
+Secured UADP messages need the keys of their SecurityGroup. The Security Key Service hands them out only over a SignAndEncrypt session, usually to a named user:
+
+```sh
+SKS=(
+  -e opc.tcp://sks.example:4840
+  --security-policy Basic256Sha256 --security-mode SignAndEncrypt
+  --cert ./pki/client.pem --key ./pki/client.key --trusted-cert ./pki/sks.pem
+  --auth username --username subscriber --password "$OPCUACTL_PASSWORD"
+)
+
+# Which policy, which token, how long until the next key?
+opcuactl pubsub sks get-keys "${SKS[@]}" --security-group sg1
+
+# Subscribe with keys pulled from the SKS (refreshed before they rotate);
+# reject anything that is not signed and encrypted
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --security-group sg1 \
+  --message-security sign-and-encrypt "${SKS[@]}"
+
+# Offline: save the current and two future keys (a secret!) and use the file
+opcuactl pubsub sks get-keys "${SKS[@]}" --security-group sg1 --future-keys 2 \
+  --show-keys --format json > sg1-keys.json
+chmod 600 sg1-keys.json
+opcuactl pubsub decode secured.hex --keys-file sg1-keys.json
+```
+
+---
+
+## 15. Test a PubSub Subscriber
+
+```sh
+# Feed a subscriber (PublisherId 2234, WriterGroupId 100, DataSetWriterId 1)
+# with a DataSet every 500 ms until Ctrl+C
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --publisher-id 2234 \
+  --writer-group-id 100 --writer-id 1 \
+  --field Temperature:Double=21.5 --field Running:Boolean=true --count 0 --interval 500ms
+
+# RawData fields, announcing the DataSetMetaData first
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --field Counter:UInt32=1 \
+  --field-encoding rawdata --announce-metadata
+
+# Signed and encrypted with the SecurityGroup's keys
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --field Counter:UInt32=1 \
+  --message-security sign-and-encrypt --security-group sg1 "${SKS[@]}"
+
+# JSON over MQTT, with retained metadata
+opcuactl pubsub publish --url mqtt://broker:1883 --encoding json --topic plant/line1 \
+  --metadata-topic plant/line1/meta --field Temperature:Double=21.5 --qos 1
+```
+
+Every message is a key frame; sequence numbers start at 1 with every run, so a subscriber that remembers the previous run may discard the first messages of the next one (use another `--writer-id`, or wait for its MessageReceiveTimeout).
+
+---
+
+## 16. Reconfigure the PubSub of a Server
+
+```sh
+# What is configured, with NodeIds and states
+opcuactl pubsub config show "${CONN[@]}"
+
+# Publish two variables to a new multicast group
+CONN_ID=$(opcuactl pubsub config add-connection "${CONN[@]}" --name Diag \
+  --url opc.udp://239.0.0.10:4840 --publisher-id 2234 -q)
+opcuactl pubsub config add-dataset "${CONN[@]}" --name Diag \
+  --var Temperature="ns=1;s=Temperature" --var Pressure="ns=1;s=Pressure"
+GROUP_ID=$(opcuactl pubsub config add-writer-group "${CONN[@]}" --connection "$CONN_ID" \
+  --name DiagGroup --writer-group-id 100 --interval 500ms -q)
+opcuactl pubsub config add-writer "${CONN[@]}" --group "$GROUP_ID" --name DiagWriter \
+  --writer-id 1 --dataset Diag
+
+# Check it, pause it, remove it
+opcuactl pubsub subscribe --url opc.udp://239.0.0.10:4840 --count 3
+opcuactl pubsub config disable "${CONN[@]}" --node "$GROUP_ID"
+opcuactl pubsub config remove connection "${CONN[@]}" --node "$CONN_ID"
 ```

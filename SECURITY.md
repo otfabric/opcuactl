@@ -39,6 +39,12 @@ We will acknowledge your report within 48 hours and aim to provide a fix or miti
 - Prefer environment variables over command-line flags for credentials, as command-line arguments may appear in process listings and shell history
 - Certificate private keys (`--key`) should have restrictive file permissions (`chmod 600`)
 
+### PubSub Keys
+
+- `pubsub sks get-keys` prints key material only with `--show-keys`; the keys it prints (and the `--keys-file` it is saved to) decrypt and forge the messages of the SecurityGroup until the keys rotate — treat them like a password (`chmod 600`, do not commit them)
+- Prefer `--security-group`, which pulls keys from the Security Key Service when needed and keeps them in memory only
+- MQTT broker passwords: prefer `OPCUACTL_MQTT_PASSWORD` over `--mqtt-password`
+
 ### Output Data
 
 - `opcuactl` writes all data to stdout and all errors to stderr

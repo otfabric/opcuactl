@@ -1,4 +1,4 @@
-# opcuactl — OPC UA Command-Line Client: Discover, Browse, Read, Write, Call Methods, Monitor, History & Export
+# opcuactl — OPC UA Command-Line Client: Discover, Browse, Read, Write, Call Methods, Monitor, History, Export & PubSub
 
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/opcuactl.svg)](https://pkg.go.dev/github.com/otfabric/opcuactl)
@@ -7,7 +7,7 @@
 [![Codecov](https://codecov.io/gh/otfabric/opcuactl/graph/badge.svg)](https://codecov.io/gh/otfabric/opcuactl)
 [![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?label=release)](https://github.com/otfabric/opcuactl/releases)
 
-**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, reads historical data, and exports whole subtrees — from a terminal, over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
+**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, reads historical data, exports whole subtrees, and listens to, publishes and configures OPC UA PubSub — from a terminal, over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
 
 It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is tested against open62541 and Eclipse Milo.
 
@@ -27,6 +27,7 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
+- **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast) or MQTT, `pubsub publish` sends test DataSets, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server.
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
@@ -53,6 +54,9 @@ opcuactl browse children -e opc.tcp://localhost:4840
 
 # Monitor live value changes
 opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258
+
+# Listen to OPC UA PubSub (UADP) on a UDP multicast group
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840
 ```
 
 For production servers, prefer secure connect with endpoint auto-selection:
@@ -75,6 +79,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Integration work** — find NodeIds by browse path or name, read a method's signature before wiring it into an application, capture values as JSON for a test fixture.
 - **Data collection** — log live values as JSON Lines, pull historical data as CSV, snapshot a subtree before and after a change.
 - **Automation and CI** — smoke-test an OPC UA server in a pipeline using exit codes and JSON output.
+- **PubSub commissioning** — see what is on the wire (publisher ids, writer ids, sequence numbers, security), check that a secured group decrypts with the SKS keys, feed a subscriber with test data, or reconfigure a publisher without its engineering tool.
 
 ---
 
@@ -101,6 +106,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - [Security](#security)
   - [Security policies](#security-policies)
   - [Reverse connect](#reverse-connect)
+- [PubSub](#pubsub)
 - [NodeID Formats](#nodeid-formats)
 - [Path Resolution](#path-resolution)
 - [Monitoring Intervals](#monitoring-intervals)
@@ -125,6 +131,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
+- **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast) and MQTT, decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, and remote configuration of a server's PublishSubscribe object
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
 
@@ -319,6 +326,18 @@ opcuactl
 ├── export
 │   ├── nodes          Export node metadata from a subtree
 │   └── values         Export value snapshots or historical time-series
+├── pubsub
+│   ├── subscribe      Listen on UDP / MQTT and print received DataSetMessages
+│   ├── publish        Publish a DataSet built from the command line (testing)
+│   ├── decode         Decode a captured UADP or JSON NetworkMessage
+│   ├── sks
+│   │   └── get-keys   Get the keys of a SecurityGroup (GetSecurityKeys)
+│   └── config
+│       ├── show       Show the PubSub components of a server
+│       ├── add-connection / add-dataset / add-writer-group / add-writer
+│       ├── add-reader-group / add-reader
+│       ├── remove     Remove a connection, group, writer, reader or data set
+│       └── enable / disable
 ├── ping               Test connectivity to an OPC UA server
 ├── version            Print version, build, and runtime info
 └── completion         Generate shell completion scripts (bash|zsh|fish|powershell)
@@ -590,6 +609,57 @@ opcuactl find namespace -e opc.tcp://localhost:4840
 opcuactl find namespace -e opc.tcp://localhost:4840 --filter example.org
 ```
 
+### PubSub
+
+```sh
+# Everything that arrives on a UDP multicast group (UADP), one line per DataSetMessage
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --interface eth0
+
+# Name the fields: UADP carries no names (and with RawData no types)
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --field Temperature:Double --field Time:DateTime
+
+# ... or take the DataSetMetaData from the publishing server's PublishedDataSet
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 -e opc.tcp://plc:4840 --metadata-node "ns=2;i=175"
+
+# One publisher, one writer, as JSON Lines
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --publisher-id 2234 --writer-id 1 --jsonl
+
+# JSON (or UADP) through an MQTT broker; announced ua-metadata is used automatically
+opcuactl pubsub subscribe --url mqtt://broker:1883 --topic 'plant/#' --show-metadata
+
+# Secured UADP: keys of SecurityGroup sg1 from the Security Key Service (SignAndEncrypt session)
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --security-group sg1 --message-security sign-and-encrypt \
+  -e opc.tcp://sks:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
+  --cert client.pem --key client.key --auth username --username subscriber --password "$OPCUACTL_PASSWORD"
+
+# Publish a test DataSet: 10 messages, one every 500 ms
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --publisher-id 2234 --writer-group-id 100 --writer-id 1 \
+  --field Counter:UInt32=42 --field Temp:Double=21.5 --count 10 --interval 500ms
+
+# JSON over MQTT, with a retained ua-metadata message first
+opcuactl pubsub publish --url mqtt://broker:1883 --topic plant/line1 --encoding json \
+  --field Temp:Double=21.5 --metadata-topic plant/line1/meta
+
+# Decode a captured message (raw bytes, hex or base64; UADP or JSON)
+opcuactl pubsub decode capture.hex --field Counter:UInt32 --field Temp:Double
+
+# Keys of a SecurityGroup; --show-keys --format json writes a --keys-file
+opcuactl pubsub sks get-keys -e opc.tcp://sks:4840 --security-group sg1 --future-keys 2 \
+  --security-policy Basic256Sha256 --security-mode SignAndEncrypt --cert client.pem --key client.key \
+  --auth username --username subscriber --password "$OPCUACTL_PASSWORD" --show-keys --format json > keys.json
+
+# The PubSub configuration of a server, and changing it
+opcuactl pubsub config show -e opc.tcp://localhost:4840
+opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name Diag --url opc.udp://224.0.0.22:4840 --publisher-id 2234
+opcuactl pubsub config add-dataset -e opc.tcp://localhost:4840 --name Diag --var Temperature="ns=1;s=Temperature"
+opcuactl pubsub config add-writer-group -e opc.tcp://localhost:4840 --connection "ns=2;i=166" --name DiagGroup --writer-group-id 100 --interval 500ms
+opcuactl pubsub config add-writer -e opc.tcp://localhost:4840 --group "ns=2;i=179" --name DiagWriter --writer-id 1 --dataset Diag
+opcuactl pubsub config disable -e opc.tcp://localhost:4840 --node "ns=2;i=179"
+opcuactl pubsub config remove connection -e opc.tcp://localhost:4840 --node "ns=2;i=166"
+```
+
+See [PubSub](#pubsub) for the flags and how security works.
+
 ## Global Flags
 
 Every networked command supports these connection and output flags:
@@ -725,6 +795,29 @@ opcuactl monitor value --reverse-listen 0.0.0.0:4841 --timeout 60s -n "ns=2;s=Te
 ```
 
 `--endpoint` is optional with reverse connect: without it opcuactl uses the endpoint URL the server announces; with it the announcement has to match. The announcement itself is not authenticated — anyone who can reach the listener can send one — so use a security mode other than `None` and validate the server certificate when the network is not trusted. `ping` skips its TCP stage, as there is nothing to dial.
+
+## PubSub
+
+OPC UA PubSub (Part 14) sends DataSets from publishers to subscribers without sessions. The `pubsub` commands work with the UADP and JSON message mappings over UDP (`opc.udp://host:port`, unicast or multicast; `--interface` picks the interface for multicast) and MQTT 3.1.1 brokers (`mqtt://`, `mqtts://`; `--topic`, `--qos`, `--mqtt-username`, `--mqtt-password` / `OPCUACTL_MQTT_PASSWORD`, `--mqtt-client-id`).
+
+| Concern | Flags |
+|---------|-------|
+| Transport | `--url`, `--interface`, `--topic`, `--qos`, `--mqtt-*` |
+| Message mapping | `--encoding auto\|uadp\|json` (subscribe and decode detect it) |
+| Which DataSets | `--publisher-id`, `--writer-group-id` (UADP), `--writer-id` |
+| Field names and types | `--field Name:Type` (repeatable, `Type[]` for arrays), `--metadata file`, `--metadata-node NodeId`, or announced on the wire |
+| Message security | `--security-group`, `--message-security none\|sign\|sign-and-encrypt`, `--keys-file` |
+| Session (SKS, metadata, config) | the [global flags](#global-flags): `-e`, `--security-*`, `--auth`, `--cert`, … |
+
+**PublisherIds** are written as a number (a UInt16, the usual choice), `byte:N`, `u32:N`, `u64:N` or a string (`str:name`, or any non-number). UADP subscribers match PublisherIds by value, publishers send the type you give.
+
+**DataSetMetaData.** UADP messages carry no field names and, with the RawData field encoding, no types. `subscribe` and `decode` print unnamed fields as `#0`, `#1`, … unless they know the metadata: from `--field`, from a file (`--metadata`: a `ua-metadata` JSON message or a `DataSetMetaDataType` in the OPC UA JSON encoding), from a server (`--metadata-node`: the `DataSetMetaData` property of a PublishedDataSet or DataSetReader), or announced by the publisher (`ua-metadata` messages on a broker, UADP DataSetMetaData announcements). `publish` announces its own with `--announce-metadata` (UDP) or `--metadata-topic` (MQTT).
+
+**Message security.** Secured UADP messages (Sign or SignAndEncrypt with PubSub-Aes128-CTR or PubSub-Aes256-CTR) need the keys of their SecurityGroup. `--security-group` pulls them with GetSecurityKeys from the Security Key Service at `--endpoint` and keeps them fresh; the SKS only hands out keys over a SignAndEncrypt session, usually not to anonymous users. `--keys-file` reads keys saved with `pubsub sks get-keys --show-keys --format json` instead — treat that file like a password. A subscriber's `--message-security` is the minimum it accepts; weaker messages are reported on stderr. JSON messages have no message security.
+
+**Configuration.** `pubsub config` calls the methods of the server's PublishSubscribe object (AddConnection, AddPublishedDataItems, AddWriterGroup, AddDataSetWriter, AddReaderGroup, AddDataSetReader, the Remove methods, Enable / Disable); components are addressed by the NodeIds `config show` and the add commands print (`-q` prints only the NodeId). It works with go-opcua (`server.WithPubSub`) and open62541 servers.
+
+**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). Not supported: Ethernet (`opc.eth://`) and AMQP transports, chunked NetworkMessages and UADP discovery requests.
 
 ## NodeID Formats
 
@@ -874,7 +967,7 @@ Use `--format json` (or `jsonl` for streams), `--quiet` when you only need the v
 
 ### Which servers has it been tested with?
 
-The client library underneath, [go-opcua](https://github.com/otfabric/go-opcua), runs an interoperability suite against open62541 and Eclipse Milo — including the ECC security policies, reverse connect, discovery, data-change filters and the JSON / XML encodings; [EXAMPLES.md](EXAMPLES.md) shows outputs captured against a WAGO PLC.
+The client library underneath, [go-opcua](https://github.com/otfabric/go-opcua), runs an interoperability suite against open62541 and Eclipse Milo — including the ECC security policies, reverse connect, discovery, data-change filters, the JSON / XML encodings and PubSub (UADP and JSON, UDP and MQTT, message security, SKS and the configuration methods, against open62541); [EXAMPLES.md](EXAMPLES.md) shows outputs captured against a WAGO PLC.
 
 ## Development
 

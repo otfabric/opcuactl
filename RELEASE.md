@@ -1,5 +1,58 @@
 # opcuactl Releases
 
+## v0.4.0
+
+**Date:** 2026-10-24  
+**Previous release:** v0.3.0
+
+### Summary
+
+Feature release on **[go-opcua v1.7.0](https://github.com/otfabric/go-opcua/releases/tag/v1.7.0)**: a new `pubsub` command group brings OPC UA PubSub (Part 14) to the CLI — listen to and publish UADP and JSON NetworkMessages over UDP and MQTT, decode captured messages, verify and decrypt secured messages with keys from a Security Key Service, and show and change the PubSub configuration of a server through its PublishSubscribe methods. All of it is covered by end-to-end tests against the go-opcua PubSub runtime and server.
+
+Existing commands, flags and output formats are unchanged.
+
+### Added — `pubsub` commands
+
+- **`pubsub subscribe`**: listens on `opc.udp://host:port` (unicast, or a multicast group with `--interface`) or an MQTT broker (`mqtt://`, `mqtts://`, `--topic` with wildcards, `--qos`, `--mqtt-username` / `--mqtt-password` / `OPCUACTL_MQTT_PASSWORD`, `--mqtt-client-id`) and prints one line per DataSetMessage (publisher, writer group, writer, sequence number, message type, security, fields), or JSON Lines with `--jsonl` / `--format json`. UADP and JSON are detected per message (`--encoding` forces one); `--publisher-id`, `--writer-group-id` and `--writer-id` filter; `--count`, `--duration` or Ctrl+C stop it. Undecodable messages are reported on stderr (`--show-errors` for all of them).
+- **DataSetMetaData for field names and RawData types:** `--field Name:Type` (repeatable), `--metadata` (a `ua-metadata` message or a `DataSetMetaDataType` in the OPC UA JSON encoding), `--metadata-node` (the `DataSetMetaData` of a PublishedDataSet or DataSetReader, read from the server at `--endpoint`), and the metadata publishers announce on the wire (`ua-metadata` messages, UADP DataSetMetaData announcements), which is learned and used for later messages; `--show-metadata` prints the announcements and `ua-status` messages.
+- **`pubsub publish`**: sends a key-frame DataSet built from `--field Name:Type=Value` (all scalar built-in types) as UADP (UDP or MQTT) or JSON (MQTT), with the Variant, DataValue or RawData field encoding (`--field-encoding`), `--publisher-id` (`N`, `byte:N`, `u32:N`, `u64:N` or a string), `--writer-group-id`, `--writer-id`, `--interval`, `--count` (default 1, 0 = until Ctrl+C) and `--duration`. `--announce-metadata` (UDP) and `--metadata-topic` (MQTT, retained) announce the DataSetMetaData first.
+- **`pubsub decode [file|-]`**: decodes one captured message — raw bytes, hex or base64 (`--input`, detected by default) — as ua-data, ua-metadata, ua-status or a UADP metadata announcement, with the same metadata, filter and key flags as `subscribe`.
+- **Message security:** `--security-group` pulls the keys of a SecurityGroup from the Security Key Service at `--endpoint` (GetSecurityKeys over the session flags, refreshed before they rotate); `--keys-file` reads saved keys instead. Subscribers verify and decrypt Sign / SignAndEncrypt UADP messages (PubSub-Aes128-CTR, PubSub-Aes256-CTR) and reject messages weaker than `--message-security`; publishers sign or sign and encrypt.
+- **`pubsub sks get-keys`**: GetSecurityKeys for `--security-group` (`--starting-token`, `--future-keys`): security policy, token ids, key lengths, TimeToNextKey and KeyLifetime. Key material only with `--show-keys`; its JSON output is the `--keys-file` format.
+- **`pubsub config`** (any Part 14 server: go-opcua with `server.WithPubSub`, open62541):
+  - `show`: the PublishSubscribe tree — connections, writer groups, writers, reader groups, readers and published data sets with NodeIds, states and main properties (PublisherId, transport, WriterGroupId, PublishingInterval, security, DataSetWriterId, field lists); `--format json` nests them.
+  - `add-connection` (UDP or MQTT, UADP or JSON), `add-dataset` (AddPublishedDataItems, with the per-variable status), `add-writer-group` (UADP or JSON, `--queue`, `--keep-alive`, `--message-security` / `--security-group`), `add-writer` (`--key-frame-count`, `--field-encoding`, `--queue`, `--metadata-queue`), `add-reader-group`, `add-reader` (filters, metadata flags, `--target` variables, `--message-receive-timeout`); `-q` prints only the new NodeId.
+  - `remove connection|group|writer|reader|dataset`, `enable` and `disable` (a component, or the whole PubSub without `--node`).
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.6.0 → **[v1.7.0](https://github.com/otfabric/go-opcua/releases/tag/v1.7.0)**. No new module dependencies: the MQTT client is part of go-opcua. opcuactl remains a pure-Go, statically linked binary.
+
+### What the library update brings to existing commands
+
+- **Reverse connect:** a server that was refused while opcuactl waited is reported, instead of only "context canceled" at the timeout.
+- **`call method` against go-opcua v1.7.0 servers:** they accept subtypes of the declared argument types (IntegerId, Duration, …) and empty arrays.
+- **Structures:** several generated structures whose Go name differs from the OPC UA name (`ReadValueID`, `NetworkAddressURLDataType`, …) are now registered, so they decode instead of arriving empty.
+
+### Tests
+
+- End-to-end tests run the CLI in-process against the go-opcua PubSub runtime and server: UADP over UDP in both directions (Variant, DataValue and RawData fields, metadata announcements, filters), JSON and UADP through an in-test MQTT 3.1.1 broker (retained metadata, QoS 1), a Security Key Service with a Basic256Sha256 SignAndEncrypt session and a username identity (GetSecurityKeys, refused callers, Aes256-CTR secured messages both ways, keys files), and the configuration methods of a server with `WithPubSub` (a reader writing what a writer publishes to a target variable, enable / disable, removal, error paths).
+- Unit tests for the new parsers (built-in types, field specs, PublisherIds, message security, encodings) and output helpers.
+
+### Known limitations
+
+- What go-opcua v1.7.0 does not implement is not available: Ethernet (`opc.eth://`) and AMQP transports, chunked NetworkMessages, UADP discovery requests.
+- `pubsub publish` sends key frames only; its sequence numbers start at 1 with every run.
+- UDP multicast needs a route for the group; on macOS loopback-only setups pass `--interface lo0`.
+
+### Documentation
+
+- **README**: PubSub feature overview, command tree, usage examples and a PubSub section (transports, PublisherIds, metadata, message security, configuration).
+- **EXAMPLES**: live captures of `pubsub config`, `subscribe`, `publish` and `decode` against the go-opcua v1.7.0 PubSub example server.
+- **RECIPES**: finding out what a publisher sends, secured messages with keys from an SKS, testing a subscriber, reconfiguring a server's PubSub.
+
+---
+
 ## v0.3.0
 
 **Date:** 2026-10-12  

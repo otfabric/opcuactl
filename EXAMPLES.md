@@ -4,7 +4,7 @@ Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** i
 
 Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.6.0** (`opcuactl` **v0.3.0**).
 
-This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md). The [v0.3.0 features](#v030-features-captured-against-a-go-opcua-server) — ECC security policies, reverse connect, Local Discovery Server, data-change filters and the OPC UA JSON / XML encodings — are live captures against a go-opcua v1.6.0 demo server.
+This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md). The [v0.3.0 features](#v030-features-captured-against-a-go-opcua-server) — ECC security policies, reverse connect, Local Discovery Server, data-change filters and the OPC UA JSON / XML encodings — are live captures against a go-opcua v1.6.0 demo server. The [v0.4.0 PubSub features](#v040-features-captured-against-a-go-opcua-server) are live captures against the go-opcua v1.7.0 PubSub example server.
 
 > All captured commands use these connection flags:
 > ```bash
@@ -74,6 +74,11 @@ This PLC only offers anonymous / username over `None/None`, and does not support
   - [Find Type (by Data Type)](#find-type-by-data-type)
   - [Find Type (by Byte)](#find-type-by-byte)
 - [Version](#version)
+- [v0.4.0 features (captured against a go-opcua server)](#v040-features-captured-against-a-go-opcua-server)
+  - [PubSub configuration of a server](#pubsub-configuration-of-a-server)
+  - [Subscribe](#subscribe)
+  - [Disable, enable and remove](#disable-enable-and-remove)
+  - [Publish and decode](#publish-and-decode)
 - [v0.3.0 features (captured against a go-opcua server)](#v030-features-captured-against-a-go-opcua-server)
   - [ECC security policies](#ecc-security-policies)
   - [Local Discovery Server and mDNS](#local-discovery-server-and-mdns)
@@ -771,6 +776,137 @@ opcuactl dev
 ```
 
 With a release build, `tag` appears when `main.tag` is set at link time.
+
+---
+
+## v0.4.0 features (captured against a go-opcua server)
+
+PubSub captures against the PubSub example server of [go-opcua](https://github.com/otfabric/go-opcua) v1.7.0 (`examples/pubsub/server`), started with `-port 48400 -pubsub opc.udp://127.0.0.1:47200`: it publishes its `Temperature` variable as UADP over UDP and subscribes to it again. The WAGO PLC above has no PubSub.
+
+### PubSub configuration of a server
+
+```console
+$ opcuactl pubsub config show -e opc.tcp://localhost:48400
+
+KIND              NAME              NODEID      STATE        DETAILS
+PublishSubscribe  PublishSubscribe  i=14443     Operational
+  connection      UDP               ns=2;i=105  Operational  PublisherId=1 TransportProfileUri=pubsub-udp-uadp
+    writer-group  Publisher         ns=2;i=114  Operational  PublishingInterval=500ms SecurityMode=None WriterGroupId=1
+      writer      Plant             ns=2;i=134  Operational  DataSetWriterId=1 KeyFrameCount=1
+    reader-group  Subscriber        ns=2;i=141  Operational  SecurityMode=None
+      reader      Plant             ns=2;i=149  Operational  DataSetMetaData=Temperature:Double DataSetWriterId=1 PublisherId=1 WriterGroupId=1
+  dataset         Plant             ns=2;i=101               DataSetMetaData=Temperature:Double
+```
+
+Add a second publisher through the PublishSubscribe methods: a connection to another UDP address, a published data set with the temperature and the server time, a writer group and a writer (`-q` prints only the NodeId):
+
+```console
+$ opcuactl pubsub config add-connection -e opc.tcp://localhost:48400 --name Diag --url opc.udp://127.0.0.1:47201 --publisher-id 2234 -q
+ns=2;i=166
+
+$ opcuactl pubsub config add-dataset -e opc.tcp://localhost:48400 --name Diag --var Temperature="ns=1;s=Temperature" --var Time=i=2258
+added dataset "Diag": ns=2;i=175
+FIELD        NODEID              STATUS
+Temperature  ns=1;s=Temperature  Good
+Time         i=2258              Good
+
+$ opcuactl pubsub config add-writer-group -e opc.tcp://localhost:48400 --connection "ns=2;i=166" --name DiagGroup --writer-group-id 100 --interval 500ms -q
+ns=2;i=179
+
+$ opcuactl pubsub config add-writer -e opc.tcp://localhost:48400 --group "ns=2;i=179" --name DiagWriter --writer-id 1 --dataset Diag
+added writer "DiagWriter": ns=2;i=199
+```
+
+### Subscribe
+
+Without metadata the UADP fields have no names:
+
+```console
+$ opcuactl pubsub subscribe --url opc.udp://127.0.0.1:47201 --count 3
+
+2026-10-24T00:11:21.287133Z  pub=2234 wg=100 writer=1 seq=1 keyframe  #0=24.5 #1=2026-10-24T00:11:21.28713Z
+2026-10-24T00:11:21.787345Z  pub=2234 wg=100 writer=1 seq=2 keyframe  #0=24.5 #1=2026-10-24T00:11:21.787336Z
+2026-10-24T00:11:22.287452Z  pub=2234 wg=100 writer=1 seq=3 keyframe  #0=25 #1=2026-10-24T00:11:22.287442Z
+```
+
+The DataSetMetaData of the published data set, read from the server, names them:
+
+```console
+$ opcuactl pubsub subscribe --url opc.udp://127.0.0.1:47201 --count 2 --metadata-node "ns=2;i=175" -e opc.tcp://localhost:48400
+
+2026-10-24T00:11:33.287876Z  pub=2234 wg=100 writer=1 seq=25 keyframe  Temperature=30.5 Time=2026-10-24T00:11:33.287868Z
+2026-10-24T00:11:33.787643Z  pub=2234 wg=100 writer=1 seq=26 keyframe  Temperature=30.5 Time=2026-10-24T00:11:33.787607Z
+```
+
+```console
+$ opcuactl pubsub subscribe --url opc.udp://127.0.0.1:47201 --count 1 --jsonl --field Temperature:Double --field Time:DateTime
+
+{"ts":"2026-10-24T00:11:34.288322Z","source":"127.0.0.1:63089","encoding":"uadp","publisherId":"2234","writerGroupId":100,"dataSetWriterId":1,"messageType":"keyframe","sequenceNumber":27,"timestamp":"2026-10-24T00:11:34.288062Z","metaDataVersion":"846115880.846115880","security":"None","fields":[{"index":0,"name":"Temperature","value":31,"type":"Double"},{"index":1,"name":"Time","value":"2026-10-24T00:11:34.288059Z","type":"DateTime"}]}
+```
+
+### Disable, enable and remove
+
+```console
+$ opcuactl pubsub config disable -e opc.tcp://localhost:48400 --node "ns=2;i=179"
+ns=2;i=179: Disabled
+
+$ opcuactl pubsub subscribe --url opc.udp://127.0.0.1:47201 --duration 2s
+(no output: the writer group is disabled)
+
+$ opcuactl pubsub config enable -e opc.tcp://localhost:48400 --node "ns=2;i=179"
+ns=2;i=179: Operational
+
+$ opcuactl pubsub config remove connection -e opc.tcp://localhost:48400 --node "ns=2;i=166"
+removed connection ns=2;i=166
+
+$ opcuactl pubsub config remove dataset -e opc.tcp://localhost:48400 --node "ns=2;i=175"
+removed dataset ns=2;i=175
+```
+
+### Publish and decode
+
+A RawData DataSet with a DataSetMetaData announcement first, captured with a UDP listener on port 47210 (`cap-meta.hex`, `cap-data.hex`):
+
+```console
+$ opcuactl pubsub publish --url opc.udp://127.0.0.1:47210 --publisher-id 2234 --writer-group-id 100 \
+    --field Counter:UInt32=42 --field Temp:Double=21.5 --field-encoding rawdata --announce-metadata
+published 1 message(s), 52 bytes, to opc.udp://127.0.0.1:47210
+
+$ cat cap-data.hex
+f101ba080f64000000000001000100010100fb100100141157404c63dd0100003fb46e323fb46e322a0000000000000000803540
+
+$ opcuactl pubsub decode cap-meta.hex
+metadata pub=2234 writer=1 "DataSet" version=846115903.846115903 fields: Counter:UInt32, Temp:Double
+
+$ opcuactl pubsub decode cap-data.hex
+Error: decoding the message: DataSetMessage 0: pubsub/uadp: RawData needs the DataSetMetaData
+
+$ opcuactl pubsub decode cap-data.hex --field Counter:UInt32 --field Temp:Double
+2026-10-24T00:11:43.909506Z  pub=2234 wg=100 writer=1 seq=1 keyframe  Counter=42 Temp=21.5
+```
+
+```console
+$ opcuactl pubsub decode cap-data.hex --field Counter:UInt32 --field Temp:Double --format json --pretty
+[
+  {
+    "encoding": "uadp",
+    "publisherId": "2234",
+    "writerGroupId": 100,
+    "dataSetWriterId": 1,
+    "messageType": "keyframe",
+    "sequenceNumber": 1,
+    "timestamp": "2026-10-24T00:11:43.909506Z",
+    "metaDataVersion": "846115903.846115903",
+    "security": "None",
+    "fields": [
+      { "index": 0, "name": "Counter", "value": 42, "type": "UInt32" },
+      { "index": 1, "name": "Temp", "value": 21.5, "type": "Double" }
+    ]
+  }
+]
+```
+
+> Secured messages, the Security Key Service and MQTT are covered by the end-to-end tests (`cmd/opcuactl/pubsub_e2e_test.go`) and by the syntax examples in [README.md](README.md#pubsub) and [RECIPES.md](RECIPES.md).
 
 ---
 
