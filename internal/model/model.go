@@ -303,20 +303,37 @@ type PubSubProperty struct {
 // PubSubDataSet is one decoded DataSetMessage of a PubSub NetworkMessage.
 type PubSubDataSet struct {
 	PubSubReceived
-	Encoding          string        `json:"encoding"`
-	PublisherID       string        `json:"publisherId"`
-	WriterGroupID     uint16        `json:"writerGroupId,omitempty"`
-	WriterGroupName   string        `json:"writerGroupName,omitempty"`
-	DataSetWriterID   uint16        `json:"dataSetWriterId"`
-	DataSetWriterName string        `json:"dataSetWriterName,omitempty"`
-	MessageType       string        `json:"messageType"`
-	SequenceNumber    uint32        `json:"sequenceNumber"`
-	Timestamp         string        `json:"timestamp,omitempty"`
-	Status            string        `json:"status,omitempty"`
-	MetaDataVersion   string        `json:"metaDataVersion,omitempty"`
-	Security          string        `json:"security"`
-	SecurityTokenID   uint32        `json:"securityTokenId,omitempty"`
-	Fields            []PubSubField `json:"fields"`
+	Encoding          string `json:"encoding"`
+	PublisherID       string `json:"publisherId"`
+	WriterGroupID     uint16 `json:"writerGroupId,omitempty"`
+	WriterGroupName   string `json:"writerGroupName,omitempty"`
+	DataSetWriterID   uint16 `json:"dataSetWriterId"`
+	DataSetWriterName string `json:"dataSetWriterName,omitempty"`
+	MessageType       string `json:"messageType"`
+	SequenceNumber    uint32 `json:"sequenceNumber"`
+	Timestamp         string `json:"timestamp,omitempty"`
+	Status            string `json:"status,omitempty"`
+	MetaDataVersion   string `json:"metaDataVersion,omitempty"`
+	Security          string `json:"security"`
+	SecurityTokenID   uint32 `json:"securityTokenId,omitempty"`
+	// Action is set for the DataSetMessage of a PubSub Action request or
+	// response; the Status of a response is the result of the Action.
+	Action *PubSubAction `json:"action,omitempty"`
+	Fields []PubSubField `json:"fields"`
+}
+
+// PubSubAction is the action header of a PubSub Action request or response
+// message (Part 14 §7.2.4.4.2 and §7.2.4.5.9 in 1.05).
+type PubSubAction struct {
+	Type            string `json:"type"` // request or response
+	ActionTargetID  uint16 `json:"actionTargetId"`
+	RequestID       uint16 `json:"requestId"`
+	ActionState     string `json:"actionState"`
+	RequestorID     string `json:"requestorId,omitempty"`
+	ResponseAddress string `json:"responseAddress,omitempty"`
+	CorrelationData string `json:"correlationData,omitempty"` // hex
+	// TimeoutHint is in milliseconds (requests).
+	TimeoutHint float64 `json:"timeoutHint,omitempty"`
 }
 
 // PubSubField is one field of a DataSetMessage.

@@ -5,6 +5,7 @@ package opcuactl
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -641,6 +642,12 @@ func (d *pubsubDecoder) dataSets(nm *message.NetworkMessage, msg *transport.Mess
 		if !ds.Valid && enc == "uadp" {
 			m.Status = "Invalid"
 		}
+		if nm.Action != nil {
+			m.Action = actionModel(nm.Action, ds)
+			if nm.Action.Type == message.ActionResponse {
+				m.Status = ds.Status.Symbol()
+			}
+		}
 		md := d.lookup(pub, nm.GroupHeader.WriterGroupID, ds.DataSetWriterID)
 		if md == nil && enc == "uadp" && d.missing != nil {
 			d.missing(pub, ds.DataSetWriterID)
@@ -653,8 +660,32 @@ func (d *pubsubDecoder) dataSets(nm *message.NetworkMessage, msg *transport.Mess
 	return out
 }
 
+// actionModel describes the action header of an action DataSetMessage.
+func actionModel(h *message.ActionHeader, ds *message.DataSetMessage) *model.PubSubAction {
+	a := &model.PubSubAction{
+		Type:            "request",
+		ActionTargetID:  ds.ActionTargetID,
+		RequestID:       ds.RequestID,
+		ActionState:     strings.TrimPrefix(ds.ActionState.String(), "ActionState"),
+		ResponseAddress: h.ResponseAddress,
+		CorrelationData: hex.EncodeToString(h.CorrelationData),
+		TimeoutHint:     h.TimeoutHint,
+	}
+	if h.Type == message.ActionResponse {
+		a.Type = "response"
+	}
+	if h.RequestorID != nil {
+		a.RequestorID = h.RequestorID.String()
+	}
+	return a
+}
+
 func messageTypeName(t message.DataSetMessageType) string {
 	switch t {
+	case message.DataSetMessageActionRequest:
+		return "action-request"
+	case message.DataSetMessageActionResponse:
+		return "action-response"
 	case message.DataSetMessageKeyFrame:
 		return "keyframe"
 	case message.DataSetMessageDeltaFrame:
@@ -776,10 +807,16 @@ func dataSetLine(ds model.PubSubDataSet) string {
 		fmt.Fprintf(&b, " wg=%s", ds.WriterGroupName)
 	}
 	fmt.Fprintf(&b, " writer=%d seq=%d %s", ds.DataSetWriterID, ds.SequenceNumber, ds.MessageType)
+	if a := ds.Action; a != nil {
+		b.WriteString(actionSuffix(a))
+		if a.Type == "response" {
+			fmt.Fprintf(&b, " status=%s", ds.Status)
+		}
+	}
 	if ds.Security != "None" {
 		fmt.Fprintf(&b, " [%s token=%d]", ds.Security, ds.SecurityTokenID)
 	}
-	if ds.Status != "" && ds.Status != "OK" {
+	if ds.Status != "" && ds.Status != "OK" && ds.Action == nil {
 		fmt.Fprintf(&b, " [%s]", ds.Status)
 	}
 	b.WriteString(receivedSuffix(ds.PubSubReceived))
@@ -793,6 +830,22 @@ func dataSetLine(ds model.PubSubDataSet) string {
 		if f.Status != "" && f.Status != "OK" {
 			fmt.Fprintf(&b, "[%s]", f.Status)
 		}
+	}
+	return b.String()
+}
+
+// actionSuffix is the table form of the action header of a message.
+func actionSuffix(a *model.PubSubAction) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, " target=%d request=%d state=%s", a.ActionTargetID, a.RequestID, a.ActionState)
+	if a.RequestorID != "" {
+		fmt.Fprintf(&b, " requestor=%s", a.RequestorID)
+	}
+	if a.TimeoutHint > 0 {
+		fmt.Fprintf(&b, " timeout=%gms", a.TimeoutHint)
+	}
+	if a.ResponseAddress != "" {
+		fmt.Fprintf(&b, " response-address=%s", a.ResponseAddress)
 	}
 	return b.String()
 }
