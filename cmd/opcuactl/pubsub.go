@@ -75,7 +75,30 @@ Examples:
 		newPubSubSKSCmd(),
 		newPubSubConfigCmd(),
 	)
+	reportErrors(cmd)
 	return cmd
+}
+
+// reportErrors makes the commands below cmd print the error they fail with
+// on stderr (the root command silences cobra's own error output).
+func reportErrors(cmd *cobra.Command) {
+	if run := cmd.RunE; run != nil {
+		cmd.RunE = func(c *cobra.Command, args []string) error {
+			err := run(c, args)
+			if err != nil {
+				format.Errf("%v", err)
+			}
+			return err
+		}
+	}
+	for _, sub := range cmd.Commands() {
+		reportErrors(sub)
+	}
+}
+
+// pubsubInfo prints a diagnostic line on stderr.
+func pubsubInfo(msg string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, msg+"\n", args...)
 }
 
 // ---------------------------------------------------------------------------

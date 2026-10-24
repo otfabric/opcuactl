@@ -100,7 +100,7 @@ Examples:
 			res, err := dec.decode(payload, nil)
 			if errors.Is(err, errFiltered) {
 				if !quiet {
-					format.Errf("the message does not match the filters")
+					pubsubInfo("the message does not match the filters")
 				}
 				return nil
 			}

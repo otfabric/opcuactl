@@ -353,6 +353,9 @@ func TestE2E_PubSubDecode(t *testing.T) {
 	t.Run("errors", func(t *testing.T) {
 		garbage := write("garbage.bin", []byte{0x01, 0xff})
 		empty := write("empty.bin", nil)
+		if _, errOut, err := runCLI(t, "pubsub", "decode", garbage); ExitCode(err) != 3 || !strings.Contains(errOut, "Error: decoding the message") {
+			t.Errorf("garbage: exit %d, stderr %q", ExitCode(err), errOut)
+		}
 		for _, args := range [][]string{
 			{garbage},
 			{empty},

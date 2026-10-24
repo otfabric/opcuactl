@@ -67,7 +67,6 @@ func withRemote(fn func(ctx context.Context, c *opcua.Client, r *remote.Client) 
 	ctx := context.Background()
 	c, err := connCfg.NewClient(ctx)
 	if err != nil {
-		format.Errf("%v", err)
 		return exitCode(2, err)
 	}
 	defer func() { _ = c.Close(ctx) }()
@@ -168,10 +167,14 @@ func pubsubTree(ctx context.Context, r *remote.Client) (model.PubSubComponent, e
 			if err != nil || v == nil || v.Value() == nil {
 				continue
 			}
+			s := propertyString(p, v)
+			if s == "" {
+				continue
+			}
 			if m.Properties == nil {
 				m.Properties = map[string]string{}
 			}
-			m.Properties[p] = propertyString(p, v)
+			m.Properties[p] = s
 		}
 		return m
 	}

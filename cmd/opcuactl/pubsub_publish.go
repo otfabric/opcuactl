@@ -296,7 +296,7 @@ Examples:
 					return exitCodef(2, "sending the DataSetMetaData: %v", err)
 				}
 				if verbose {
-					format.Errf("sent DataSetMetaData (%d bytes)", len(b))
+					pubsubInfo("sent DataSetMetaData (%d bytes)", len(b))
 				}
 			}
 
@@ -320,7 +320,7 @@ Examples:
 				sent++
 				bytesSent += len(b)
 				if verbose {
-					format.Errf("sent message %d (%d bytes)", seq, len(b))
+					pubsubInfo("sent message %d (%d bytes)", seq, len(b))
 				}
 				if count > 0 && sent >= count {
 					break

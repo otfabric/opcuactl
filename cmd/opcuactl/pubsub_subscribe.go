@@ -120,7 +120,7 @@ Examples:
 			}
 			defer func() { _ = cancelSub() }()
 			if verbose {
-				format.Errf("listening on %s (topic %q, encoding %s)", tf.url, topic, enc)
+				pubsubInfo("listening on %s (topic %q, encoding %s)", tf.url, topic, enc)
 			}
 
 			var deadline <-chan time.Time
@@ -167,14 +167,14 @@ Examples:
 						if showMeta {
 							emit(mdm, metaDataLine(mdm))
 						} else if verbose {
-							format.Errf("%s", metaDataLine(mdm))
+							pubsubInfo("%s", metaDataLine(mdm))
 						}
 					}
 					if res.Status != nil && (showMeta || verbose) {
 						if showMeta {
 							emit(res.Status, statusLine(res.Status))
 						} else {
-							format.Errf("%s", statusLine(res.Status))
+							pubsubInfo("%s", statusLine(res.Status))
 						}
 					}
 					for _, ds := range res.DataSets {
@@ -185,7 +185,7 @@ Examples:
 						}
 					}
 					if n := dropped.Swap(0); n > 0 && verbose {
-						format.Errf("%d message(s) dropped: output too slow", n)
+						pubsubInfo("%d message(s) dropped: output too slow", n)
 					}
 				}
 			}

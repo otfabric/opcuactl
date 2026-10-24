@@ -72,7 +72,6 @@ Examples:
 			ctx := context.Background()
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
-				format.Errf("%v", err)
 				return exitCode(2, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
