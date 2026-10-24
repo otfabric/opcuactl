@@ -1,5 +1,64 @@
 # opcuactl Releases
 
+## v0.5.0
+
+**Date:** 2026-10-24  
+**Previous release:** v0.4.1  
+
+### Summary
+
+Feature release on **[go-opcua v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**, which brings the PubSub transports and features of OPC UA Part 14 that v0.4 lacked. The `pubsub` commands now speak raw Ethernet, MQTT 5.0 and AMQP 1.0. They send and reassemble chunked NetworkMessages, probe for publishers and answer probes with UADP discovery (and a new `pubsub discover` command), and count what they do with the Part 14 diagnostics counters. `pubsub config diagnostics` reads the diagnostics objects of a server.
+
+Existing commands and output formats are unchanged. The `--mqtt-*` broker flags are deprecated in favour of `--broker-*` but keep working.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.8.1 → **[v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**: PubSub Ethernet, MQTT 5.0 and AMQP 1.0 transports, chunked NetworkMessages, UADP discovery, Part 14 diagnostics counters, and the PubSub diagnostics objects in the server.
+
+### Added: transports
+
+- **Ethernet (`opc.eth://MAC[:VID[.PCP]]`)**: UADP in Ethernet frames, optionally VLAN tagged, on Linux, macOS and FreeBSD. `--interface` is required. A missing raw-socket permission gets a hint (run as root, or `sudo setcap cap_net_raw+ep "$(command -v opcuactl)"`); JSON over Ethernet (or UDP) is rejected with a clear error.
+- **AMQP 1.0 (`amqp://`, `amqps://`)**: UADP and JSON through brokers such as RabbitMQ 4 (`--topic /queues/<name>`, vhost via `--transport-property connection-hostname=vhost:<name>`) and ActiveMQ Artemis (plain addresses, anycast with `source-capabilities=queue` / `target-capabilities=queue`).
+- **MQTT 5.0**: `--mqtt-version 3.1.1|5.0|BestAvailable` (default 3.1.1), `--qos 0|1|2` (QoS 2 is exactly-once on MQTT, at-least-once on AMQP).
+- **Broker credentials**: `--broker-username`, `--broker-password` (or `OPCUACTL_BROKER_PASSWORD`; `OPCUACTL_MQTT_PASSWORD` still works) and `--broker-client-id` (MQTT client id, AMQP container-id) for MQTT and AMQP. `--mqtt-username`, `--mqtt-password` and `--mqtt-client-id` remain as deprecated aliases. `--username` and `--password` stay with the OPC UA session.
+- **`--transport-property key=value`** (repeatable): connection properties for the transport (MQTT 5.0 `connection-*`, AMQP capabilities and hostname, ...).
+
+### Added: messages
+
+- **Broker message headers in `subscribe`**: each line (and the JSON output) shows the topic, content type, UAMessageType and user properties (MQTT 5.0 user properties, AMQP application properties). The decoder is picked by content type (`application/opcua+uadp`, `application/json`), with detection as the fallback.
+- **`publish` sets the UAMessageType** of its data and metadata messages (`ua-data`, `ua-metadata`); the transport fills the content type.
+- **Chunked NetworkMessages (Part 14 §7.2.4.4.4)**: `publish --max-message-size N` (default: the transport's limit) splits larger UADP messages into chunks, each secured on its own. `subscribe` reassembles them, bounded by `--chunk-max-message-size`, `--chunk-max-pending`, `--chunk-max-pending-bytes` and `--chunk-timeout`. `decode` accepts several files, so chunks captured separately reassemble too.
+
+### Added: discovery
+
+- **`pubsub discover`**: sends UADP discovery probes (`--probe applications|endpoints|metadata|writers|group|connections`, filtered by `--publisher-id`, `--writer-id`, `--writer-group-id`, `--transport-profile`, with `--include-writers` / `--include-groups`) to a multicast group, an Ethernet address or a DiscoveryAddress, and prints the announcements for `--duration` (`--listen-url` adds addresses to listen on).
+- **`subscribe --probe`**: probes for the DataSetMetaData of writers seen without one, with a growing back-off. `--publisher-id` and `--writer-id` without metadata probe right away.
+- **`publish --answer-probes`**: answers probes for its application state, DataSetMetaData, writer and group configuration and connection (endpoint probes get Bad_NotSupported: it has no server), rate-limited per probe. `--announce-interval` repeats the DataSetMetaData announcement (or the `--metadata-topic` message on a broker).
+- **`--discovery-url`** sets the DiscoveryAddress (default: `--url` if it is a multicast group or Ethernet address); **`--discovery-layout spec|dotnet`** speaks the probe layout of the OPC Foundation .NET stack 2.x.
+
+### Added: diagnostics
+
+- **`--diagnostics`, `--diagnostics-interval`, `--diagnostics-level`** on `subscribe`, `publish` and `discover`: the Part 14 diagnostics counters (§9.1.11) of the component the command plays (SentNetworkMessages, FailedTransmissions, ReceivedNetworkMessages, ReceivedInvalidNetworkMessages, DecryptionErrors, ...) plus chunk and discovery counters, with totals by classification. They are printed on stderr on exit and every interval, as text or a JSON line with `--format json`.
+- **`pubsub config diagnostics [--node X] [--reset]`**: reads the diagnostics object of a server's PublishSubscribe object, connection, group, writer or reader: DiagnosticsLevel, totals, SubError, every counter with classification, level, Active and TimeFirstChange, and the LiveValues. `--reset` calls the Reset method first.
+
+### Changed
+
+- **`pubsub config add-connection`** accepts Ethernet, MQTT and AMQP connections, with `--interface`, `--mqtt-version` and `--transport-property` (written as ConnectionProperties).
+- **`pubsub decode`** takes several files.
+
+### Not supported yet
+
+- PubSub Actions (request / response), which are not in go-opcua v1.9.0. The `pubsub` command group has a place for them.
+- The gzip-compressed JSON content type.
+
+### Documentation
+
+- **README**: transports table, broker credentials, chunks, discovery and diagnostics; Features list and Command Reference updated.
+- **RECIPES**: new recipes 17 to 21 for MQTT 5.0 and AMQP brokers, Ethernet, chunks, discovery and diagnostics.
+- **EXAMPLES**: live captures against Mosquitto, RabbitMQ, Artemis, raw Ethernet between Linux containers, and the go-opcua v1.9.0 PubSub example server.
+
+---
+
 ## v0.4.1
 
 **Date:** 2026-10-24  

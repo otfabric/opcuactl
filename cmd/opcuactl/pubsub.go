@@ -41,18 +41,21 @@ var (
 func newPubSubCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pubsub",
-		Short: "OPC UA PubSub: subscribe, publish, decode, keys and configuration",
+		Short: "OPC UA PubSub: subscribe, publish, discover, decode, keys, configuration and diagnostics",
 		Long: `Work with OPC UA PubSub (Part 14).
 
 PubSub sends DataSets from publishers to subscribers without sessions, as
 UADP (binary) or JSON NetworkMessages over UDP (opc.udp://, unicast and
-multicast) or an MQTT broker (mqtt://, mqtts://).
+multicast), raw Ethernet (opc.eth://, UADP), an MQTT 3.1.1 or 5.0 broker
+(mqtt://, mqtts://) or an AMQP 1.0 broker (amqp://, amqps://).
 
   subscribe  listen on a transport and print the DataSetMessages received
   publish    send a DataSet built from the command line (for testing)
-  decode     decode a captured UADP or JSON NetworkMessage
+  discover   send UADP discovery probes and print the announcements
+  decode     decode captured UADP or JSON NetworkMessages
   sks        get the keys of a SecurityGroup from a Security Key Service
-  config     show and change the PublishSubscribe configuration of a server
+  config     show and change the PublishSubscribe configuration of a server,
+             and read its diagnostics
 
 Secured UADP messages (Sign / SignAndEncrypt, PubSub-Aes128-CTR or
 PubSub-Aes256-CTR) need the keys of their SecurityGroup: --security-group
@@ -60,17 +63,26 @@ pulls them from the Security Key Service at --endpoint (the session must use
 SignAndEncrypt), --keys-file reads keys saved with
 "pubsub sks get-keys --show-keys --format json".
 
+Broker credentials are --broker-username / --broker-password (or
+OPCUACTL_BROKER_PASSWORD); --username and --password belong to the OPC UA
+session with --endpoint.
+
 Examples:
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840
-  opcuactl pubsub subscribe --url mqtt://broker:1883 --topic 'plant/#'
+  opcuactl pubsub subscribe --url mqtt://broker:1883 --topic 'plant/#' --mqtt-version 5.0
+  opcuactl pubsub subscribe --url amqp://rabbitmq:5672 --topic /queues/opcua
   opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --field Counter:UInt32=42
+  opcuactl pubsub discover --url opc.udp://224.0.0.22:4840
   opcuactl pubsub decode capture.bin --field Counter:UInt32
   opcuactl pubsub sks get-keys -e opc.tcp://sks:4840 --security-group sg ...
   opcuactl pubsub config show -e opc.tcp://localhost:4840`,
 	}
+	// PubSub Actions (request / response over PubSub, Part 14 1.05) get
+	// their commands here once go-opcua supports them.
 	cmd.AddCommand(
 		newPubSubSubscribeCmd(),
 		newPubSubPublishCmd(),
+		newPubSubDiscoverCmd(),
 		newPubSubDecodeCmd(),
 		newPubSubSKSCmd(),
 		newPubSubConfigCmd(),
@@ -296,6 +308,13 @@ type pubsubDecoder struct {
 	static    *ua.DataSetMetaDataType
 	keys      security.KeySource
 	minMode   ua.MessageSecurityMode
+	// reasm reassembles chunked UADP NetworkMessages.
+	reasm *uadp.Reassembler
+	// diag counts what was received (nil: not counted).
+	diag *pubsubDiagnostics
+	// missing, if set, is called for a UADP DataSetMessage of a writer
+	// without DataSetMetaData.
+	missing func(p message.PublisherID, writerID uint16)
 
 	mu      sync.Mutex
 	learned map[string]*ua.DataSetMetaDataType
@@ -309,6 +328,7 @@ func newPubSubDecoder(enc parse.PubSubEncoding, filter pubsubFilterFlags, static
 		static:   static,
 		keys:     keys,
 		minMode:  minMode,
+		reasm:    uadp.NewReassembler(nil),
 		learned:  make(map[string]*ua.DataSetMetaDataType),
 	}
 	if filter.publisherID != "" {
@@ -326,9 +346,10 @@ func newPubSubDecoder(enc parse.PubSubEncoding, filter pubsubFilterFlags, static
 
 // pubsubResult is what one NetworkMessage held.
 type pubsubResult struct {
-	DataSets []model.PubSubDataSet
-	MetaData []model.PubSubMetaData
-	Status   map[string]interface{}
+	DataSets      []model.PubSubDataSet
+	MetaData      []model.PubSubMetaData
+	Announcements []model.PubSubAnnouncement
+	Status        map[string]interface{}
 }
 
 func metaKey(p message.PublisherID, writerID uint16) string {
@@ -365,6 +386,23 @@ func (d *pubsubDecoder) writerMatches(id uint16) bool {
 	return d.filter.writerID == 0 || d.filter.writerID == id
 }
 
+// encodingOf picks the decoder of a message: by the content type the
+// transport carried (MQTT 5.0, AMQP), else by looking at the payload.
+func encodingOf(b []byte, msg *transport.Message) (parse.PubSubEncoding, error) {
+	if msg != nil && msg.ContentType != "" {
+		ct, _, _ := strings.Cut(msg.ContentType, ";")
+		switch strings.ToLower(strings.TrimSpace(ct)) {
+		case transport.ContentTypeUADP:
+			return parse.EncodingUADP, nil
+		case transport.ContentTypeJSON:
+			return parse.EncodingJSON, nil
+		case transport.ContentTypeJSONGzip:
+			return "", fmt.Errorf("content type %s: compressed JSON is not supported", msg.ContentType)
+		}
+	}
+	return detectEncoding(b), nil
+}
+
 // detectEncoding tells JSON from UADP: JSON messages are objects or arrays.
 func detectEncoding(b []byte) parse.PubSubEncoding {
 	for _, c := range b {
@@ -380,7 +418,8 @@ func detectEncoding(b []byte) parse.PubSubEncoding {
 	return parse.EncodingUADP
 }
 
-// errFiltered marks a message the filters dropped.
+// errFiltered marks a message the filters dropped, or a message that has
+// nothing to show (a chunk of an incomplete message, a discovery probe).
 var errFiltered = errors.New("filtered")
 
 // decode decodes one NetworkMessage. It returns errFiltered for a message
@@ -388,7 +427,10 @@ var errFiltered = errors.New("filtered")
 func (d *pubsubDecoder) decode(b []byte, msg *transport.Message) (*pubsubResult, error) {
 	enc := d.encoding
 	if enc == parse.EncodingAuto || enc == "" {
-		enc = detectEncoding(b)
+		var err error
+		if enc, err = encodingOf(b, msg); err != nil {
+			return nil, err
+		}
 	}
 	if enc == parse.EncodingJSON {
 		return d.decodeJSON(b, msg)
@@ -419,20 +461,47 @@ func (d *pubsubDecoder) decodeUADP(b []byte, msg *transport.Message) (*pubsubRes
 		Security: func(*message.NetworkMessage) (ua.MessageSecurityMode, security.KeySource, error) {
 			return d.minMode, d.keys, nil
 		},
-		MetaData: d.lookup,
+		MetaData: func(p message.PublisherID, wg, writerID uint16) *ua.DataSetMetaDataType {
+			md := d.lookup(p, wg, writerID)
+			if md == nil && d.missing != nil {
+				d.missing(p, writerID)
+			}
+			return md
+		},
 	}
 	nm, err := uadp.Decode(b, opts)
 	if errors.Is(err, uadp.ErrFiltered) {
 		return nil, errFiltered
 	}
 	if err != nil {
-		return nil, err
+		return nil, d.failed(err)
 	}
+	if nm.Chunk != nil {
+		if nm, err = d.reassemble(nm, opts); err != nil {
+			return nil, err
+		}
+	}
+	if nm.Type == message.NetworkMessageDiscoveryRequest {
+		// A probe, maybe our own: publishers answer it.
+		return nil, errFiltered
+	}
+	d.diag.add(pubsub.CounterReceivedNetworkMessages.String(), 1)
 	res := &pubsubResult{}
-	if nm.Type == message.NetworkMessageDiscoveryResponse && nm.Discovery != nil &&
-		nm.Discovery.Type == message.DiscoveryDataSetMetaData && nm.Discovery.MetaData != nil {
-		d.learn(nm.PublisherID, nm.Discovery.DataSetWriterID, nm.Discovery.MetaData)
-		res.MetaData = append(res.MetaData, metaDataModel(msg, "uadp", nm.PublisherID, nm.Discovery.DataSetWriterID, nm.Discovery.MetaData))
+	switch nm.Type {
+	case message.NetworkMessageDiscoveryResponse:
+		if nm.Discovery == nil {
+			return nil, errFiltered
+		}
+		d.diag.add(ctrDiscoveryResponsesReceived, 1)
+		if nm.Discovery.Type == message.DiscoveryDataSetMetaData && nm.Discovery.MetaData != nil {
+			if !d.writerMatches(nm.Discovery.DataSetWriterID) {
+				return nil, errFiltered
+			}
+			d.learn(nm.PublisherID, nm.Discovery.DataSetWriterID, nm.Discovery.MetaData)
+			res.MetaData = append(res.MetaData, metaDataModel(msg, "uadp", nm.PublisherID, nm.Discovery.DataSetWriterID, nm.Discovery.MetaData))
+			return res, nil
+		}
+		res.Announcements = append(res.Announcements, announcementModel(msg, nm))
 		return res, nil
 	}
 	res.DataSets = d.dataSets(nm, msg, "uadp")
@@ -442,11 +511,43 @@ func (d *pubsubDecoder) decodeUADP(b []byte, msg *transport.Message) (*pubsubRes
 	return res, nil
 }
 
+// failed counts a message that could not be decoded and returns err.
+func (d *pubsubDecoder) failed(err error) error {
+	if isSecurityError(err) {
+		d.diag.add(pubsub.CounterDecryptionErrors.String(), 1)
+	} else {
+		d.diag.add(pubsub.CounterReceivedInvalidNetworkMessages.String(), 1)
+	}
+	return err
+}
+
+// reassemble adds a chunk to the message it belongs to. It returns the
+// message once all its chunks arrived, errFiltered while chunks are missing.
+func (d *pubsubDecoder) reassemble(chunk *message.NetworkMessage, opts *uadp.DecodeOptions) (*message.NetworkMessage, error) {
+	d.diag.add(ctrChunksReceived, 1)
+	payload, dropped, err := d.reasm.Add(chunk, time.Now())
+	d.diag.add(ctrChunksDiscarded, dropped)
+	if err != nil {
+		d.diag.add(ctrChunksDiscarded, 1)
+		return nil, err
+	}
+	if payload == nil {
+		return nil, errFiltered
+	}
+	d.diag.add(ctrChunkedMessagesReceived, 1)
+	nm, err := uadp.DecodeReassembled(chunk, payload, opts)
+	if err != nil {
+		return nil, d.failed(err)
+	}
+	return nm, nil
+}
+
 func (d *pubsubDecoder) decodeJSON(b []byte, msg *transport.Message) (*pubsubResult, error) {
 	v, err := jsonmsg.DecodeAny(b, &jsonmsg.DecodeOptions{MetaData: d.lookup})
 	if err != nil {
-		return nil, err
+		return nil, d.failed(err)
 	}
+	d.diag.add(pubsub.CounterReceivedNetworkMessages.String(), 1)
 	res := &pubsubResult{}
 	switch m := v.(type) {
 	case *jsonmsg.MetaDataMessage:
@@ -467,6 +568,9 @@ func (d *pubsubDecoder) decodeJSON(b []byte, msg *transport.Message) (*pubsubRes
 		}
 		if !m.Timestamp.IsZero() {
 			res.Status["timestamp"] = model.FormatTimestamp(m.Timestamp)
+		}
+		if r := receivedModel(msg); r.ContentType != "" || r.UAMessageType != "" {
+			res.Status["contentType"], res.Status["uaMessageType"] = r.ContentType, r.UAMessageType
 		}
 	case *message.NetworkMessage:
 		res.DataSets = d.dataSets(m, msg, "json")
@@ -527,13 +631,7 @@ func (d *pubsubDecoder) dataSets(nm *message.NetworkMessage, msg *transport.Mess
 			SecurityTokenID:   token,
 			Fields:            []model.PubSubField{},
 		}
-		if msg != nil {
-			m.Received = model.FormatTimestamp(msg.Received.UTC())
-			m.Topic = msg.Topic
-			if msg.Source != nil {
-				m.Source = msg.Source.String()
-			}
-		}
+		m.PubSubReceived = receivedModel(msg)
 		if ds.Status != 0 {
 			m.Status = ds.Status.Symbol()
 		}
@@ -544,6 +642,9 @@ func (d *pubsubDecoder) dataSets(nm *message.NetworkMessage, msg *transport.Mess
 			m.Status = "Invalid"
 		}
 		md := d.lookup(pub, nm.GroupHeader.WriterGroupID, ds.DataSetWriterID)
+		if md == nil && enc == "uadp" && d.missing != nil {
+			d.missing(pub, ds.DataSetWriterID)
+		}
 		for _, f := range ds.Fields {
 			m.Fields = append(m.Fields, fieldModel(f, md, ds.FieldEncoding == message.FieldEncodingDataValue))
 		}
@@ -610,6 +711,28 @@ func jsonSafeValue(v interface{}) interface{} {
 	return v
 }
 
+// receivedModel describes how msg arrived; nil for a decoded file.
+func receivedModel(msg *transport.Message) model.PubSubReceived {
+	var out model.PubSubReceived
+	if msg == nil {
+		return out
+	}
+	out.Received = model.FormatTimestamp(msg.Received.UTC())
+	out.Topic = msg.Topic
+	if msg.Source != nil {
+		out.Source = msg.Source.String()
+	}
+	out.ContentType = msg.ContentType
+	for _, p := range msg.UserProperties {
+		if p.Name == transport.UAMessageTypeProperty && out.UAMessageType == "" {
+			out.UAMessageType = p.Value
+			continue
+		}
+		out.UserProperties = append(out.UserProperties, model.PubSubProperty{Name: p.Name, Value: p.Value})
+	}
+	return out
+}
+
 func metaDataModel(msg *transport.Message, enc string, p message.PublisherID, writerID uint16, md *ua.DataSetMetaDataType) model.PubSubMetaData {
 	out := model.PubSubMetaData{
 		Encoding:        enc,
@@ -618,13 +741,7 @@ func metaDataModel(msg *transport.Message, enc string, p message.PublisherID, wr
 		Name:            md.Name,
 		Fields:          []model.PubSubFieldMeta{},
 	}
-	if msg != nil {
-		out.Received = model.FormatTimestamp(msg.Received.UTC())
-		out.Topic = msg.Topic
-		if msg.Source != nil {
-			out.Source = msg.Source.String()
-		}
-	}
+	out.PubSubReceived = receivedModel(msg)
 	if v := md.ConfigurationVersion; v != nil {
 		out.Version = fmt.Sprintf("%d.%d", v.MajorVersion, v.MinorVersion)
 	}
@@ -665,9 +782,7 @@ func dataSetLine(ds model.PubSubDataSet) string {
 	if ds.Status != "" && ds.Status != "OK" {
 		fmt.Fprintf(&b, " [%s]", ds.Status)
 	}
-	if ds.Topic != "" {
-		fmt.Fprintf(&b, " topic=%s", ds.Topic)
-	}
+	b.WriteString(receivedSuffix(ds.PubSubReceived))
 	b.WriteString(" ")
 	for _, f := range ds.Fields {
 		name := f.Name
@@ -682,13 +797,31 @@ func dataSetLine(ds model.PubSubDataSet) string {
 	return b.String()
 }
 
+// receivedSuffix is the table form of the transport headers of a message.
+func receivedSuffix(r model.PubSubReceived) string {
+	var b strings.Builder
+	if r.Topic != "" {
+		fmt.Fprintf(&b, " topic=%s", r.Topic)
+	}
+	if r.ContentType != "" {
+		fmt.Fprintf(&b, " content-type=%s", r.ContentType)
+	}
+	if r.UAMessageType != "" {
+		fmt.Fprintf(&b, " ua-message-type=%s", r.UAMessageType)
+	}
+	for _, p := range r.UserProperties {
+		fmt.Fprintf(&b, " [%s=%s]", p.Name, p.Value)
+	}
+	return b.String()
+}
+
 func metaDataLine(md model.PubSubMetaData) string {
 	fields := make([]string, len(md.Fields))
 	for i, f := range md.Fields {
 		fields[i] = f.Name + ":" + f.Type
 	}
-	return fmt.Sprintf("metadata pub=%s writer=%d %q version=%s fields: %s",
-		md.PublisherID, md.DataSetWriterID, md.Name, md.Version, strings.Join(fields, ", "))
+	return fmt.Sprintf("metadata pub=%s writer=%d %q version=%s%s fields: %s",
+		md.PublisherID, md.DataSetWriterID, md.Name, md.Version, receivedSuffix(md.PubSubReceived), strings.Join(fields, ", "))
 }
 
 func statusLine(st map[string]interface{}) string {
@@ -702,74 +835,4 @@ func statusLine(st map[string]interface{}) string {
 		parts[i] = fmt.Sprintf("%s=%v", k, st[k])
 	}
 	return "status " + strings.Join(parts, " ")
-}
-
-// transportProfile returns the TransportProfileUri for a URL and mapping.
-func transportProfile(url string, enc parse.PubSubEncoding) (string, error) {
-	scheme, err := transport.Scheme(url)
-	if err != nil {
-		return "", err
-	}
-	switch scheme {
-	case "opc.udp":
-		if enc == parse.EncodingJSON {
-			return "", errors.New("the JSON mapping is not available over UDP: use uadp, or an MQTT broker")
-		}
-		return transport.ProfileUDPUADP, nil
-	case "mqtt", "mqtts":
-		if enc == parse.EncodingJSON {
-			return transport.ProfileMQTTJSON, nil
-		}
-		return transport.ProfileMQTTUADP, nil
-	}
-	return "", fmt.Errorf("unsupported transport %q (opc.udp, mqtt, mqtts)", scheme)
-}
-
-// pubsubTransportFlags configure the transport connection.
-type pubsubTransportFlags struct {
-	url          string
-	iface        string
-	mqttUser     string
-	mqttPassword string
-	mqttClientID string
-	qos          uint8
-}
-
-func (f *pubsubTransportFlags) register(fs *pflag.FlagSet) {
-	fs.StringVar(&f.url, "url", "", "Transport address: opc.udp://host:port (unicast or multicast group), mqtt://host:port or mqtts://host:port")
-	fs.StringVar(&f.iface, "interface", "", "Network interface for UDP multicast (default: system choice)")
-	fs.StringVar(&f.mqttUser, "mqtt-username", "", "MQTT broker username")
-	fs.StringVar(&f.mqttPassword, "mqtt-password", "", "MQTT broker password")
-	fs.StringVar(&f.mqttClientID, "mqtt-client-id", "", "MQTT client id (default: random)")
-	fs.Uint8Var(&f.qos, "qos", 0, "MQTT quality of service (0 or 1)")
-}
-
-func (f *pubsubTransportFlags) open(ctx context.Context, enc parse.PubSubEncoding) (transport.Connection, error) {
-	if f.url == "" {
-		return nil, exitCodef(1, "--url is required (opc.udp://..., mqtt://... or mqtts://...)")
-	}
-	if f.qos > 1 {
-		return nil, exitCodef(1, "--qos must be 0 or 1")
-	}
-	profile, err := transportProfile(f.url, enc)
-	if err != nil {
-		return nil, exitCode(1, err)
-	}
-	if f.mqttPassword == "" {
-		f.mqttPassword = os.Getenv("OPCUACTL_MQTT_PASSWORD")
-	}
-	openCtx, cancel := connCfg.TimeoutContext(ctx)
-	defer cancel()
-	c, err := transport.Open(openCtx, transport.Config{
-		ProfileURI: profile,
-		URL:        f.url,
-		Interface:  f.iface,
-		ClientID:   f.mqttClientID,
-		Username:   f.mqttUser,
-		Password:   f.mqttPassword,
-	})
-	if err != nil {
-		return nil, exitCode(2, err)
-	}
-	return c, nil
 }

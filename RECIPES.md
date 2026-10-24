@@ -23,6 +23,11 @@ Aligned with **v0.4.1** (go-opcua v1.8.1): OPC UA PubSub (UADP / JSON over UDP a
 - [14. Read Secured PubSub Messages with Keys from an SKS](#14-read-secured-pubsub-messages-with-keys-from-an-sks)
 - [15. Test a PubSub Subscriber](#15-test-a-pubsub-subscriber)
 - [16. Reconfigure the PubSub of a Server](#16-reconfigure-the-pubsub-of-a-server)
+- [17. PubSub Through an MQTT 5.0 or AMQP 1.0 Broker](#17-pubsub-through-an-mqtt-50-or-amqp-10-broker)
+- [18. PubSub over Raw Ethernet](#18-pubsub-over-raw-ethernet)
+- [19. Send and Receive Large DataSets in Chunks](#19-send-and-receive-large-datasets-in-chunks)
+- [20. Find Publishers with UADP Discovery](#20-find-publishers-with-uadp-discovery)
+- [21. Watch PubSub Diagnostics Counters](#21-watch-pubsub-diagnostics-counters)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -87,6 +92,7 @@ Useful when you do not want secrets on the command line:
 | `OPCUACTL_SERVER_CERT` | `--server-cert` |
 | `OPCUACTL_TRUSTED_CERT` | `--trusted-cert` (comma-separated paths) |
 | `OPCUACTL_SECURITY_POLICY` / `OPCUACTL_SECURITY_MODE` | `--security-policy` / `--security-mode` |
+| `OPCUACTL_BROKER_PASSWORD` (or the older `OPCUACTL_MQTT_PASSWORD`) | `pubsub --broker-password` (MQTT and AMQP brokers) |
 
 ```sh
 export OPCUACTL_ENDPOINT=opc.tcp://your-server:4840
@@ -563,3 +569,129 @@ opcuactl pubsub subscribe --url opc.udp://239.0.0.10:4840 --count 3
 opcuactl pubsub config disable "${CONN[@]}" --node "$GROUP_ID"
 opcuactl pubsub config remove connection "${CONN[@]}" --node "$CONN_ID"
 ```
+
+The add-connection command also takes Ethernet and broker connections: `--url opc.eth://01-00-5E-00-00-01 --interface eth0`, `--url mqtt://broker:1883 --mqtt-version 5.0`, or `--url amqp://broker:5672 --transport-property target-capabilities=queue` (`--transport-property` is repeatable and becomes the ConnectionProperties of the connection).
+
+---
+
+## 17. PubSub Through an MQTT 5.0 or AMQP 1.0 Broker
+
+`--broker-username` and `--broker-password` (or `OPCUACTL_BROKER_PASSWORD`) log in to the broker. `--username` and `--password` are for the OPC UA session, for example to an SKS. The 0.4 flags `--mqtt-username`, `--mqtt-password` and `--mqtt-client-id` still work.
+
+```sh
+export OPCUACTL_BROKER_PASSWORD='...'
+
+# MQTT 5.0, QoS 1: each message shows its topic, content type, UAMessageType and user properties
+opcuactl pubsub subscribe --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 \
+  --broker-username plant --topic 'plant/#' --show-metadata
+
+# Publish JSON with MQTT 5.0 connection properties
+opcuactl pubsub publish --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 --broker-username plant \
+  --topic plant/line1 --encoding json --field Temp:Double=21.5 --metadata-topic plant/line1/meta \
+  --transport-property "connection-Session Expiry Interval=60"
+
+# RabbitMQ 4 (AMQP 1.0): the address of a queue is /queues/<name>; the queue must exist.
+# A vhost other than / goes in the connection hostname.
+opcuactl pubsub subscribe --url amqps://rabbit:5671 --broker-username plant --topic /queues/plant \
+  --transport-property connection-hostname=vhost:production
+
+# ActiveMQ Artemis: plain addresses; the capabilities make them anycast queues
+opcuactl pubsub subscribe --url amqp://artemis:5672 --broker-username plant --topic plant.line1 \
+  --transport-property source-capabilities=queue
+opcuactl pubsub publish --url amqp://artemis:5672 --broker-username plant --topic plant.line1 \
+  --transport-property target-capabilities=queue --field Temp:Double=21.5 --count 0 --interval 1s
+```
+
+The subscriber picks the decoder from the content type (`application/opcua+uadp` or `application/json`) and detects the mapping when there is none. `--qos 2` is exactly-once on MQTT and at-least-once on AMQP.
+
+---
+
+## 18. PubSub over Raw Ethernet
+
+`opc.eth://` sends UADP NetworkMessages straight in Ethernet frames (EtherType 0xB62C), optionally VLAN tagged (`opc.eth://01-00-5E-00-00-01:100.5` is VLAN 100, priority 5). It needs `--interface` and raw-socket rights: run as root, or on Linux grant the capability once.
+
+```sh
+sudo setcap cap_net_raw+ep "$(command -v opcuactl)"
+
+opcuactl pubsub subscribe --url opc.eth://01-00-5E-00-00-01 --interface eth0 --show-metadata
+opcuactl pubsub publish --url opc.eth://01-00-5E-00-00-01 --interface eth0 --publisher-id 2234 \
+  --field Temp:Double=21.5 --announce-metadata --count 0 --interval 100ms
+```
+
+Ethernet works on Linux, macOS and FreeBSD (on macOS through BPF devices, usually as root). JSON is not available over Ethernet.
+
+---
+
+## 19. Send and Receive Large DataSets in Chunks
+
+A UADP NetworkMessage larger than the transport carries is split into chunks. `--max-message-size` makes `publish` chunk earlier, for example to test a subscriber:
+
+```sh
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --publisher-id 2234 \
+  --field "Readings:String=$(seq -s, 1 400)" --max-message-size 512 --diagnostics
+```
+
+`subscribe` and `decode` reassemble chunks. On a busy or lossy network, bound what the reassembly keeps:
+
+```sh
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 \
+  --chunk-max-message-size 1048576 --chunk-max-pending 64 --chunk-max-pending-bytes 8388608 --chunk-timeout 2s \
+  --diagnostics-interval 30s
+
+# Chunks captured as separate files
+opcuactl pubsub decode chunk-1.bin chunk-2.bin chunk-3.bin chunk-4.bin
+```
+
+ChunksReceived, ChunkedMessagesReceived and ChunksDiscarded in the diagnostics show how many chunks arrived, how many messages they completed and how many were dropped (timeout, limits).
+
+---
+
+## 20. Find Publishers with UADP Discovery
+
+UADP discovery works on UDP and Ethernet. Probes go to the multicast group of `--url`, or to the publishers' DiscoveryAddress (`--discovery-url`).
+
+```sh
+# Who publishes on this group?
+opcuactl pubsub discover --url opc.udp://224.0.0.22:4840
+
+# The DataSetMetaData and writer configuration of writer 1 of publisher 2234
+opcuactl pubsub discover --url opc.udp://224.0.0.22:4840 --probe metadata,writers --publisher-id 2234 --writer-id 1
+
+# The PubSubConnections with their groups, from publishers whose DiscoveryAddress is another group
+opcuactl pubsub discover --url opc.udp://224.0.0.23:4840 --listen-url opc.udp://224.0.0.22:4840 \
+  --probe connections --include-groups --format json
+
+# Subscribe and probe for the metadata of every writer seen without one
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --probe --show-metadata
+
+# A test publisher that answers probes and announces its metadata every 10 seconds
+opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --publisher-id 2234 --field Temp:Double=21.5 \
+  --count 0 --answer-probes --announce-interval 10s
+```
+
+`--discovery-layout dotnet` sends probes in the byte layout of the OPC Foundation .NET stack 2.x, whose probes differ from the specification's layout (and which has no group or connections probes). A publisher binds a unicast DiscoveryAddress, so a tool on the same host can only send probes to it; use a multicast DiscoveryAddress to listen alongside the publisher.
+
+---
+
+## 21. Watch PubSub Diagnostics Counters
+
+`subscribe`, `publish` and `discover` keep the Part 14 diagnostics counters of the component they play (a reader group, a writer group) plus counters for chunks and discovery, and print them on stderr:
+
+```sh
+# Every 10 seconds and on exit, with the Advanced counters (DecryptionErrors, ...)
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --security-group sg1 --keys-file keys.json \
+  --diagnostics-interval 10s --diagnostics-level advanced
+
+# As a JSON line on stderr, next to JSON Lines on stdout
+opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --format jsonl --diagnostics 2> diagnostics.jsonl
+```
+
+The diagnostics of a server's PubSub runtime come from its diagnostics objects:
+
+```sh
+opcuactl pubsub config diagnostics "${CONN[@]}"                      # the PublishSubscribe object
+opcuactl pubsub config diagnostics "${CONN[@]}" --node "$GROUP_ID"   # a writer group, with SentNetworkMessages
+opcuactl pubsub config diagnostics "${CONN[@]}" --node "$GROUP_ID" --reset --format json
+```
+
+Counters above the DiagnosticsLevel of the object are shown as inactive (`-`).

@@ -12,6 +12,7 @@ import (
 	"github.com/otfabric/go-opcua"
 	"github.com/otfabric/go-opcua/pubsub"
 	"github.com/otfabric/go-opcua/pubsub/remote"
+	"github.com/otfabric/go-opcua/pubsub/transport"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
@@ -54,6 +55,7 @@ Examples:
 		newPubSubRemoveCmd(),
 		newPubSubEnableCmd(true),
 		newPubSubEnableCmd(false),
+		newPubSubConfigDiagnosticsCmd(),
 	)
 	return cmd
 }
@@ -280,19 +282,31 @@ func writeAdded(kind, name string, nid *ua.NodeID, results []model.PubSubResult)
 }
 
 func newPubSubAddConnectionCmd() *cobra.Command {
-	var name, url, publisherID, encoding string
+	var name, url, publisherID, encoding, iface, mqttVersion string
+	var props []string
 	cmd := &cobra.Command{
 		Use:   "add-connection",
 		Short: "Add a PubSubConnection (AddConnection)",
 		Long: `Add a PubSubConnection to the server. --url selects the transport:
-opc.udp://host:port (UADP over UDP) or mqtt://host:port / mqtts://host:port
-(UADP or, with --encoding json, JSON over MQTT). --publisher-id is the
-PublisherId the server sends with (number = UInt16; byte:N, u32:N, u64:N or
-a string); leave it out for a connection that only subscribes.
+opc.udp://host:port (UADP over UDP), opc.eth://MAC[:VID[.PCP]] (UADP over
+Ethernet, with --interface), mqtt://host:port / mqtts://host:port or
+amqp://host:port / amqps://host:port (UADP or, with --encoding json, JSON
+over an MQTT or AMQP 1.0 broker). --publisher-id is the PublisherId the
+server sends with (number = UInt16; byte:N, u32:N, u64:N or a string); leave
+it out for a connection that only subscribes.
+
+--mqtt-version sets the MqttVersion connection property (3.1.1, 5.0 or
+BestAvailable); --transport-property key=value adds further connection
+properties (KeyValuePairs), such as the MQTT 5.0 "connection-Session Expiry
+Interval" or the AMQP "connection-hostname" and "target-capabilities".
 
 Examples:
   opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name UDP --url opc.udp://224.0.0.22:4840 --publisher-id 2234
-  opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name Broker --url mqtt://broker:1883 --encoding json --publisher-id str:line1`,
+  opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name Broker --url mqtt://broker:1883 --encoding json --publisher-id str:line1
+  opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name MQTT5 --url mqtt://broker:1883 --mqtt-version 5.0 --publisher-id 7
+  opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name AMQP --url amqp://rabbitmq:5672 --publisher-id 7 \
+      --transport-property connection-hostname=vhost:plant
+  opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name ETH --url opc.eth://01-00-5E-00-00-01 --interface eth0 --publisher-id 7`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" || url == "" {
@@ -305,6 +319,21 @@ Examples:
 			if _, err := transportProfile(url, enc); err != nil {
 				return exitCode(1, err)
 			}
+			scheme, _ := transport.Scheme(url)
+			if scheme == "opc.eth" && iface == "" {
+				return exitCodef(1, "--interface is required with opc.eth:// (the network interface of the server)")
+			}
+			if mqttVersion != "" && !isMQTTScheme(scheme) {
+				return exitCodef(1, "--mqtt-version needs an MQTT broker (mqtt://, mqtts://)")
+			}
+			version, err := parse.MQTTVersion(mqttVersion)
+			if err != nil {
+				return exitCode(1, err)
+			}
+			properties, err := parse.TransportProperties(props)
+			if err != nil {
+				return exitCode(1, err)
+			}
 			var pid interface{}
 			if publisherID != "" {
 				p, err := parse.PublisherID(publisherID)
@@ -313,15 +342,34 @@ Examples:
 				}
 				pid = parse.PublisherIDValue(p)
 			}
+			mapping := pubsub.MappingUADP
+			if enc == parse.EncodingJSON {
+				mapping = pubsub.MappingJSON
+			}
 			var cfg *ua.PubSubConnectionDataType
-			if strings.HasPrefix(url, "mqtt") {
-				mapping := pubsub.MappingUADP
-				if enc == parse.EncodingJSON {
-					mapping = pubsub.MappingJSON
-				}
+			switch scheme {
+			case "mqtt", "mqtts":
 				cfg = pubsub.MQTTConnection(name, url, pid, mapping)
-			} else {
+				if mqttVersion != "" {
+					pubsub.SetMQTTVersion(cfg, version)
+				}
+			case "amqp", "amqps":
+				cfg = pubsub.AMQPConnection(name, url, pid, mapping)
+			case "opc.eth":
+				cfg = pubsub.EthernetConnection(name, url, iface, pid)
+			default:
 				cfg = pubsub.UDPConnection(name, url, pid)
+				if iface != "" {
+					cfg.Address = ua.NewExtensionObject(&ua.NetworkAddressURLDataType{URL: url, NetworkInterface: iface})
+				}
+			}
+			keys := make([]string, 0, len(properties))
+			for k := range properties {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				pubsub.SetConnectionProperty(cfg, k, properties[k])
 			}
 			return withRemote(func(ctx context.Context, _ *opcua.Client, r *remote.Client) error {
 				nid, err := r.AddConnection(ctx, cfg)
@@ -333,9 +381,13 @@ Examples:
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Connection name")
-	cmd.Flags().StringVar(&url, "url", "", "Transport address (opc.udp://, mqtt://, mqtts://)")
+	cmd.Flags().StringVar(&url, "url", "", "Transport address ("+pubsubSchemes+")")
 	cmd.Flags().StringVar(&publisherID, "publisher-id", "", "PublisherId of the connection")
-	cmd.Flags().StringVar(&encoding, "encoding", "uadp", "Message mapping over MQTT (uadp|json)")
+	cmd.Flags().StringVar(&encoding, "encoding", "uadp", "Message mapping over a broker (uadp|json)")
+	cmd.Flags().StringVar(&iface, "interface", "", "Network interface (NetworkInterface; required for opc.eth://)")
+	cmd.Flags().StringVar(&mqttVersion, "mqtt-version", "", "MQTT protocol version (3.1.1|5.0|BestAvailable)")
+	cmd.Flags().StringArrayVar(&props, "transport-property", nil, "Connection property key=value (repeatable)")
+	_ = cmd.RegisterFlagCompletionFunc("mqtt-version", fixedCompletion(pubsubMQTTVersionValues))
 	return cmd
 }
 
@@ -416,7 +468,7 @@ func newPubSubAddWriterGroupCmd() *cobra.Command {
 		Use:   "add-writer-group",
 		Short: "Add a WriterGroup to a connection (AddWriterGroup)",
 		Long: `Add a WriterGroup to the connection --connection. It publishes every
---interval with the UADP (default) or JSON mapping. --queue is the MQTT topic
+--interval with the UADP (default) or JSON mapping. --queue is the broker queue
 of the group. --message-security and --security-group sign / encrypt its UADP
 messages with the keys of a SecurityGroup.
 
@@ -474,7 +526,7 @@ Example:
 	f.DurationVar(&interval, "interval", time.Second, "Publishing interval")
 	f.DurationVar(&keepAlive, "keep-alive", 0, "KeepAliveTime (0 = server default)")
 	f.StringVar(&encoding, "encoding", "uadp", "Message mapping (uadp|json)")
-	f.StringVar(&queue, "queue", "", "MQTT topic of the group")
+	f.StringVar(&queue, "queue", "", "Broker queue of the group (MQTT topic, AMQP address)")
 	f.StringVar(&secMode, "message-security", "none", "Message security (none|sign|sign-and-encrypt)")
 	f.StringVar(&secGroup, "security-group", "", "SecurityGroupId of the keys")
 	_ = cmd.RegisterFlagCompletionFunc("message-security", fixedCompletion(pubsubMessageSecurityValues))
@@ -492,7 +544,7 @@ func newPubSubAddWriterCmd() *cobra.Command {
 		Short: "Add a DataSetWriter to a WriterGroup (AddDataSetWriter)",
 		Long: `Add a DataSetWriter that publishes the published data set --dataset in the
 WriterGroup --group. --key-frame-count > 1 sends delta frames between key
-frames; --queue and --metadata-queue are its MQTT topics.
+frames; --queue and --metadata-queue are its broker queues (MQTT topics, AMQP addresses).
 
 Example:
   opcuactl pubsub config add-writer -e opc.tcp://localhost:4840 --group "ns=1;i=50010" \
@@ -532,8 +584,8 @@ Example:
 	f.StringVar(&dataSet, "dataset", "", "Name of the published data set")
 	f.Uint32Var(&keyFrames, "key-frame-count", 1, "Key frame every this many messages (1 = key frames only)")
 	f.StringVar(&fieldEncoding, "field-encoding", "variant", "Field encoding (variant|datavalue|rawdata)")
-	f.StringVar(&queue, "queue", "", "MQTT topic of the writer")
-	f.StringVar(&metaQueue, "metadata-queue", "", "MQTT topic the DataSetMetaData is announced on")
+	f.StringVar(&queue, "queue", "", "Broker queue of the writer (MQTT topic, AMQP address)")
+	f.StringVar(&metaQueue, "metadata-queue", "", "Broker queue the DataSetMetaData is announced on")
 	_ = cmd.RegisterFlagCompletionFunc("field-encoding", fixedCompletion(pubsubFieldEncodingValues))
 	return cmd
 }
@@ -662,8 +714,8 @@ Example:
 	f.Uint16Var(&writerID, "writer-id", 0, "DataSetWriterId to read (0: any)")
 	f.StringArrayVar(&targets, "target", nil, "Target variable NodeId for the next field (repeatable)")
 	f.DurationVar(&timeout, "message-receive-timeout", 0, "MessageReceiveTimeout: the reader goes to Error without messages (0 = none)")
-	f.StringVar(&queue, "queue", "", "MQTT topic to read")
-	f.StringVar(&metaQueue, "metadata-queue", "", "MQTT topic of the DataSetMetaData")
+	f.StringVar(&queue, "queue", "", "Broker queue to read (MQTT topic, AMQP address)")
+	f.StringVar(&metaQueue, "metadata-queue", "", "Broker queue of the DataSetMetaData")
 	return cmd
 }
 

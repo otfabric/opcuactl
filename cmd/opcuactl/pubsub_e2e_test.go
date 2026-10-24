@@ -461,13 +461,55 @@ func TestE2E_PubSubMQTT(t *testing.T) {
 		}
 	})
 
+	t.Run("subscribe mqtt 5.0 shows the transport headers", func(t *testing.T) {
+		w := pubsub.SetWriterQueue(pubsub.DataSetWriter("W", 5, "Measurements"), "v5/line1", "")
+		conn := pubsub.SetMQTTVersion(pubsub.MQTTConnection("broker5", b.url(), "line5", pubsub.MappingJSON), pubsub.MQTTVersion5)
+		startPublisher(t, conn, pubsub.JSONWriterGroup("G", 1, 50*time.Millisecond, "v5/line1", w))
+
+		out := mustRun(t, "pubsub", "subscribe", "--url", b.url(), "--mqtt-version", "5.0", "--topic", "v5/#",
+			"--count", "1", "--duration", "15s", "--jsonl")
+		got := parseDataSets(t, out)
+		if len(got) != 1 || got[0].ContentType != transport.ContentTypeJSON || got[0].UAMessageType != transport.MessageTypeData ||
+			fieldValue(got[0], "Counter") != float64(42) {
+			t.Fatalf("unexpected DataSets:\n%s", out)
+		}
+		out = mustRun(t, "pubsub", "subscribe", "--url", b.url(), "--mqtt-version", "BestAvailable", "--topic", "v5/#",
+			"--count", "1", "--duration", "15s")
+		wantContains(t, out, "pub=line5", "topic=v5/line1 content-type=application/json ua-message-type=ua-data", "Counter=42")
+	})
+
+	t.Run("publish mqtt 5.0 sends the transport headers", func(t *testing.T) {
+		ctx := context.Background()
+		c, err := transport.Open(ctx, transport.Config{URL: b.url(), MQTTVersion: pubsub.MQTTVersion5})
+		if err != nil {
+			t.Fatalf("mqtt open: %v", err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		ch := make(chan *transport.Message, 8)
+		if _, err := c.Subscribe(ctx, "cli/v5/#", 0, func(m *transport.Message) { ch <- m }); err != nil {
+			t.Fatalf("mqtt subscribe: %v", err)
+		}
+		mustRun(t, "pubsub", "publish", "--url", b.url(), "--mqtt-version", "5.0", "--qos", "2", "--topic", "cli/v5/data",
+			"--metadata-topic", "cli/v5/meta", "--broker-client-id", "opcuactl-test", "--field", "N:Int32=5")
+		for _, want := range []struct{ topic, ct, typ string }{
+			{"cli/v5/meta", transport.ContentTypeUADP, transport.MessageTypeMetaData},
+			{"cli/v5/data", transport.ContentTypeUADP, transport.MessageTypeData},
+		} {
+			m := next(t, ch)
+			typ, _ := m.UserProperty(transport.UAMessageTypeProperty)
+			if m.Topic != want.topic || m.ContentType != want.ct || typ != want.typ {
+				t.Errorf("got topic %s, content type %q, UAMessageType %q; want %+v", m.Topic, m.ContentType, typ, want)
+			}
+		}
+	})
+
 	t.Run("errors", func(t *testing.T) {
 		for _, args := range [][]string{
 			{"publish", "--url", b.url(), "--field", "A:Int32=1"},                                       // no topic
 			{"publish", "--url", "opc.udp://127.0.0.1:1", "--field", "A:Int32=1", "--encoding", "json"}, // JSON over UDP
 			{"publish", "--url", "opc.udp://127.0.0.1:1", "--field", "A:Int32=1", "--metadata-topic", "x"},
 			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--encoding", "json", "--message-security", "sign", "--keys-file", "k"},
-			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--qos", "2"},
+			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--qos", "3"},
 			{"publish", "--url", "http://x", "--field", "A:Int32=1"},
 			{"publish", "--field", "A:Int32=1"},
 			{"publish", "--url", b.url(), "--topic", "t"},
@@ -482,6 +524,11 @@ func TestE2E_PubSubMQTT(t *testing.T) {
 			{"subscribe", "--url", "opc.udp://127.0.0.1:1", "--message-security", "sign"},
 			{"subscribe", "--url", "opc.udp://127.0.0.1:1", "--security-group", "sg"},
 			{"subscribe", "--url", "opc.udp://127.0.0.1:1", "--publisher-id", "u8:300"},
+			{"subscribe", "--url", b.url(), "--mqtt-version", "6"},
+			{"subscribe", "--url", b.url(), "--transport-property", "novalue"},
+			{"subscribe", "--url", "amqp://127.0.0.1:1", "--mqtt-version", "5.0"},
+			{"subscribe", "--url", "opc.eth://01-00-5E-00-00-01"},
+			{"publish", "--url", "opc.eth://01-00-5E-00-00-01", "--interface", "lo0", "--encoding", "json", "--field", "A:Int32=1"},
 		} {
 			if _, _, err := runCLI(t, append([]string{"pubsub"}, args...)...); err == nil {
 				t.Errorf("pubsub %v: expected an error", args)
@@ -690,6 +737,12 @@ func TestE2E_PubSubConfig(t *testing.T) {
 	run("add-writer", "--group", wg3, "--name", "w3", "--writer-id", "3", "--dataset", "pds", "--queue", "q",
 		"--metadata-queue", "m", "--key-frame-count", "5", "--field-encoding", "rawdata")
 	run("remove", "connection", "--node", mq)
+	mq5 := run("add-connection", "--name", "mq5", "--url", b.url(), "--mqtt-version", "5.0", "--publisher-id", "5",
+		"--transport-property", "connection-Session Expiry Interval=60", "-q")
+	run("remove", "connection", "--node", mq5)
+	amqp := run("add-connection", "--name", "amqp", "--url", "amqp://127.0.0.1:1", "--encoding", "json", "--publisher-id", "6",
+		"--transport-property", "target-capabilities=queue", "-q")
+	run("remove", "connection", "--node", amqp)
 
 	out = run("show")
 	wantContains(t, out, "connection", "pub", conn, "PublisherId=9", "pubsub-udp-uadp",
@@ -727,6 +780,41 @@ func TestE2E_PubSubConfig(t *testing.T) {
 	out = run("show")
 	wantContains(t, out, "reader-group", "rg", "reader", rd, "WriterGroupId=1", "Value:Int32")
 
+	// Diagnostics of the root and of the writer group.
+	out = run("diagnostics")
+	wantContains(t, out, "diagnostics PublishSubscribe", "COUNTER", "StateError")
+	var wgDiag model.PubSubDiagnostics
+	if err := json.Unmarshal([]byte(run("diagnostics", "--node", wg, "--format", "json")), &wgDiag); err != nil {
+		t.Fatal(err)
+	}
+	sent := func(m model.PubSubDiagnostics) (model.PubSubCounter, bool) {
+		for _, c := range m.Counters {
+			if c.Name == "SentNetworkMessages" {
+				return c, true
+			}
+		}
+		return model.PubSubCounter{}, false
+	}
+	if c, ok := sent(wgDiag); wgDiag.Component != "writer-group" || wgDiag.Name != "wg" || !ok || !c.Active || c.Value == 0 || c.TimeFirstChange == "" {
+		t.Errorf("writer group diagnostics: %+v", wgDiag)
+	}
+	var reset model.PubSubDiagnostics
+	if err := json.Unmarshal([]byte(run("diagnostics", "--node", wg, "--reset", "--format", "json")), &reset); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := sent(wgDiag)
+	if c, _ := sent(reset); c.Value >= before.Value {
+		t.Errorf("reset did not clear SentNetworkMessages: %d", c.Value)
+	}
+	for _, args := range [][]string{
+		{"diagnostics", "--node", "bogus"},
+		{"diagnostics", "--node", dst.ID().String()},
+	} {
+		if _, _, err := runCLI(t, append(append([]string{"pubsub", "config"}, args...), ep...)...); err == nil {
+			t.Errorf("config %v: expected an error", args)
+		}
+	}
+
 	// Enable and disable.
 	wantContains(t, run("disable", "--node", wg), "Disabled")
 	wantContains(t, run("enable", "--node", wg, "--format", "json"), `"state":"Operational"`)
@@ -748,6 +836,10 @@ func TestE2E_PubSubConfig(t *testing.T) {
 		{"add-writer", "--group", wg, "--name", "w2", "--dataset", "pds", "--field-encoding", "x"},
 		{"add-connection", "--name", "x"},
 		{"add-connection", "--name", "x", "--url", "opc.udp://127.0.0.1:1", "--encoding", "json"},
+		{"add-connection", "--name", "x", "--url", "opc.eth://01-00-5E-00-00-01"},
+		{"add-connection", "--name", "x", "--url", "opc.udp://127.0.0.1:1", "--mqtt-version", "5.0"},
+		{"add-connection", "--name", "x", "--url", "mqtt://127.0.0.1:1", "--mqtt-version", "4"},
+		{"add-connection", "--name", "x", "--url", "mqtt://127.0.0.1:1", "--transport-property", "=1"},
 		{"add-connection", "--name", "x", "--url", "opc.udp://127.0.0.1:1", "--publisher-id", "u8:999"},
 		{"add-connection", "--name", "pub", "--url", url},
 		{"add-dataset", "--name", "x"},

@@ -278,11 +278,31 @@ type VarNode struct {
 	Status         string      `json:"status,omitempty"`
 }
 
+// PubSubReceived tells how a PubSub NetworkMessage arrived: when, from
+// where, and the message headers of the transport (MQTT 5.0, AMQP).
+type PubSubReceived struct {
+	Received string `json:"ts,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Topic    string `json:"topic,omitempty"`
+	// ContentType is the MIME type the transport carried
+	// ("application/opcua+uadp", "application/json").
+	ContentType string `json:"contentType,omitempty"`
+	// UAMessageType is "ua-data", "ua-metadata", ... (MQTT 5.0 user
+	// property, AMQP subject).
+	UAMessageType string `json:"uaMessageType,omitempty"`
+	// UserProperties are the other message properties, in order.
+	UserProperties []PubSubProperty `json:"userProperties,omitempty"`
+}
+
+// PubSubProperty is a name and value pair of a message header.
+type PubSubProperty struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // PubSubDataSet is one decoded DataSetMessage of a PubSub NetworkMessage.
 type PubSubDataSet struct {
-	Received          string        `json:"ts,omitempty"`
-	Source            string        `json:"source,omitempty"`
-	Topic             string        `json:"topic,omitempty"`
+	PubSubReceived
 	Encoding          string        `json:"encoding"`
 	PublisherID       string        `json:"publisherId"`
 	WriterGroupID     uint16        `json:"writerGroupId,omitempty"`
@@ -311,9 +331,7 @@ type PubSubField struct {
 
 // PubSubMetaData is a DataSetMetaData announcement seen on the wire.
 type PubSubMetaData struct {
-	Received        string            `json:"ts,omitempty"`
-	Source          string            `json:"source,omitempty"`
-	Topic           string            `json:"topic,omitempty"`
+	PubSubReceived
 	Encoding        string            `json:"encoding"`
 	PublisherID     string            `json:"publisherId"`
 	DataSetWriterID uint16            `json:"dataSetWriterId"`
@@ -365,6 +383,42 @@ type PubSubAdded struct {
 	Name    string         `json:"name"`
 	NodeID  string         `json:"nodeId"`
 	Results []PubSubResult `json:"results,omitempty"`
+}
+
+// PubSubDiagnostics are the diagnostics counters of a PubSub component
+// (Part 14 §9.1.11): of a server's component, or of what a pubsub command
+// sent and received.
+type PubSubDiagnostics struct {
+	Component        string                 `json:"component"`
+	Name             string                 `json:"name,omitempty"`
+	NodeID           string                 `json:"nodeId,omitempty"`
+	Level            string                 `json:"diagnosticsLevel"`
+	TotalInformation uint64                 `json:"totalInformation"`
+	TotalError       uint64                 `json:"totalError"`
+	SubError         bool                   `json:"subError,omitempty"`
+	Counters         []PubSubCounter        `json:"counters"`
+	LiveValues       map[string]interface{} `json:"liveValues,omitempty"`
+}
+
+// PubSubCounter is one diagnostics counter (PubSubDiagnosticsCounterType).
+type PubSubCounter struct {
+	Name            string `json:"name"`
+	Value           uint64 `json:"value"`
+	Classification  string `json:"classification"` // Information or Error
+	Level           string `json:"diagnosticsLevel"`
+	Active          bool   `json:"active"`
+	TimeFirstChange string `json:"timeFirstChange,omitempty"`
+}
+
+// PubSubAnnouncement is a UADP discovery announcement (Part 14 §7.2.4.6)
+// other than DataSetMetaData, which is a PubSubMetaData.
+type PubSubAnnouncement struct {
+	PubSubReceived
+	PublisherID    string                 `json:"publisherId"`
+	Type           string                 `json:"announcement"`
+	SequenceNumber uint16                 `json:"sequenceNumber"`
+	Status         string                 `json:"status,omitempty"`
+	Details        map[string]interface{} `json:"details,omitempty"`
 }
 
 // PubSubResult is the per-variable result of AddPublishedDataItems.
