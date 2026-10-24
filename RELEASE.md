@@ -7,13 +7,13 @@
 
 ### Summary
 
-Feature release on **[go-opcua v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**, which brings the PubSub transports and features of OPC UA Part 14 that v0.4 lacked. The `pubsub` commands now speak raw Ethernet, MQTT 5.0 and AMQP 1.0. They send and reassemble chunked NetworkMessages, probe for publishers and answer probes with UADP discovery (and a new `pubsub discover` command), and count what they do with the Part 14 diagnostics counters. `pubsub config diagnostics` reads the diagnostics objects of a server.
+Feature release on **[go-opcua v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**, which brings the PubSub transports and features of OPC UA Part 14 that v0.4 lacked. The `pubsub` commands now speak raw Ethernet, MQTT 5.0 and AMQP 1.0. They send and reassemble chunked NetworkMessages, probe for publishers and answer probes with UADP discovery (and a new `pubsub discover` command), call PubSub Actions and answer them (`pubsub call`, `pubsub respond`), and count what they do with the Part 14 diagnostics counters. `pubsub config diagnostics` reads the diagnostics objects of a server.
 
 Existing commands and output formats are unchanged. The `--mqtt-*` broker flags are deprecated in favour of `--broker-*` but keep working.
 
 ### Dependency
 
-- **`github.com/otfabric/go-opcua`**: v1.8.1 → **[v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**: PubSub Ethernet, MQTT 5.0 and AMQP 1.0 transports, chunked NetworkMessages, UADP discovery, Part 14 diagnostics counters, and the PubSub diagnostics objects in the server.
+- **`github.com/otfabric/go-opcua`**: v1.8.1 → **[v1.9.0](https://github.com/otfabric/go-opcua/releases/tag/v1.9.0)**: PubSub Ethernet, MQTT 5.0 and AMQP 1.0 transports, chunked NetworkMessages, UADP discovery, Part 14 diagnostics counters, and the PubSub diagnostics objects in the server. PubSub Actions need go-opcua main 78f4c4d or later (`PubSub.CallAction`, `PublishedActions`, `WithActionHandler`, `ActionOptions`).
 
 ### Added: transports
 
@@ -36,6 +36,14 @@ Existing commands and output formats are unchanged. The `--mqtt-*` broker flags 
 - **`publish --answer-probes`**: answers probes for its application state, DataSetMetaData, writer and group configuration and connection (endpoint probes get Bad_NotSupported: it has no server), rate-limited per probe. `--announce-interval` repeats the DataSetMetaData announcement (or the `--metadata-topic` message on a broker).
 - **`--discovery-url`** sets the DiscoveryAddress (default: `--url` if it is a multicast group or Ethernet address); **`--discovery-layout spec|dotnet`** speaks the probe layout of the OPC Foundation .NET stack 2.x.
 
+### Added: PubSub Actions
+
+- **`pubsub call`**: a Requestor for PubSub Actions (Part 14 §6.2.11.2 in 1.05). It calls the Action target addressed by `--publisher-id`, `--writer-id` and `--target-id` with typed `--input Name:Type=Value` fields and prints the status and outputs of the response as text, JSON or YAML (`--quiet`: the output values). `--output Name:Type` names the outputs. Exit code 0 for a Good result, 3 for a Bad result, 2 when no response arrives within `--timeout` (the TimeoutHint of the request).
+- **`pubsub respond`**: a test Responder with a PublishedAction of `--target ID[:Name]` targets and the request DataSetMetaData of `--input Name:Type`. It answers with the fixed `--output Name:Type=Value` values or echoes the inputs, optionally with another `--status` or after a `--delay`, and prints every request it serves (JSON Lines with `--jsonl`) until Ctrl+C, `--count` or `--duration`. `--max-concurrent`, `--rate`, `--burst` and `--max-timeout` set its ActionOptions.
+- **Transports**: UDP (UADP, optionally signed and encrypted with `--message-security` and the keys of `--security-group` or `--keys-file`), MQTT 3.1.1 / 5.0 and AMQP 1.0 (UADP and JSON), with the transport and broker flags of the other `pubsub` commands. On a broker both commands default to the request queue `<prefix>/<encoding>/action-request/<publisher-id>/<writer-group-name>` (`--topic-prefix`, `--writer-group-name`; `--request-address` and `--response-address` override it); over UDP `call` sends to `--request-address` and listens on `--url`, with `--resend-interval` for lossy networks.
+- **Action messages in `subscribe` and `decode`**: ActionRequest and ActionResponse NetworkMessages (UADP and JSON) are shown as `action-request` and `action-response` DataSetMessages with their ActionTargetId, RequestId, ActionState, RequestorId, TimeoutHint, ResponseAddress and CorrelationData, and the status of the response.
+- **Diagnostics**: `--diagnostics` on `call` and `respond` prints the Action counters of the runtime (ActionRequestsSent, ActionResponsesReceived, ActionTimeouts; ActionRequestsReceived, ActionRequestsRejected, ActionResponsesSent).
+
 ### Added: diagnostics
 
 - **`--diagnostics`, `--diagnostics-interval`, `--diagnostics-level`** on `subscribe`, `publish` and `discover`: the Part 14 diagnostics counters (§9.1.11) of the component the command plays (SentNetworkMessages, FailedTransmissions, ReceivedNetworkMessages, ReceivedInvalidNetworkMessages, DecryptionErrors, ...) plus chunk and discovery counters, with totals by classification. They are printed on stderr on exit and every interval, as text or a JSON line with `--format json`.
@@ -48,14 +56,15 @@ Existing commands and output formats are unchanged. The `--mqtt-*` broker flags 
 
 ### Not supported yet
 
-- PubSub Actions (request / response), which are not in go-opcua v1.9.0. The `pubsub` command group has a place for them.
+- Adding a PublishedAction to a server with `pubsub config`: Part 14 defines no method for it (`config show` lists a server's PublishedActions as data sets). PublishedActionMethod targets, Actions discovery announcements and ActionMetaData messages, and chunked action messages are not supported by go-opcua either.
 - The gzip-compressed JSON content type.
 
 ### Documentation
 
 - **README**: transports table, broker credentials, chunks, discovery and diagnostics; Features list and Command Reference updated.
-- **RECIPES**: new recipes 17 to 21 for MQTT 5.0 and AMQP brokers, Ethernet, chunks, discovery and diagnostics.
-- **EXAMPLES**: live captures against Mosquitto, RabbitMQ, Artemis, raw Ethernet between Linux containers, and the go-opcua v1.9.0 PubSub example server.
+- **README**: PubSub Actions section with the transports, defaults and flags of `pubsub call` and `pubsub respond`.
+- **RECIPES**: new recipes 17 to 21 for MQTT 5.0 and AMQP brokers, Ethernet, chunks, discovery and diagnostics; recipe 22 for PubSub Actions through an MQTT broker and over UDP.
+- **EXAMPLES**: live captures against Mosquitto, RabbitMQ, Artemis, raw Ethernet between Linux containers, and the go-opcua v1.9.0 PubSub example server; `pubsub call` against `pubsub respond` over UDP and through Mosquitto.
 
 ---
 

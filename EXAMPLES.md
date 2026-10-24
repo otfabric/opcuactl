@@ -1030,6 +1030,131 @@ $ opcuactl pubsub config diagnostics -e opc.tcp://localhost:48400 --node "ns=2;i
 }
 ```
 
+### PubSub Actions over UDP
+
+`pubsub respond` and `pubsub call` (go-opcua main 78f4c4d) on the loopback interface of macOS. The Responder echoes two inputs, serves three requests and prints its diagnostics; the Requestor listens on port 4841 and sends to the Responder on port 4840:
+
+```console
+$ opcuactl pubsub respond --url opc.udp://127.0.0.1:4840 --target 1:Echo --input A:Int32 --input B:String --count 3 --diagnostics
+```
+
+The calls: text and JSON results, a request with an input of the wrong type (answered by the runtime, exit code 3), a target the Responder does not have (rejected without a response, exit code 2 after `--timeout`), and `--quiet`:
+
+```console
+$ opcuactl pubsub call --url opc.udp://127.0.0.1:4841 --request-address opc.udp://127.0.0.1:4840 --resend-interval 200ms --input A:Int32=2 --input B:String=pump --output A:Int32 --output B:String
+pub=1 writer=1 target=1 request=1 status=Good duration=1.69ms
+  A = 2 (Int32)
+  B = pump (String)
+$ echo $?
+0
+$ opcuactl pubsub call --url opc.udp://127.0.0.1:4841 --request-address opc.udp://127.0.0.1:4840 --resend-interval 200ms --input A:Int32=7 --input B:String=valve --format json --pretty
+{
+  "publisherId": "1",
+  "dataSetWriterId": 1,
+  "actionTargetId": 1,
+  "requestId": 1,
+  "status": "Good",
+  "statusCode": 0,
+  "duration": "637µs",
+  "outputs": [
+    {
+      "index": 0,
+      "value": 7,
+      "type": "Int32"
+    },
+    {
+      "index": 1,
+      "value": "valve",
+      "type": "String"
+    }
+  ]
+}
+$ echo $?
+0
+$ opcuactl pubsub call --url opc.udp://127.0.0.1:4841 --request-address opc.udp://127.0.0.1:4840 --resend-interval 200ms --input A:String=two --input B:String=pump
+pub=1 writer=1 target=1 request=1 status=BadTypeMismatch duration=630µs
+Error: the Action target 1 of writer 1 of publisher 1 answered BadTypeMismatch
+$ echo $?
+3
+$ opcuactl pubsub call --url opc.udp://127.0.0.1:4841 --request-address opc.udp://127.0.0.1:4840 --resend-interval 200ms --target-id 9 --input A:Int32=1 --input B:String=x --timeout 2s --diagnostics
+diagnostics requestor (level Basic): information=11 error=1
+  ActionRequestsSent      11
+  ActionResponsesReceived 0
+  ActionTimeouts          1 (error)
+Error: no response from the Action target 9 of writer 1 of publisher 1 within 2s
+$ echo $?
+2
+$ opcuactl pubsub call --url opc.udp://127.0.0.1:4841 --request-address opc.udp://127.0.0.1:4840 --resend-interval 200ms --input A:Int32=3 --input B:String=fan -q
+3
+fan
+$ echo $?
+0
+```
+
+Output of the Responder: the requests its handler served, then the counters (the Executing requests and the Idle acknowledgements count as received; the eleven rejected are the request for target 9 and its resends):
+
+```console
+2026-10-24T13:41:14.540642Z  requestor=opcuactl-9cf4c278 writer=1 target=1 request=1 inputs: A=2 B=pump -> Good outputs: A=2 B=pump
+2026-10-24T13:41:14.570091Z  requestor=opcuactl-1c0ab936 writer=1 target=1 request=1 inputs: A=7 B=valve -> Good outputs: A=7 B=valve
+2026-10-24T13:41:16.657162Z  requestor=opcuactl-8686d2f3 writer=1 target=1 request=1 inputs: A=3 B=fan -> Good outputs: A=3 B=fan
+diagnostics responder (level Basic): information=16 error=11
+  ActionRequestsReceived 8
+  ActionRequestsRejected 11 (error)
+  ActionResponsesSent    8
+```
+
+### PubSub Actions through MQTT
+
+Through Eclipse Mosquitto 2.0.22 in Docker on port 18883. JSON over MQTT 5.0: a Responder `responder-1` with target 1 "Start" and a fixed output, a subscriber that watches the exchange, and two calls:
+
+```console
+$ opcuactl pubsub subscribe --url mqtt://127.0.0.1:18883 --mqtt-version 5.0 --topic 'opcua/#' --count 3
+
+$ opcuactl pubsub respond --url mqtt://127.0.0.1:18883 --mqtt-version 5.0 --encoding json --publisher-id responder-1 --target 1:Start \
+    --input Speed:Double --output State:String=running --count 2
+
+$ opcuactl pubsub call --url mqtt://127.0.0.1:18883 --mqtt-version 5.0 --encoding json --publisher-id responder-1 --input Speed:Double=1450 --output State:String
+pub=responder-1 writer=1 target=1 request=1 status=Good duration=53.108ms
+  State = running (String)
+$ echo $?
+0
+$ opcuactl pubsub call --url mqtt://127.0.0.1:18883 --mqtt-version 5.0 --encoding json --publisher-id responder-1 --input Speed:Double=900 --format json
+{"publisherId":"responder-1","dataSetWriterId":1,"actionTargetId":1,"requestId":1,"status":"Good","statusCode":0,"duration":"44.48ms","outputs":[{"index":0,"value":"running","type":"String"}]}
+$ echo $?
+0
+```
+
+Output of the Responder:
+
+```console
+2026-10-24T13:41:17.744607Z  requestor=opcuactl-1b32681c writer=1 target=1 request=1 inputs: Speed=1450 -> Good outputs: State=running
+2026-10-24T13:41:17.838002Z  requestor=opcuactl-c7d00ee6 writer=1 target=1 request=1 inputs: Speed=900 -> Good outputs: State=running
+```
+
+Output of the subscriber: the request (Executing), the response (Done) and the acknowledgement (Idle) of the first call, with their topics, content type and UAMessageType:
+
+```console
+2026-10-24T13:41:17.743489Z  pub=responder-1 writer=1 seq=0 action-request target=1 request=1 state=Executing requestor=opcuactl-1b32681c timeout=10000ms response-address=opcua/json/action-response/responder-1/Actions topic=opcua/json/action-request/responder-1/Actions content-type=application/json ua-message-type=ua-action-request  Speed=1450
+2026-10-24T13:41:17.744662Z  pub=responder-1 writer=1 seq=0 action-response target=1 request=1 state=Done requestor=opcuactl-1b32681c status=Good topic=opcua/json/action-response/responder-1/Actions content-type=application/json ua-message-type=ua-action-response  State=running
+2026-10-24T13:41:17.794934Z  pub=responder-1 writer=1 seq=0 action-request target=1 request=1 state=Idle requestor=opcuactl-1b32681c timeout=10000ms response-address=opcua/json/action-response/responder-1/Actions topic=opcua/json/action-request/responder-1/Actions content-type=application/json ua-message-type=ua-action-request
+```
+
+UADP over MQTT 3.1.1 with the default addresses of both commands (`--verbose` shows the request queue):
+
+```console
+$ opcuactl pubsub respond --url mqtt://127.0.0.1:18883 --input A:Int32 --input B:Int32 --count 1 -v
+responding as publisher 1, writer 1, targets 1 on mqtt://127.0.0.1:18883 queue opcua/uadp/action-request/1/Actions
+2026-10-24T13:41:18.901801Z  requestor=opcuactl-02591172 writer=1 target=1 request=1 inputs: A=2 B=3 -> Good outputs: A=2 B=3
+
+$ opcuactl pubsub call --url mqtt://127.0.0.1:18883 --input A:Int32=2 --input B:Int32=3 -v
+calling Action target 1 of writer 1 of publisher 1 as opcuactl-02591172 on mqtt://127.0.0.1:18883 (request address "opcua/uadp/action-request/1/Actions")
+pub=1 writer=1 target=1 request=1 status=Good duration=53.423ms
+  #0 = 2 (Int32)
+  #1 = 3 (Int32)
+$ echo $?
+0
+```
+
 ---
 
 ## v0.4.0 features (captured against a go-opcua server)

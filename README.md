@@ -27,7 +27,7 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
-- **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
+- **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
@@ -107,6 +107,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
   - [Security policies](#security-policies)
   - [Reverse connect](#reverse-connect)
 - [PubSub](#pubsub)
+  - [PubSub Actions](#pubsub-actions)
 - [NodeID Formats](#nodeid-formats)
 - [Path Resolution](#path-resolution)
 - [Monitoring Intervals](#monitoring-intervals)
@@ -131,7 +132,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
-- **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
+- **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), PubSub Actions (request / response: `pubsub call` and a test Responder, `pubsub respond`), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
 
@@ -329,6 +330,8 @@ opcuactl
 ├── pubsub
 │   ├── subscribe      Listen on UDP / Ethernet / MQTT / AMQP and print received DataSetMessages
 │   ├── publish        Publish a DataSet built from the command line (testing)
+│   ├── call           Call a PubSub Action of a Responder and print its result
+│   ├── respond        Answer PubSub Action requests (a test Responder)
 │   ├── discover       Send UADP discovery probes and print the announcements
 │   ├── decode         Decode captured UADP or JSON NetworkMessages (chunks too)
 │   ├── sks
@@ -664,6 +667,13 @@ opcuactl pubsub discover --url opc.udp://224.0.0.22:4840 --probe metadata,writer
 opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --field Temp:Double=21.5 --count 0 --answer-probes --announce-interval 10s
 opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --probe
 
+# PubSub Actions: a test Responder that echoes two inputs, and a call through the same MQTT broker
+opcuactl pubsub respond --url mqtt://broker:1883 --input A:Int32 --input B:Int32
+opcuactl pubsub call --url mqtt://broker:1883 --input A:Int32=2 --input B:Int32=3 --output A:Int32 --output B:Int32
+# ... over UDP: the Requestor listens on --url, the request goes to the Responder's address
+opcuactl pubsub call --url opc.udp://10.0.0.5:4841 --request-address opc.udp://10.0.0.9:4840 --input Speed:Double=1450 \
+  --resend-interval 200ms --format json
+
 # Diagnostics counters (Part 14 §9.1.11) every 10 s and on exit
 opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --diagnostics-interval 10s --diagnostics-level advanced
 
@@ -849,6 +859,7 @@ Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BR
 | Which DataSets | `--publisher-id`, `--writer-group-id` (UADP), `--writer-id` |
 | Field names and types | `--field Name:Type` (repeatable, `Type[]` for arrays), `--metadata file`, `--metadata-node NodeId`, or announced on the wire |
 | Message security | `--security-group`, `--message-security none\|sign\|sign-and-encrypt`, `--keys-file` |
+| Actions | `pubsub call` and `pubsub respond`, see [PubSub Actions](#pubsub-actions) |
 | Session (SKS, metadata, config) | the [global flags](#global-flags): `-e`, `--security-*`, `--auth`, `--cert`, … |
 
 **PublisherIds** are written as a number (a UInt16, the usual choice), `byte:N`, `u32:N`, `u64:N` or a string (`str:name`, or any non-number). UADP subscribers match PublisherIds by value, publishers send the type you give.
@@ -867,7 +878,43 @@ Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BR
 
 **Diagnostics.** `subscribe`, `publish` and `discover` count what they send and receive with the counters of the Part 14 diagnostics objects (§9.1.11: SentNetworkMessages, FailedTransmissions, ReceivedNetworkMessages, ReceivedInvalidNetworkMessages, DecryptionErrors, …) plus counters for chunks and discovery messages, and print them on stderr when done (`--diagnostics`), every `--diagnostics-interval`, as a JSON line with `--format json`. `--diagnostics-level` selects the counters by DiagnosticsLevel. `pubsub config diagnostics [--node X] [--reset]` reads the diagnostics object of a server's PublishSubscribe object, connection, group, writer or reader: the totals, every counter with its classification, level and first change, and the LiveValues.
 
-**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). Not supported yet: PubSub Actions (request / response), and the gzip-compressed JSON content type.
+**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). Not supported yet: the gzip-compressed JSON content type.
+
+### PubSub Actions
+
+PubSub Actions (Part 14 §6.2.11.2 in 1.05) call a function of another PubSub application: a Requestor sends an ActionRequest, a Responder runs the Action target and answers with an ActionResponse. `pubsub call` is a Requestor: it prints the status and outputs of the response. `pubsub respond` is a Responder for testing Requestors: it answers every request with fixed outputs or by echoing the inputs and prints each request it serves. Both run go-opcua's PubSub runtime.
+
+| Transport | Mappings | Request goes to | Response comes back on |
+|-----------|----------|-----------------|------------------------|
+| UDP (`opc.udp://`) | UADP, optionally signed and encrypted | `--request-address` (the Responder's `--url`); default the caller's `--url`, e.g. a shared multicast group | the caller's `--url` |
+| MQTT 3.1.1 / 5.0 | UADP, JSON | the request queue `--request-address`, default `<prefix>/<encoding>/action-request/<publisher-id>/<writer-group-name>` | `--response-address`, default the matching `action-response` topic |
+| AMQP 1.0 | UADP, JSON | as MQTT (an AMQP address) | as MQTT |
+
+The defaults of `--topic-prefix` (`opcua`), `--publisher-id` (`1`), `--writer-group-name` (`Actions`), `--writer-id` (`1`) and `--target-id` / `--target` (`1`) are the same in both commands, so `call` reaches a `respond` on the same broker without addressing flags.
+
+| Flag | call | respond |
+|------|------|---------|
+| `--url`, `--interface`, `--broker-*`, `--mqtt-version`, `--transport-property` | the Requestor's connection | the Responder's connection |
+| `--encoding uadp\|json` | message mapping (JSON needs a broker) | same |
+| `--publisher-id` | PublisherId of the Responder | its own PublisherId |
+| `--writer-id`, `--writer-group-name`, `--topic-prefix` | address the Responder's Action writer and request queue | its Action writer and request queue |
+| `--request-address` | where the request goes (queue or `opc.udp://` address) | the request queue (brokers) |
+| `--target-id N` / `--target ID[:Name]` | the Action target to call | the Action targets it serves (repeatable) |
+| `--input` | `Name:Type=Value` inputs, in order | `Name:Type` request DataSetMetaData; wrong inputs get Bad_ArgumentsMissing / Bad_TooManyArguments / Bad_TypeMismatch |
+| `--output` | `Name:Type` names (and RawData types) of the outputs | `Name:Type=Value` fixed outputs; without them the inputs are echoed |
+| `--requestor-id`, `--response-address` | its own PublisherId (default random), where the response goes | |
+| `--timeout` | TimeoutHint of the request and how long to wait | |
+| `--resend-interval` | UDP: resend the request and acknowledgement while nothing is heard | |
+| `--status`, `--delay` | | answer with another StatusCode (no outputs if Bad), after a delay |
+| `--max-concurrent`, `--rate`, `--burst`, `--max-timeout` | | ActionOptions: concurrent exchanges (64), new requests per second and burst (50, 50; more are dropped), cap of the TimeoutHint (60 s) |
+| `--interval` | | how often a datagram response is repeated until acknowledged (100 ms on UDP) |
+| `--count`, `--duration`, `--jsonl` | | stop after N requests served or a time; JSON Lines output |
+| `--message-security`, `--security-group`, `--keys-file` | security of the UADP messages | security its writer group requires |
+| `--diagnostics*` | ActionRequestsSent, ActionResponsesReceived, ActionTimeouts | ActionRequestsReceived, ActionRequestsRejected, ActionResponsesSent |
+
+`call` exits with 0 for a Good result, 3 for a Bad result of the Action (the result is printed too) and 2 when no response arrives within `--timeout`. A Responder answers nothing to a request it cannot address, that is for another writer or target, or that lacks the security of its writer group (§6.2.11.2.2), so such calls time out. On a broker a request sent before the Responder subscribed is lost. `subscribe` and `decode` show action messages as `action-request` and `action-response` DataSetMessages with their ActionTargetId, RequestId, ActionState, RequestorId, TimeoutHint and the status of the response.
+
+Not supported: PublishedActionMethod targets bound to server Methods, Actions discovery announcements and ActionMetaData messages, chunked action messages, and adding a PublishedAction to a server with `pubsub config` (Part 14 has no method for it; `config show` lists a server's PublishedActions as data sets).
 
 ## NodeID Formats
 

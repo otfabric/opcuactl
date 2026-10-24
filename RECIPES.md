@@ -28,6 +28,7 @@ Aligned with **v0.4.1** (go-opcua v1.8.1): OPC UA PubSub (UADP / JSON over UDP a
 - [19. Send and Receive Large DataSets in Chunks](#19-send-and-receive-large-datasets-in-chunks)
 - [20. Find Publishers with UADP Discovery](#20-find-publishers-with-uadp-discovery)
 - [21. Watch PubSub Diagnostics Counters](#21-watch-pubsub-diagnostics-counters)
+- [22. Call PubSub Actions (Request / Response)](#22-call-pubsub-actions-request--response)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -695,3 +696,62 @@ opcuactl pubsub config diagnostics "${CONN[@]}" --node "$GROUP_ID" --reset --for
 ```
 
 Counters above the DiagnosticsLevel of the object are shown as inactive (`-`).
+
+---
+
+## 22. Call PubSub Actions (Request / Response)
+
+PubSub Actions (Part 14 §6.2.11.2 in 1.05) let a Requestor call a function of a Responder over the PubSub transports. `pubsub respond` is a test Responder, `pubsub call` a Requestor; together they check a broker or network path, and each tests the other side of a real application.
+
+### Through an MQTT broker
+
+The Responder takes its requests from the request queue of its writer group, by default `<prefix>/<encoding>/action-request/<publisher-id>/<writer-group-name>`, and answers on the matching `action-response` topic. `call` builds the same queue name from the same flags, so they meet without addressing flags:
+
+```sh
+export OPCUACTL_BROKER_PASSWORD='...'
+B=(--url mqtts://broker:8883 --broker-username plant --mqtt-version 5.0 --encoding json --publisher-id line1-drive)
+
+# Terminal 1: a Responder with target 1 "Start" that takes a speed and answers with a state
+opcuactl pubsub respond "${B[@]}" --target 1:Start --input Speed:Double --output State:String=running
+
+# Terminal 2: call it; the result as text, then as JSON
+opcuactl pubsub call "${B[@]}" --target-id 1 --input Speed:Double=1450 --output State:String
+opcuactl pubsub call "${B[@]}" --target-id 1 --input Speed:Double=1450 --format json
+
+# Terminal 3: watch the exchange: request (Executing), response (Done), acknowledgement (Idle)
+opcuactl pubsub subscribe --url mqtts://broker:8883 --broker-username plant --mqtt-version 5.0 --topic 'opcua/#'
+```
+
+Another application's Responder usually has its own queue: give it with `--request-address` (and `--response-address` if responses go elsewhere). Start the Responder first: a request sent before it subscribed is lost, and the call times out after `--timeout`.
+
+### Over UDP
+
+Over UDP the Requestor listens on its own `--url` and sends the request to the Responder's address. `--resend-interval` resends the request (and the acknowledgement) while nothing is heard; the Responder repeats its response every `--interval` until it is acknowledged.
+
+```sh
+# The Responder on 10.0.0.9, echoing two inputs; requests must be signed and encrypted
+opcuactl pubsub respond --url opc.udp://10.0.0.9:4840 --target 1:Echo --input A:Int32 --input B:String \
+  --message-security sign-and-encrypt --keys-file keys.json
+
+# The Requestor on 10.0.0.5
+opcuactl pubsub call --url opc.udp://10.0.0.5:4841 --request-address opc.udp://10.0.0.9:4840 \
+  --input A:Int32=2 --input B:String=pump --resend-interval 200ms \
+  --message-security sign-and-encrypt --keys-file keys.json
+
+# Both on one multicast group: no --request-address needed
+opcuactl pubsub call --url opc.udp://239.0.0.1:4840 --input A:Int32=2 --input B:String=pump --resend-interval 200ms
+```
+
+### Test the error paths of a Requestor
+
+```sh
+# Answer with a Bad status (no outputs), or too late for the TimeoutHint
+opcuactl pubsub respond --url opc.udp://10.0.0.9:4840 --status BadInternalError
+opcuactl pubsub respond --url opc.udp://10.0.0.9:4840 --delay 15s
+
+# Limit the Responder and watch what it rejects
+opcuactl pubsub respond --url opc.udp://10.0.0.9:4840 --max-concurrent 4 --rate 10 --burst 5 --max-timeout 5s \
+  --diagnostics-interval 10s
+```
+
+In scripts, branch on the exit code of `call`: 0 for a Good result, 3 for a Bad result (printed as well), 2 when no response came within `--timeout`. `--quiet` prints only the output values, one per line.
