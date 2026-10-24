@@ -16,6 +16,7 @@ import (
 	"github.com/otfabric/go-opcua/pubsub/message"
 	"github.com/otfabric/go-opcua/pubsub/security"
 	"github.com/otfabric/go-opcua/pubsub/transport"
+	mqtttransport "github.com/otfabric/go-opcua/pubsub/transport/mqtt"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
@@ -53,12 +54,13 @@ type pubsubActionFlags struct {
 	sf pubsubSecurityFlags
 	gf pubsubDiagnosticsFlags
 
-	encoding       string
-	publisherID    string
-	writerID       uint16
-	groupName      string
-	topicPrefix    string
-	requestAddress string
+	encoding        string
+	publisherID     string
+	writerID        uint16
+	groupName       string
+	topicPrefix     string
+	requestAddress  string
+	jsonCompression string
 }
 
 func (f *pubsubActionFlags) register(cmd *cobra.Command, publisherHelp string) {
@@ -71,9 +73,11 @@ func (f *pubsubActionFlags) register(cmd *cobra.Command, publisherHelp string) {
 	fs.Uint16Var(&f.writerID, "writer-id", 1, "DataSetWriterId of the Action writer of the Responder")
 	fs.StringVar(&f.groupName, "writer-group-name", defaultActionGroupName, "Name of the Responder's writer group (broker: part of the default request queue)")
 	fs.StringVar(&f.topicPrefix, "topic-prefix", defaultActionTopicPrefix, "Broker: prefix of the default request queue <prefix>/<encoding>/action-request/<publisher-id>/<writer-group-name>")
+	fs.StringVar(&f.jsonCompression, "json-compression", "", "Compress JSON action messages over MQTT 5.0 (none|gzip): Content Type application/json+gzip")
 	fs.StringVar(&f.requestAddress, "request-address", "", "Where the requests go: the request queue on a broker (default: see --topic-prefix); on UDP the Responder's opc.udp:// address (default: --url)")
 	_ = cmd.RegisterFlagCompletionFunc("encoding", fixedCompletion([]string{"uadp", "json"}))
 	_ = cmd.RegisterFlagCompletionFunc("mqtt-version", fixedCompletion(pubsubMQTTVersionValues))
+	_ = cmd.RegisterFlagCompletionFunc("json-compression", fixedCompletion(pubsubJSONCompressionValues))
 	_ = cmd.RegisterFlagCompletionFunc("diagnostics-level", fixedCompletion(pubsubDiagnosticsLevelValues))
 }
 
@@ -91,6 +95,8 @@ type pubsubActionSetup struct {
 	// requestAddress is the request queue on a broker, the Responder's
 	// address (or empty for --url) on a datagram transport.
 	requestAddress string
+	// compress sends JSON action messages gzip compressed.
+	compress bool
 }
 
 // setup validates the shared flags. It does not open anything but the
@@ -125,6 +131,9 @@ func (f *pubsubActionFlags) setup(ctx context.Context) (*pubsubActionSetup, func
 	if enc == parse.EncodingJSON {
 		s.mapping = pubsub.MappingJSON
 	}
+	if s.compress, err = checkJSONCompression(f.jsonCompression, enc, tcfg.URL); err != nil {
+		return nil, noop, err
+	}
 	switch {
 	case mode > ua.MessageSecurityModeNone && enc == parse.EncodingJSON:
 		return nil, noop, exitCodef(1, "--message-security is only available with the UADP encoding")
@@ -158,13 +167,17 @@ func (f *pubsubActionFlags) setup(ctx context.Context) (*pubsubActionSetup, func
 // connection returns the PubSubConnection of the runtime, with PublisherId
 // pid.
 func (s *pubsubActionSetup) connection(pid message.PublisherID) *ua.PubSubConnectionDataType {
-	return &ua.PubSubConnectionDataType{
+	c := &ua.PubSubConnectionDataType{
 		Name:                actionConnection,
 		Enabled:             true,
 		PublisherID:         pid.Variant(),
 		TransportProfileURI: s.transport.ProfileURI,
 		Address:             ua.NewExtensionObject(&ua.NetworkAddressURLDataType{URL: s.transport.URL, NetworkInterface: s.transport.Interface}),
 	}
+	if s.compress {
+		pubsub.SetJSONCompression(c, mqtttransport.CompressionGzip)
+	}
+	return c
 }
 
 // options returns the runtime options: the broker settings of the flags,

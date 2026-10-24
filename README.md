@@ -844,14 +844,14 @@ OPC UA PubSub (Part 14) sends DataSets from publishers to subscribers without se
 |-----------|-----|----------|-------|
 | UDP | `opc.udp://host:port` | UADP | unicast or multicast; `--interface` picks the interface for multicast |
 | Ethernet | `opc.eth://MAC[:VID[.PCP]]` | UADP | `--interface` required; Linux, macOS, FreeBSD; needs root or `sudo setcap cap_net_raw+ep "$(command -v opcuactl)"` |
-| MQTT | `mqtt://`, `mqtts://` | UADP, JSON | `--mqtt-version 3.1.1\|5.0\|BestAvailable`, `--qos 0..2`, `--topic`; `--retain` on publish |
+| MQTT | `mqtt://`, `mqtts://` | UADP, JSON, gzip compressed JSON | `--mqtt-version 3.1.1\|5.0\|BestAvailable`, `--qos 0..2`, `--topic`; `--retain` on publish; `--json-compression gzip` on publish, call, respond and `config add-connection` (MQTT 5.0; subscribers decompress on their own) |
 | AMQP 1.0 | `amqp://`, `amqps://` | UADP, JSON | `--topic` is the AMQP address: RabbitMQ `/queues/<q>` (vhost with `--transport-property connection-hostname=vhost:<name>`), Artemis a plain address (anycast with `source-capabilities=queue` / `target-capabilities=queue`); `--qos 2` acts as 1 |
 
 Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BROKER_PASSWORD`; `OPCUACTL_MQTT_PASSWORD` still works) and `--broker-client-id` (MQTT client id, AMQP container-id). `--username` and `--password` are the OPC UA session's. The 0.4 flags `--mqtt-username`, `--mqtt-password` and `--mqtt-client-id` still work but are deprecated. `--transport-property key=value` (repeatable) passes connection properties to the transport: MQTT 5.0 `connection-*` properties, AMQP `source-capabilities`, `target-capabilities`, `connection-hostname`, and so on.
 
 | Concern | Flags |
 |---------|-------|
-| Transport | `--url`, `--interface`, `--topic`, `--qos`, `--mqtt-version`, `--broker-*`, `--transport-property` |
+| Transport | `--url`, `--interface`, `--topic`, `--qos`, `--mqtt-version`, `--json-compression`, `--broker-*`, `--transport-property` |
 | Chunks | publish `--max-message-size`; subscribe `--chunk-max-message-size`, `--chunk-max-pending`, `--chunk-max-pending-bytes`, `--chunk-timeout` |
 | Discovery | `pubsub discover`; subscribe `--probe`; publish `--answer-probes`, `--announce-metadata`, `--announce-interval`; `--discovery-url`, `--discovery-layout spec\|dotnet` |
 | Diagnostics | `--diagnostics`, `--diagnostics-interval`, `--diagnostics-level basic\|advanced\|info\|log\|debug`; `pubsub config diagnostics` |

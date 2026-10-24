@@ -503,8 +503,51 @@ func TestE2E_PubSubMQTT(t *testing.T) {
 		}
 	})
 
+	t.Run("gzip compressed json over mqtt 5.0", func(t *testing.T) {
+		ctx := context.Background()
+		c, err := transport.Open(ctx, transport.Config{URL: b.url(), MQTTVersion: pubsub.MQTTVersion5})
+		if err != nil {
+			t.Fatalf("mqtt open: %v", err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		ch := make(chan *transport.Message, 8)
+		if _, err := c.Subscribe(ctx, "cli/gz/#", 0, func(m *transport.Message) { ch <- m }); err != nil {
+			t.Fatalf("mqtt subscribe: %v", err)
+		}
+		mustRun(t, "pubsub", "publish", "--url", b.url(), "--mqtt-version", "5.0", "--encoding", "json", "--json-compression", "gzip",
+			"--topic", "cli/gz/data", "--metadata-topic", "cli/gz/meta", "--publisher-id", "str:gz", "--field", "Temp:Double=21.5")
+		for _, topic := range []string{"cli/gz/meta", "cli/gz/data"} {
+			m := next(t, ch)
+			if m.Topic != topic || m.ContentType != transport.ContentTypeJSONGzip {
+				t.Fatalf("got topic %s, content type %q; want %s, %s", m.Topic, m.ContentType, topic, transport.ContentTypeJSONGzip)
+			}
+			plain, gz, err := gunzipJSON(m.Payload, m)
+			if !gz || err != nil || !strings.HasPrefix(string(plain), "{") {
+				t.Fatalf("%s: %q, %v, %v", topic, plain, gz, err)
+			}
+		}
+
+		// The subscriber decompresses by the content type on MQTT 5.0 and
+		// by the gzip header on 3.1.1.
+		w := pubsub.SetWriterQueue(pubsub.DataSetWriter("W", 6, "Measurements"), "gz/line1", "gz/line1/meta")
+		conn := pubsub.SetJSONCompression(pubsub.SetMQTTVersion(pubsub.MQTTConnection("brokergz", b.url(), "linegz", pubsub.MappingJSON), pubsub.MQTTVersion5), "gzip")
+		startPublisher(t, conn, pubsub.JSONWriterGroup("G", 1, 50*time.Millisecond, "gz/line1", w))
+		out := mustRun(t, "pubsub", "subscribe", "--url", b.url(), "--mqtt-version", "5.0", "--topic", "gz/line1",
+			"--count", "1", "--duration", "15s", "--jsonl")
+		got := parseDataSets(t, out)
+		if len(got) != 1 || got[0].ContentType != transport.ContentTypeJSONGzip || got[0].PublisherID != "linegz" || fieldValue(got[0], "Counter") != float64(42) {
+			t.Fatalf("unexpected DataSets:\n%s", out)
+		}
+		out = mustRun(t, "pubsub", "subscribe", "--url", b.url(), "--topic", "gz/#", "--show-metadata",
+			"--count", "1", "--duration", "15s")
+		wantContains(t, out, "pub=linegz", "Counter=42", "Measurements")
+	})
+
 	t.Run("errors", func(t *testing.T) {
 		for _, args := range [][]string{
+			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--json-compression", "gzip"}, // UADP
+			{"publish", "--url", b.url(), "--topic", "t", "--field", "A:Int32=1", "--encoding", "json", "--json-compression", "zstd"},
+			{"publish", "--url", "opc.udp://127.0.0.1:1", "--field", "A:Int32=1", "--json-compression", "gzip"},
 			{"publish", "--url", b.url(), "--field", "A:Int32=1"},                                       // no topic
 			{"publish", "--url", "opc.udp://127.0.0.1:1", "--field", "A:Int32=1", "--encoding", "json"}, // JSON over UDP
 			{"publish", "--url", "opc.udp://127.0.0.1:1", "--field", "A:Int32=1", "--metadata-topic", "x"},

@@ -1,5 +1,25 @@
 # opcuactl Releases
 
+## v0.6.0
+
+**Date:** 2026-10-25  
+**Previous release:** v0.5.1
+
+### Summary
+
+gzip compressed JSON PubSub over MQTT 5.0 (`application/json+gzip`, Part 14 §7.3.4.9.1), on **[go-opcua v1.10.0](https://github.com/otfabric/go-opcua/releases/tag/v1.10.0)**.
+
+### Added
+
+- **`--json-compression none|gzip`** on `pubsub publish`, `pubsub call`, `pubsub respond` and `pubsub config add-connection`: JSON messages over MQTT 5.0 go out gzip compressed with the Content Type `application/json+gzip` (data, metadata and action messages; on a server connection the go-opcua property `JsonCompression`). It needs `--encoding json` and an MQTT broker; a connection that ends up on MQTT 3.1.1 (`--mqtt-version BestAvailable`) sends uncompressed, with a warning.
+- **`pubsub subscribe` and `pubsub decode` decompress gzip compressed JSON**: by the content type on MQTT 5.0, by the gzip header without one (MQTT 3.1.1), up to 16 MiB per message. The content type shown stays `application/json+gzip`. Before, such messages were reported as unsupported.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.9.1 → **[v1.10.0](https://github.com/otfabric/go-opcua/releases/tag/v1.10.0)**
+
+---
+
 ## v0.5.1
 
 **Date:** 2026-10-24  

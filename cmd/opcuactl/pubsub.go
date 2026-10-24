@@ -393,19 +393,18 @@ func (d *pubsubDecoder) writerMatches(id uint16) bool {
 
 // encodingOf picks the decoder of a message: by the content type the
 // transport carried (MQTT 5.0, AMQP), else by looking at the payload.
-func encodingOf(b []byte, msg *transport.Message) (parse.PubSubEncoding, error) {
+// Compressed JSON is decompressed before (gunzipJSON).
+func encodingOf(b []byte, msg *transport.Message) parse.PubSubEncoding {
 	if msg != nil && msg.ContentType != "" {
 		ct, _, _ := strings.Cut(msg.ContentType, ";")
 		switch strings.ToLower(strings.TrimSpace(ct)) {
 		case transport.ContentTypeUADP:
-			return parse.EncodingUADP, nil
+			return parse.EncodingUADP
 		case transport.ContentTypeJSON:
-			return parse.EncodingJSON, nil
-		case transport.ContentTypeJSONGzip:
-			return "", fmt.Errorf("content type %s: compressed JSON is not supported", msg.ContentType)
+			return parse.EncodingJSON
 		}
 	}
-	return detectEncoding(b), nil
+	return detectEncoding(b)
 }
 
 // detectEncoding tells JSON from UADP: JSON messages are objects or arrays.
@@ -430,12 +429,16 @@ var errFiltered = errors.New("filtered")
 // decode decodes one NetworkMessage. It returns errFiltered for a message
 // the filters drop.
 func (d *pubsubDecoder) decode(b []byte, msg *transport.Message) (*pubsubResult, error) {
+	plain, gz, err := gunzipJSON(b, msg)
+	if err != nil {
+		return nil, err
+	}
+	if gz {
+		return d.decodeJSON(plain, msg)
+	}
 	enc := d.encoding
 	if enc == parse.EncodingAuto || enc == "" {
-		var err error
-		if enc, err = encodingOf(b, msg); err != nil {
-			return nil, err
-		}
+		enc = encodingOf(b, msg)
 	}
 	if enc == parse.EncodingJSON {
 		return d.decodeJSON(b, msg)

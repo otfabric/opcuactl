@@ -300,30 +300,31 @@ func versionTime(t time.Time) uint32 {
 
 func newPubSubPublishCmd() *cobra.Command {
 	var (
-		tf             pubsubTransportFlags
-		sf             pubsubSecurityFlags
-		df             pubsubDiscoveryFlags
-		gf             pubsubDiagnosticsFlags
-		encoding       string
-		publisherID    string
-		groupID        uint16
-		writerID       uint16
-		groupName      string
-		writerName     string
-		dataSetName    string
-		fieldSpecs     []string
-		fieldEncoding  string
-		interval       time.Duration
-		count          int
-		duration       time.Duration
-		topic          string
-		metaTopic      string
-		retain         bool
-		announce       bool
-		announceEvery  time.Duration
-		answerProbes   bool
-		maxMessageSize int
-		numericPubID   bool
+		tf              pubsubTransportFlags
+		sf              pubsubSecurityFlags
+		df              pubsubDiscoveryFlags
+		gf              pubsubDiagnosticsFlags
+		encoding        string
+		publisherID     string
+		groupID         uint16
+		writerID        uint16
+		groupName       string
+		writerName      string
+		dataSetName     string
+		fieldSpecs      []string
+		fieldEncoding   string
+		interval        time.Duration
+		count           int
+		duration        time.Duration
+		topic           string
+		metaTopic       string
+		retain          bool
+		announce        bool
+		announceEvery   time.Duration
+		answerProbes    bool
+		maxMessageSize  int
+		numericPubID    bool
+		jsonCompression string
 	)
 
 	cmd := &cobra.Command{
@@ -341,7 +342,8 @@ fields, with a sequence number counting up from 1.
 opc.eth://MAC[:VID[.PCP]] (raw Ethernet, with --interface; needs root or
 CAP_NET_RAW), or a broker with --topic: mqtt://host:port / mqtts://host:port
 (--mqtt-version 5.0 sends the content type and UAMessageType of every
-message) or amqp://host:port / amqps://host:port (--topic is the AMQP
+message; --json-compression gzip sends JSON messages gzip compressed as
+application/json+gzip, Part 14 §7.3.4.9.1, which needs MQTT 5.0) or amqp://host:port / amqps://host:port (--topic is the AMQP
 address, e.g. /queues/opcua on RabbitMQ 4). --encoding uadp (default) or
 json (brokers only). --field-encoding selects the UADP/JSON field encoding:
 variant (default), datavalue (with status and source timestamp) or rawdata
@@ -389,6 +391,10 @@ Examples:
 			enc, err := parse.ParsePubSubEncoding(encoding, false)
 			if err != nil {
 				return exitCode(1, err)
+			}
+			compress, err := checkJSONCompression(jsonCompression, enc, tf.url)
+			if err != nil {
+				return err
 			}
 			mode, err := parse.MessageSecurity(sf.mode)
 			if err != nil {
@@ -484,13 +490,23 @@ Examples:
 			if p.maxSize == 0 && enc == parse.EncodingUADP {
 				p.maxSize = conn.MaxMessageSize()
 			}
+			if compress && mqttVersionOf(conn) != pubsub.MQTTVersion5 {
+				pubsubInfo("warning: the broker connection runs MQTT %s, which cannot carry a content type: JSON messages are sent uncompressed", mqttVersionOf(conn))
+				compress = false
+			}
 			defer gf.print(diag)
 			defer gf.start(diag)()
 
 			// sendParts sends a message or its chunks.
 			sendParts := func(c transport.Connection, parts [][]byte, opts transport.PublishOptions) (int, error) {
 				n := 0
+				if compress && c == conn && enc == parse.EncodingJSON {
+					opts.ContentType = transport.ContentTypeJSONGzip
+				}
 				for _, b := range parts {
+					if opts.ContentType == transport.ContentTypeJSONGzip {
+						b = gzipJSON(b)
+					}
 					sendCtx, cancel := connCfg.TimeoutContext(ctx)
 					err := c.Send(sendCtx, b, opts)
 					cancel()
@@ -681,9 +697,11 @@ Examples:
 	fs.DurationVar(&announceEvery, "announce-interval", 0, "Repeat the DataSetMetaData announcement (or --metadata-topic message) at this interval")
 	fs.BoolVar(&answerProbes, "answer-probes", false, "Answer UADP discovery probes while running (UDP multicast, Ethernet or --discovery-url)")
 	fs.IntVar(&maxMessageSize, "max-message-size", 0, "Largest NetworkMessage in bytes: larger UADP messages are sent as chunks (0 = the transport's limit)")
+	fs.StringVar(&jsonCompression, "json-compression", "", "Compress JSON messages over MQTT 5.0 (none|gzip): Content Type application/json+gzip")
 	fs.BoolVar(&numericPubID, "numeric-publisher-id", false, "JSON: write numeric PublisherIds as numbers (OPC UA 1.04) instead of strings")
 	_ = cmd.RegisterFlagCompletionFunc("encoding", fixedCompletion([]string{"uadp", "json"}))
 	_ = cmd.RegisterFlagCompletionFunc("field-encoding", fixedCompletion(pubsubFieldEncodingValues))
+	_ = cmd.RegisterFlagCompletionFunc("json-compression", fixedCompletion(pubsubJSONCompressionValues))
 	_ = cmd.RegisterFlagCompletionFunc("mqtt-version", fixedCompletion(pubsubMQTTVersionValues))
 	_ = cmd.RegisterFlagCompletionFunc("discovery-layout", fixedCompletion(pubsubDiscoveryLayoutValues))
 	_ = cmd.RegisterFlagCompletionFunc("diagnostics-level", fixedCompletion(pubsubDiagnosticsLevelValues))

@@ -13,6 +13,7 @@ import (
 	"github.com/otfabric/go-opcua/pubsub"
 	"github.com/otfabric/go-opcua/pubsub/remote"
 	"github.com/otfabric/go-opcua/pubsub/transport"
+	mqtttransport "github.com/otfabric/go-opcua/pubsub/transport/mqtt"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
@@ -282,7 +283,7 @@ func writeAdded(kind, name string, nid *ua.NodeID, results []model.PubSubResult)
 }
 
 func newPubSubAddConnectionCmd() *cobra.Command {
-	var name, url, publisherID, encoding, iface, mqttVersion string
+	var name, url, publisherID, encoding, iface, mqttVersion, jsonCompression string
 	var props []string
 	cmd := &cobra.Command{
 		Use:   "add-connection",
@@ -299,6 +300,9 @@ it out for a connection that only subscribes.
 BestAvailable); --transport-property key=value adds further connection
 properties (KeyValuePairs), such as the MQTT 5.0 "connection-Session Expiry
 Interval" or the AMQP "connection-hostname" and "target-capabilities".
+--json-compression gzip makes a JSON connection over MQTT 5.0 send its
+messages gzip compressed (application/json+gzip, Part 14 §7.3.4.9.1; the
+go-opcua connection property JsonCompression).
 
 Examples:
   opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name UDP --url opc.udp://224.0.0.22:4840 --publisher-id 2234
@@ -329,6 +333,10 @@ Examples:
 			version, err := parse.MQTTVersion(mqttVersion)
 			if err != nil {
 				return exitCode(1, err)
+			}
+			compress, err := checkJSONCompression(jsonCompression, enc, url)
+			if err != nil {
+				return err
 			}
 			properties, err := parse.TransportProperties(props)
 			if err != nil {
@@ -371,6 +379,9 @@ Examples:
 			for _, k := range keys {
 				pubsub.SetConnectionProperty(cfg, k, properties[k])
 			}
+			if compress {
+				pubsub.SetJSONCompression(cfg, mqtttransport.CompressionGzip)
+			}
 			return withRemote(func(ctx context.Context, _ *opcua.Client, r *remote.Client) error {
 				nid, err := r.AddConnection(ctx, cfg)
 				if err != nil {
@@ -387,7 +398,9 @@ Examples:
 	cmd.Flags().StringVar(&iface, "interface", "", "Network interface (NetworkInterface; required for opc.eth://)")
 	cmd.Flags().StringVar(&mqttVersion, "mqtt-version", "", "MQTT protocol version (3.1.1|5.0|BestAvailable)")
 	cmd.Flags().StringArrayVar(&props, "transport-property", nil, "Connection property key=value (repeatable)")
+	cmd.Flags().StringVar(&jsonCompression, "json-compression", "", "Compress JSON messages over MQTT 5.0 (none|gzip): the JsonCompression connection property")
 	_ = cmd.RegisterFlagCompletionFunc("mqtt-version", fixedCompletion(pubsubMQTTVersionValues))
+	_ = cmd.RegisterFlagCompletionFunc("json-compression", fixedCompletion(pubsubJSONCompressionValues))
 	return cmd
 }
 

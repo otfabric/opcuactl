@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/otfabric/go-opcua/pubsub"
 	"github.com/otfabric/go-opcua/pubsub/transport"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -27,16 +28,40 @@ func TestEncodingOf(t *testing.T) {
 		// Unknown content types fall back to the payload.
 		{`{"a":1}`, "text/plain", parse.EncodingJSON},
 	} {
-		got, err := encodingOf([]byte(tc.payload), &transport.Message{ContentType: tc.ct})
-		if err != nil || got != tc.want {
-			t.Errorf("encodingOf(%q, %q) = %s, %v; want %s", tc.payload, tc.ct, got, err, tc.want)
+		if got := encodingOf([]byte(tc.payload), &transport.Message{ContentType: tc.ct}); got != tc.want {
+			t.Errorf("encodingOf(%q, %q) = %s; want %s", tc.payload, tc.ct, got, tc.want)
 		}
 	}
-	if got, _ := encodingOf([]byte("{"), nil); got != parse.EncodingJSON {
+	if got := encodingOf([]byte("{"), nil); got != parse.EncodingJSON {
 		t.Errorf("encodingOf without a message = %s", got)
 	}
-	if _, err := encodingOf([]byte("x"), &transport.Message{ContentType: "application/json+gzip"}); err == nil {
-		t.Error("gzip-compressed JSON: expected an error")
+}
+
+func TestGunzipJSON(t *testing.T) {
+	msg := []byte(`{"MessageId":"1"}`)
+	gz := gzipJSON(msg)
+	for _, tc := range []struct {
+		payload []byte
+		ct      string
+		gz      bool
+		err     bool
+	}{
+		{gz, transport.ContentTypeJSONGzip, true, false},
+		{gz, "", true, false}, // MQTT 3.1.1: no content type
+		{gz, transport.ContentTypeJSON, false, false},
+		{msg, "", false, false},
+		{msg, transport.ContentTypeJSONGzip, true, true},
+		{gz[:len(gz)-4], transport.ContentTypeJSONGzip, true, true},
+		{gzipJSON(make([]byte, pubsub.DefaultJSONDecompressionLimit+1)), "", true, true},
+	} {
+		plain, gz, err := gunzipJSON(tc.payload, &transport.Message{ContentType: tc.ct})
+		if gz != tc.gz || (err != nil) != tc.err || (gz && !tc.err && string(plain) != string(msg)) {
+			t.Errorf("gunzipJSON(%x, %q) = %q, %v, %v", tc.payload[:4], tc.ct, plain, gz, err)
+		}
+	}
+	d := &pubsubDecoder{}
+	if _, err := d.decode([]byte("x"), &transport.Message{ContentType: transport.ContentTypeJSONGzip}); err == nil {
+		t.Error("corrupt gzip compressed JSON: expected an error")
 	}
 }
 

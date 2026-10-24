@@ -591,6 +591,11 @@ opcuactl pubsub publish --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 --b
   --topic plant/line1 --encoding json --field Temp:Double=21.5 --metadata-topic plant/line1/meta \
   --transport-property "connection-Session Expiry Interval=60"
 
+# The same, gzip compressed (Content Type application/json+gzip, Part 14 §7.3.4.9.1).
+# Needs MQTT 5.0; subscribe decompresses compressed messages on its own, also on 3.1.1.
+opcuactl pubsub publish --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 --broker-username plant \
+  --topic plant/line1 --encoding json --json-compression gzip --field Temp:Double=21.5
+
 # RabbitMQ 4 (AMQP 1.0): the address of a queue is /queues/<name>; the queue must exist.
 # A vhost other than / goes in the connection hostname.
 opcuactl pubsub subscribe --url amqps://rabbit:5671 --broker-username plant --topic /queues/plant \
