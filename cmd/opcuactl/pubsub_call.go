@@ -138,7 +138,7 @@ Examples:
 				target.ResponseMetaData = pubsub.MetaData("Response", respFields...)
 			}
 			if verbose {
-				pubsubInfo("calling target %d of writer %d of %s as %s on %s (request address %q)",
+				pubsubInfo("calling Action target %d of writer %d of publisher %s as %s on %s (request address %q)",
 					targetID, af.writerID, s.responder, rid, af.tf.url, s.requestAddress)
 			}
 			start := time.Now()
@@ -147,7 +147,7 @@ Examples:
 			if err != nil {
 				switch {
 				case errors.Is(err, pubsub.ErrActionTimeout):
-					return exitCodef(2, "no response from target %d of writer %d of %s within %v", targetID, af.writerID, s.responder, connCfg.Timeout)
+					return exitCodef(2, "no response from the Action target %d of writer %d of publisher %s within %v", targetID, af.writerID, s.responder, connCfg.Timeout)
 				case ctx.Err() != nil:
 					return exitCode(2, ctx.Err())
 				}
@@ -167,7 +167,7 @@ Examples:
 				return err
 			}
 			if isBadStatus(res.Status) {
-				return exitCode(3, fmt.Errorf("target %d of writer %d of %s: %s", targetID, af.writerID, s.responder, res.Status.Symbol()))
+				return exitCode(3, fmt.Errorf("the Action target %d of writer %d of publisher %s answered %s", targetID, af.writerID, s.responder, res.Status.Symbol()))
 			}
 			return nil
 		},
