@@ -337,7 +337,6 @@ Examples:
 // listEndpoints lists the endpoints; transport is a transport profile URI
 // to filter by ("" for all).
 func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, transport string) error {
-	w := newWriter()
 	var endpoints []model.Endpoint
 	for _, ep := range eps {
 		policyShort := parse.SecurityPolicyShortName(ep.SecurityPolicyURI)
@@ -350,59 +349,70 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 		if transport != "" && conn.EndpointTransport(ep) != transport {
 			continue
 		}
-
-		e := model.Endpoint{
-			EndpointURL:      ep.EndpointURL,
-			SecurityPolicy:   policyShort,
-			SecurityMode:     ep.SecurityMode.String(),
-			SecurityLevel:    ep.SecurityLevel,
-			HasCertificate:   len(ep.ServerCertificate) > 0,
-			TransportProfile: conn.EndpointTransport(ep),
-		}
-		if ep.Server != nil {
-			e.ApplicationURI = ep.Server.ApplicationURI
-		}
-		if len(ep.ServerCertificate) > 0 {
-			h := sha256.Sum256(ep.ServerCertificate)
-			e.CertThumbprint = fmt.Sprintf("%x", h[:8]) // first 8 bytes = 16 hex chars
-		}
+		e := endpointModel(ep)
 		if mismatch := endpointURLMismatch(connCfg.Endpoint, ep.EndpointURL); mismatch != "" {
 			e.URLMismatch = mismatch
-		}
-		for _, tp := range ep.UserIdentityTokens {
-			e.UserTokenPolicies = append(e.UserTokenPolicies, model.UserTokenPolicy{
-				PolicyID:  tp.PolicyID,
-				TokenType: tp.TokenType.String(),
-			})
 		}
 		endpoints = append(endpoints, e)
 	}
 
-	f := format.ParseFormat(outputFormat)
-	if f == format.Table {
-		headers := []string{"ENDPOINT URL", "TRANSPORT", "SECURITY POLICY", "SECURITY MODE", "LEVEL", "CERT", "TOKEN TYPES"}
-		if verbose {
-			headers = append(headers, "APP URI", "CERT THUMBPRINT", "URL MISMATCH")
-		}
-		rows := make([][]string, len(endpoints))
-		for i, e := range endpoints {
-			tokenTypes := make([]string, len(e.UserTokenPolicies))
-			for j, tp := range e.UserTokenPolicies {
-				tokenTypes[j] = tp.TokenType
-			}
-			cert := "no"
-			if e.HasCertificate {
-				cert = "yes"
-			}
-			row := []string{e.EndpointURL, conn.TransportName(e.TransportProfile), e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel), cert, strings.Join(tokenTypes, ", ")}
-			if verbose {
-				row = append(row, e.ApplicationURI, e.CertThumbprint, e.URLMismatch)
-			}
-			rows[i] = row
-		}
-		return w.WriteTable(headers, rows)
+	w := newWriter()
+	if format.ParseFormat(outputFormat) == format.Table {
+		return w.WriteTable(endpointTable(endpoints, verbose))
 	}
 	return w.Write(endpoints)
+}
+
+// endpointModel converts an endpoint description for output.
+func endpointModel(ep *ua.EndpointDescription) model.Endpoint {
+	e := model.Endpoint{
+		EndpointURL:      ep.EndpointURL,
+		SecurityPolicy:   parse.SecurityPolicyShortName(ep.SecurityPolicyURI),
+		SecurityMode:     ep.SecurityMode.String(),
+		SecurityLevel:    ep.SecurityLevel,
+		HasCertificate:   len(ep.ServerCertificate) > 0,
+		TransportProfile: conn.EndpointTransport(ep),
+	}
+	if ep.Server != nil {
+		e.ApplicationURI = ep.Server.ApplicationURI
+	}
+	if len(ep.ServerCertificate) > 0 {
+		h := sha256.Sum256(ep.ServerCertificate)
+		e.CertThumbprint = fmt.Sprintf("%x", h[:8]) // first 8 bytes = 16 hex chars
+	}
+	for _, tp := range ep.UserIdentityTokens {
+		e.UserTokenPolicies = append(e.UserTokenPolicies, model.UserTokenPolicy{
+			PolicyID:  tp.PolicyID,
+			TokenType: tp.TokenType.String(),
+		})
+	}
+	return e
+}
+
+// endpointTable returns the table of endpoints (with the application URI,
+// thumbprint and URL mismatch when verbose).
+func endpointTable(endpoints []model.Endpoint, verbose bool) ([]string, [][]string) {
+	headers := []string{"ENDPOINT URL", "TRANSPORT", "SECURITY POLICY", "SECURITY MODE", "LEVEL", "CERT", "TOKEN TYPES"}
+	if verbose {
+		headers = append(headers, "APP URI", "CERT THUMBPRINT", "URL MISMATCH")
+	}
+	rows := make([][]string, len(endpoints))
+	for i, e := range endpoints {
+		tokenTypes := make([]string, len(e.UserTokenPolicies))
+		for j, tp := range e.UserTokenPolicies {
+			tokenTypes[j] = tp.TokenType
+		}
+		cert := "no"
+		if e.HasCertificate {
+			cert = "yes"
+		}
+		row := []string{e.EndpointURL, conn.TransportName(e.TransportProfile), e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel), cert, strings.Join(tokenTypes, ", ")}
+		if verbose {
+			row = append(row, e.ApplicationURI, e.CertThumbprint, e.URLMismatch)
+		}
+		rows[i] = row
+	}
+	return headers, rows
 }
 
 func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter, transport string) error {
