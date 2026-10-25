@@ -128,6 +128,7 @@ func init() {
 		newExportCmd(),
 		newPubSubCmd(),
 		newPingCmd(),
+		newServeCmd(),
 		newVersionCmd(),
 		newCompletionCmd(),
 	)

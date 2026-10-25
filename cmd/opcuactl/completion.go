@@ -29,7 +29,12 @@ var (
 	jsonContentTypeValues   = []string{"standard", "legacy"}
 	alarmStateValues        = []string{"active", "inactive", "unacked", "acked", "unconfirmed", "confirmed", "shelved", "suppressed", "out-of-service", "silenced", "latched", "dialog", "branch"}
 	trustListMaskValues     = []string{"trusted", "trusted-crls", "issuers", "issuer-crls", "all"}
-	attrValues              = []string{"NodeID", "NodeClass", "BrowseName", "DisplayName", "Description", "DataType", "Value", "AccessLevel", "UserAccessLevel", "WriteMask", "ValueRank", "Historizing", "MinimumSamplingInterval", "ArrayDimensions"}
+	serveModeValues         = []string{"Sign", "SignAndEncrypt"}
+	serveLogLevelValues     = []string{"debug", "info", "warn", "error", "off"}
+	// servePolicyValues are the security policies serve offers: those of
+	// the client without auto.
+	servePolicyValues = securityPolicyValues[:len(securityPolicyValues)-1]
+	attrValues        = []string{"NodeID", "NodeClass", "BrowseName", "DisplayName", "Description", "DataType", "Value", "AccessLevel", "UserAccessLevel", "WriteMask", "ValueRank", "Historizing", "MinimumSamplingInterval", "ArrayDimensions"}
 )
 
 // fixedCompletion returns a completion function that suggests the given values.
