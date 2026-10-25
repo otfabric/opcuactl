@@ -238,6 +238,23 @@ type HistoryEventRecord struct {
 	Fields map[string]interface{} `json:"fields"`
 }
 
+// HistoryEventUpdate is the result of inserting, replacing, updating or
+// deleting one historical event (HistoryUpdate UpdateEventDetails,
+// DeleteEventDetails).
+type HistoryEventUpdate struct {
+	NodeID string `json:"nodeId"`
+	// Operation is insert, replace, update or delete.
+	Operation string `json:"operation"`
+	// Index is the position of the event in the request, from 1.
+	Index      int    `json:"index"`
+	EventID    string `json:"eventId,omitempty"` // base64
+	Status     string `json:"status"`
+	StatusCode uint32 `json:"statusCode"`
+	// Fields are the fields of an event to insert or replace, with
+	// --dry-run.
+	Fields map[string]interface{} `json:"fields,omitempty"`
+}
+
 // ExportedValue represents a snapshot or historical value export entry.
 type ExportedValue struct {
 	NodeID          string      `json:"nodeId"`

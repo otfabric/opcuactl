@@ -319,3 +319,22 @@ func TestFormatValue(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteJSONL_typedSlice(t *testing.T) {
+	type rec struct{ N int }
+	var buf bytes.Buffer
+	w := &Writer{format: JSONL, out: &buf}
+	if err := w.Write([]rec{{1}, {2}, {3}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "{\"N\":1}\n{\"N\":2}\n{\"N\":3}" {
+		t.Errorf("typed slice as JSONL:\n%s", got)
+	}
+	buf.Reset()
+	if err := w.Write([]byte("ab")); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != `"YWI="` {
+		t.Errorf("[]byte is one value: %s", got)
+	}
+}

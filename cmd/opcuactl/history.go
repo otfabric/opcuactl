@@ -4,7 +4,6 @@ package opcuactl
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -18,13 +17,17 @@ import (
 func newHistoryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "history",
-		Short: "Read historical data",
-		Long: `Read historical values and events from the server.
+		Short: "Read and update historical data and events",
+		Long: `Read historical values and events from the server, and insert, replace,
+update or delete historical events (Part 11).
 
 Examples:
-  opcuactl history value -e opc.tcp://localhost:4840 -n i=2258 --start 2026-03-01T00:00:00Z --end 2026-03-11T00:00:00Z`,
+  opcuactl history value -e opc.tcp://localhost:4840 -n i=2258 --start 2026-03-01T00:00:00Z --end 2026-03-11T00:00:00Z
+  opcuactl history event -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --start 2026-03-01T00:00:00Z --end 2026-03-11T00:00:00Z
+  opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event '{"Message":"note","Severity":200}' --yes
+  opcuactl history delete-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event-id +LbyRwxcuik8Tz1iutx3ug== --yes`,
 	}
-	cmd.AddCommand(newHistoryValueCmd(), newHistoryEventCmd())
+	cmd.AddCommand(newHistoryValueCmd(), newHistoryEventCmd(), newHistoryUpdateEventsCmd(), newHistoryDeleteEventsCmd())
 	return cmd
 }
 
@@ -212,159 +215,6 @@ Examples:
 	_ = cmd.RegisterFlagCompletionFunc("mode", fixedCompletion(historyModeValues))
 	_ = cmd.RegisterFlagCompletionFunc("aggregate", fixedCompletion(aggregateValues))
 	_ = cmd.RegisterFlagCompletionFunc("continuation", fixedCompletion(continuationValues))
-	return cmd
-}
-
-func newHistoryEventCmd() *cobra.Command {
-	var (
-		nodeStr   string
-		startStr  string
-		endStr    string
-		selectStr []string
-		maxEvents uint32
-	)
-
-	defaultFields := []string{"EventType", "SourceName", "Message", "Severity", "Time"}
-
-	cmd := &cobra.Command{
-		Use:   "event",
-		Short: "Read historical events for a node",
-		Long: `Read historical event data within a time range.
-
-The start and end times must be in RFC3339 format (e.g. 2026-03-01T00:00:00Z).
-Use --select to choose event fields (default: EventType, SourceName, Message, Severity, Time).
-
-Examples:
-  opcuactl history event -e opc.tcp://localhost:4840 -n i=2253 --start 2026-03-01T00:00:00Z --end 2026-03-11T00:00:00Z
-  opcuactl history event -e opc.tcp://localhost:4840 -n i=2253 --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z --select EventType --select Message
-  opcuactl history event -e opc.tcp://localhost:4840 -n i=2253 --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z --format json`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
-			}
-			if startStr == "" || endStr == "" {
-				return exitCodef(1, "--start and --end are required")
-			}
-
-			nodeID, err := parse.NodeID(nodeStr)
-			if err != nil {
-				return exitCode(1, err)
-			}
-
-			startTime, err := time.Parse(time.RFC3339, startStr)
-			if err != nil {
-				return exitCodef(1, "invalid --start time: %v", err)
-			}
-			endTime, err := time.Parse(time.RFC3339, endStr)
-			if err != nil {
-				return exitCodef(1, "invalid --end time: %v", err)
-			}
-
-			if !endTime.After(startTime) {
-				return exitCodef(1, "--end must be after --start")
-			}
-
-			fields := defaultFields
-			if len(selectStr) > 0 {
-				fields = selectStr
-			}
-			filter := buildEventFilter(fields, nil, nil, nil)
-
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			c, err := connCfg.NewClient(ctx)
-			if err != nil {
-				format.Errf("%v", err)
-				return exitCode(2, err)
-			}
-			defer func() { _ = c.Close(ctx) }()
-
-			opCtx, opCancel := connCfg.TimeoutContext(ctx)
-			defer opCancel()
-
-			details := &ua.ReadEventDetails{
-				NumValuesPerNode: maxEvents,
-				StartTime:        startTime,
-				EndTime:          endTime,
-				Filter:           filter,
-			}
-
-			nodes := []*ua.HistoryReadValueID{
-				{NodeID: nodeID},
-			}
-
-			resp, err := c.HistoryReadEvent(opCtx, nodes, details)
-			if err != nil {
-				format.Errf("reading event history for %s: %v", nodeID, err)
-				return exitCode(3, err)
-			}
-
-			var results []model.HistoryEventRecord
-			for _, result := range resp.Results {
-				if result.StatusCode != ua.StatusOK {
-					format.Errf("history result status: %s", result.StatusCode.Error())
-					continue
-				}
-				if result.HistoryData == nil || result.HistoryData.Value == nil {
-					continue
-				}
-
-				he, ok := result.HistoryData.Value.(*ua.HistoryEvent)
-				if !ok {
-					continue
-				}
-
-				for _, efl := range he.Events {
-					rec := model.HistoryEventRecord{
-						NodeID: nodeID.String(),
-						Fields: make(map[string]interface{}),
-					}
-					for i, v := range efl.EventFields {
-						name := "unknown"
-						if i < len(fields) {
-							name = fields[i]
-						}
-						if v != nil {
-							rec.Fields[name] = v.Value()
-						}
-					}
-					results = append(results, rec)
-				}
-			}
-
-			if verbose {
-				format.Errf("returned %d historical event(s) for %s", len(results), nodeID)
-			}
-
-			w := newWriter()
-			f := format.ParseFormat(outputFormat)
-			if f == format.Table {
-				headers := make([]string, len(fields))
-				for i, name := range fields {
-					headers[i] = strings.ToUpper(name)
-				}
-				rows := make([][]string, len(results))
-				for i, r := range results {
-					row := make([]string, len(fields))
-					for j, name := range fields {
-						if v, ok := r.Fields[name]; ok {
-							row[j] = fmt.Sprintf("%v", v)
-						}
-					}
-					rows[i] = row
-				}
-				return w.WriteTable(headers, rows)
-			}
-			return w.Write(results)
-		},
-	}
-
-	cmd.Flags().StringVarP(&nodeStr, "node", "n", "", "Node ID (required)")
-	cmd.Flags().StringVar(&startStr, "start", "", "Start time in RFC3339 format (required)")
-	cmd.Flags().StringVar(&endStr, "end", "", "End time in RFC3339 format (required)")
-	cmd.Flags().StringArrayVar(&selectStr, "select", nil, "Event field to return (repeatable; default: EventType, SourceName, Message, Severity, Time)")
-	cmd.Flags().Uint32Var(&maxEvents, "max-events", 0, "Maximum events per node (0 = server default)")
 	return cmd
 }
 

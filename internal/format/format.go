@@ -177,9 +177,16 @@ func toSlice(v interface{}) ([]interface{}, bool) {
 			items[i] = m
 		}
 		return items, true
-	default:
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice || rv.Type().Elem().Kind() == reflect.Uint8 {
 		return nil, false
 	}
+	items := make([]interface{}, rv.Len())
+	for i := range items {
+		items[i] = rv.Index(i).Interface()
+	}
+	return items, true
 }
 
 var (

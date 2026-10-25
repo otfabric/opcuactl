@@ -37,6 +37,14 @@ func buildEventFilter(fields []string, ofType *ua.NodeID, sevMin, sevMax *uint16
 	return f
 }
 
+// eventFilterWith is buildEventFilter with SelectClauses given as operands
+// (BrowsePaths of more than one name, other namespaces, the ConditionId).
+func eventFilterWith(selects []*ua.SimpleAttributeOperand, ofType *ua.NodeID, sevMin, sevMax *uint16) *ua.EventFilter {
+	f := buildEventFilter(nil, ofType, sevMin, sevMax)
+	f.SelectClauses = selects
+	return f
+}
+
 func andElements(leaves []*ua.ContentFilterElement) []*ua.ContentFilterElement {
 	if len(leaves) == 2 {
 		return []*ua.ContentFilterElement{

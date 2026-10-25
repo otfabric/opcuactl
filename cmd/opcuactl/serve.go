@@ -110,7 +110,9 @@ leaves it out) has an object Demo with
   Demo.Level        Double, writable; Demo.LevelAlarm, an exclusive level alarm,
                     goes High at 80 and HighHigh at 95
   Demo.Add          method Add(a, b Int32) -> sum
-as string NodeIds (ns=<index>;s=Demo.Counter). --nodeset imports NodeSet2 XML
+as string NodeIds (ns=<index>;s=Demo.Counter). Demo keeps an event history
+(history event, update-events, delete-events): a start event and the
+LevelAlarm transitions, the last 1000 events. --nodeset imports NodeSet2 XML
 files (repeatable).
 
 On start the endpoints are printed (--format json: the server description as
