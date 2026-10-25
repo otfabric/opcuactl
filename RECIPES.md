@@ -79,6 +79,9 @@ CONN=(-e opc.wss://your-server:4843 --tls-ca ./pki/tls-ca.pem)
 CONN=(-e opc.https://your-server:4443 --tls-ca ./pki/tls-ca.pem \
   --auth username --username operator --password "$OPCUACTL_PASSWORD")
 
+# The same in UA JSON (wss-uajson / https-uajson) instead of UA Binary
+CONN=(-e opc.wss://your-server:4843 --transport wss-uajson --tls-ca ./pki/tls-ca.pem)
+
 # Reverse connect: the server dials opcuactl (server behind a firewall / NAT).
 # No --endpoint needed; --timeout is how long to wait for the server.
 CONN=(--reverse-listen 0.0.0.0:4841 --reverse-server-uri urn:plant1:plc7 --timeout 60s)
@@ -107,6 +110,8 @@ Useful when you do not want secrets on the command line:
 | `OPCUACTL_TLS_CA` | `--tls-ca` (`opc.wss` / `opc.https`) |
 | `OPCUACTL_TLS_CERT` / `OPCUACTL_TLS_KEY` | `--tls-cert` / `--tls-key` (mutual TLS) |
 | `OPCUACTL_TLS_INSECURE_SKIP_VERIFY` | `--tls-insecure-skip-verify` (`true` / `false`; development only) |
+| `OPCUACTL_TRANSPORT` | `--transport` (`tcp`, `wss`, `https`, `wss-uajson`, `https-uajson`) |
+| `OPCUACTL_JSON_CONTENT_TYPE` | `--json-content-type` (`standard`, `legacy`; https-uajson) |
 | `OPCUACTL_RETURN_DIAGNOSTICS` | `--return-diagnostics` (`none`, `service`, `operation`, `all`) |
 | `OPCUACTL_BROKER_PASSWORD` (or the older `OPCUACTL_MQTT_PASSWORD`) | `pubsub --broker-password` (MQTT and AMQP brokers) |
 
@@ -908,6 +913,12 @@ opcuactl browse children -e opc.wss://gateway.example:443 --tls-ca ./pki/tls-ca.
 
 # Lab only: skip the TLS verification (prints a warning)
 opcuactl get value -e opc.wss://localhost:4843 --tls-insecure-skip-verify -n i=2258
+
+# The same URLs in UA JSON instead of UA Binary (wss-uajson is None only)
+opcuactl discover endpoints -e opc.wss://gateway.example:443 --tls-ca ./pki/tls-ca.pem --transport-profile wss-uajson
+opcuactl get value -e opc.wss://gateway.example:443 --transport wss-uajson --tls-ca ./pki/tls-ca.pem -n i=2258
+# A UA-.NETStandard server wants the Content-Type application/opcua+uajson
+opcuactl get value -e opc.https://gateway.example:443 --transport https-uajson --json-content-type legacy --tls-ca ./pki/tls-ca.pem -n i=2258
 ```
 
 Two certificates are in play: the TLS certificate of the listener (`--tls-ca`, `--tls-cert` / `--tls-key`) and the application instance certificates of OPC UA (`--cert`, `--key`, `--trusted-cert`). Over HTTPS there is no secure channel; servers usually offer the None endpoint there and accept user names because TLS protects them.

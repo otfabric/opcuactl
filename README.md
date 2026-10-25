@@ -31,7 +31,7 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
-- **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
+- **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
@@ -111,6 +111,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - [Security](#security)
   - [Security policies](#security-policies)
   - [HTTPS and WebSocket](#https-and-websocket)
+    - [UA JSON (wss-uajson, https-uajson)](#ua-json-wss-uajson-https-uajson)
   - [Reverse connect](#reverse-connect)
 - [PubSub](#pubsub)
   - [PubSub Actions](#pubsub-actions)
@@ -141,7 +142,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **History** — raw, modified, processed (aggregates), and at-time historical reads
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
-- **Transports** — `opc.tcp`, `opc.wss` (WebSocket over TLS) and `opc.https` (HTTPS), with TLS server verification against `--tls-ca` and client certificates for mutual TLS
+- **Transports** — `opc.tcp`, `opc.wss` (WebSocket over TLS) and `opc.https` (HTTPS), the latter two in UA Binary or UA JSON (wss-uajson, https-uajson), with TLS server verification against `--tls-ca` and client certificates for mutual TLS
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
 - **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), PubSub Actions (request / response: `pubsub call` and a test Responder, `pubsub respond`), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
 
@@ -965,6 +966,8 @@ Every networked command supports these connection and output flags:
 | `--tls-ca` | `OPCUACTL_TLS_CA` | `opc.wss` / `opc.https`: PEM file with the roots the server's TLS certificate is verified against (default: the system roots) |
 | `--tls-cert` / `--tls-key` | `OPCUACTL_TLS_CERT` / `OPCUACTL_TLS_KEY` | `opc.wss` / `opc.https`: client TLS certificate and key (PEM) for mutual TLS |
 | `--tls-insecure-skip-verify` | `OPCUACTL_TLS_INSECURE_SKIP_VERIFY` | `opc.wss` / `opc.https`: do not verify the server's TLS certificate (INSECURE, development only; warns on stderr) |
+| `--transport` | `OPCUACTL_TRANSPORT` | Transport mapping: `tcp`, `wss`, `https` (UA Binary, the default for the scheme of `--endpoint`), `wss-uajson` or `https-uajson` (UA JSON, see [UA JSON](#ua-json-wss-uajson-https-uajson)) or a transport profile URI |
+| `--json-content-type` | `OPCUACTL_JSON_CONTENT_TYPE` | https-uajson: Content-Type of the requests, `standard` (`application/json`, default) or `legacy` (`application/opcua+uajson`, for UA-.NETStandard) |
 | `--return-diagnostics` | `OPCUACTL_RETURN_DIAGNOSTICS` | Ask for DiagnosticInfos (`none`, `service`, `operation`, `all` or a mask) and print them on failures (see [Server Diagnostics](#server-diagnostics)) |
 | `--reverse-listen` | `OPCUACTL_REVERSE_LISTEN` | Reverse connect: listen on `host:port` and wait for the server to connect |
 | `--reverse-server-uri` | `OPCUACTL_REVERSE_SERVER_URI` | Reverse connect: only accept the server announcing this ApplicationUri |
@@ -1006,7 +1009,7 @@ All data goes to stdout, all errors go to stderr.
 | User identity | `--auth anonymous\|username\|certificate\|issued` |
 | Channel crypto | `--security-policy` / `--security-mode` (`None` … or `auto`) |
 | Who opens the connection | the client by default; the server with `--reverse-listen` ([reverse connect](#reverse-connect)) |
-| Transport | the scheme of `--endpoint`: `opc.tcp`, `opc.wss` or `opc.https` ([HTTPS and WebSocket](#https-and-websocket)) |
+| Transport | the scheme of `--endpoint`: `opc.tcp`, `opc.wss` or `opc.https` ([HTTPS and WebSocket](#https-and-websocket)); `--transport wss-uajson\|https-uajson` for UA JSON ([UA JSON](#ua-json-wss-uajson-https-uajson)) |
 | TLS (`opc.wss` / `opc.https`) | `--tls-ca`, `--tls-cert` + `--tls-key` (mutual TLS), or `--tls-insecure-skip-verify` (dev only) |
 | Client application cert | `--cert` + `--key` (required for Sign / SignAndEncrypt) |
 | Trust the server | `--trusted-cert` (repeatable), `--server-cert`, or `--insecure-skip-verify` (dev only) |
@@ -1089,7 +1092,32 @@ opcuactl browse children -e opc.wss://plc.example:4843 --tls-ca ./pki/tls-ca.pem
   --tls-cert ./pki/tls-client.pem --tls-key ./pki/tls-client.key
 ```
 
-`--security-policy auto` and `discover endpoints --best` select among the endpoints of the transport of `--endpoint` (`--transport-profile tcp|wss|https` names another). Over HTTPS there is no secure channel: the policy only signs the session, and the AEAD ECC policies are not offered. `ping` checks the TCP connection first; the TLS handshake is part of its secure stage.
+`--security-policy auto` and `discover endpoints --best` select among the endpoints of the transport the client uses: `--transport`, or else the one of `--endpoint` (`discover endpoints --transport-profile tcp|wss|https|wss-uajson|https-uajson` names another). Over HTTPS there is no secure channel: the policy only signs the session, and the AEAD ECC policies are not offered. `ping` checks the TCP connection first; the TLS handshake is part of its secure stage.
+
+#### UA JSON (wss-uajson, https-uajson)
+
+Both transports also have a UA JSON mapping with a transport profile of its own: every service message is a JSON message (Part 6 §5.4.9) and there is no secure conversation. Over HTTPS (https-uajson, Part 6 §7.4.5) each request is a POST with the Content-Type `application/json`; over a WebSocket (wss-uajson, Part 6 §7.5.2) the sub-protocol is `opcua+uajson`. The URL is the same as for UA Binary, so `--transport` (or `OPCUACTL_TRANSPORT`) selects the mapping; the default stays UA Binary. A server lists its JSON endpoints next to the binary ones; `discover endpoints` shows them as `opc.wss (json)` and `opc.https (json)`.
+
+```sh
+# The JSON endpoints of a server
+opcuactl discover endpoints -e opc.wss://plc.example:4843 --tls-ca ./pki/tls-ca.pem --transport-profile wss-uajson
+
+# Read and subscribe over wss-uajson (None only: TLS protects it)
+opcuactl get value -e opc.wss://plc.example:4843 --transport wss-uajson -n i=2258 --tls-ca ./pki/tls-ca.pem
+opcuactl monitor value -e opc.wss://plc.example:4843 --transport wss-uajson -n "ns=2;s=Temp" --tls-ca ./pki/tls-ca.pem
+
+# https-uajson with the session signed by the best https policy
+opcuactl get server -e opc.https://plc.example:4443 --transport https-uajson --tls-ca ./pki/tls-ca.pem \
+  --security-policy auto --security-mode auto --cert client.pem --key client.key --trusted-cert server-ca.pem
+
+# UA-.NETStandard 2.0.1 takes JSON over HTTPS only as application/opcua+uajson
+opcuactl get value -e opc.https://dotnet.example:62540 --transport https-uajson --json-content-type legacy -n i=2258 --tls-ca ./pki/tls-ca.pem
+```
+
+- TLS is the only protection. A WebSocket cannot name a security policy, so wss-uajson endpoints are None / None; over https-uajson the policy only decides how the session nonces are signed, as over https-uabinary. `--security-policy auto` selects among the endpoints of `--transport`.
+- `--transport` must fit the scheme of `--endpoint` (`wss-uajson` an `opc.wss://` URL, `https-uajson` an `opc.https://` one); a mismatch is a usage error (exit 1). There is no reverse connect over UA JSON.
+- NodeIds of other namespaces than 0 go over the wire with their namespace URI (`nsu=`); the commands take and print them as usual.
+- go-opcua servers serve UA JSON with `server.EnableUAJSON`; of the other stacks, UA-.NETStandard 2.0.1 implements both mappings.
 
 ### Reverse connect
 

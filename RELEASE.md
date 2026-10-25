@@ -1,5 +1,33 @@
 # opcuactl Releases
 
+## v0.9.0
+
+**Date:** 2026-10-25  
+**Previous release:** v0.8.1
+
+### Summary
+
+The UA JSON mappings of WebSockets and HTTPS, wss-uajson (Part 6 §7.5.2) and https-uajson (Part 6 §7.4.5), on **[go-opcua v1.25.0](https://github.com/otfabric/go-opcua/releases/tag/v1.25.0)**: `--transport wss-uajson|https-uajson` runs every command over them, and `discover endpoints` lists and selects the JSON endpoints.
+
+### Added
+
+- **`--transport`** (`OPCUACTL_TRANSPORT`): `tcp`, `wss`, `https`, `wss-uajson`, `https-uajson` or a transport profile URI. The URL scheme alone still means UA Binary; `wss-uajson` on an `opc.wss://` endpoint and `https-uajson` on an `opc.https://` endpoint use UA JSON instead, for every command (subscriptions included). A transport that does not fit the scheme of `--endpoint`, an unknown one, or UA JSON with `--reverse-listen` is a usage error (exit 1).
+- **`--json-content-type standard|legacy`** (`OPCUACTL_JSON_CONTENT_TYPE`): the Content-Type of https-uajson requests, `application/json` (Part 6 §7.4.5, the default) or `application/opcua+uajson`, the only one UA-.NETStandard 2.0.1 takes.
+- **`discover endpoints`** shows the JSON endpoints as `opc.wss (json)` and `opc.https (json)` in the TRANSPORT column, and `--transport-profile` filters by `wss-uajson` and `https-uajson`.
+- **Shell completion** of `--transport`, `--json-content-type` and the new `--transport-profile` values.
+
+### Changed
+
+- **Endpoint selection follows `--transport`.** `--security-policy auto`, `--security-mode auto` and `discover endpoints --best` choose among the endpoints of the transport the client uses: `--transport`, or else the one of the `--endpoint` URL as before. wss-uajson endpoints are None / None (TLS protects them); over https-uajson the https policies sign the session.
+- **`--transport-profile https-uajson` / `wss-uajson`** select the JSON profiles. They matched "https" and "wss" and selected the UA Binary ones.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.24.0 → **[v1.25.0](https://github.com/otfabric/go-opcua/releases/tag/v1.25.0)**
+  - `opcua.TransportProfile`, `opcua.HTTPSJSONContentType` and the JSON endpoints of `SecurityFromEndpoint`.
+
+---
+
 ## v0.8.1
 
 **Date:** 2026-10-25  
