@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/otfabric/go-opcua"
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/go-opcua/uapolicy"
 )
 
 // Config holds the connection parameters extracted from CLI flags.
@@ -291,20 +291,27 @@ func (cfg *Config) channelCertOptions() ([]opcua.Option, error) {
 	}, nil
 }
 
-// loadCertKey loads a certificate with its RSA, ECDSA or Ed25519 private key.
+// loadCertKey loads a certificate with its RSA, ECDSA (NIST or Brainpool),
+// Ed25519 or Ed448 private key. crypto/tls cannot load Brainpool and Ed448
+// keys, so both files go through uapolicy.
 func loadCertKey(certFile, keyFile string) ([]byte, crypto.Signer, error) {
-	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
+	certs, err := loadCertificatesFile(certFile)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(pair.Certificate) == 0 {
-		return nil, nil, fmt.Errorf("certificate file %q contains no certificates", certFile)
+	b, err := os.ReadFile(keyFile)
+	if err != nil {
+		return nil, nil, err
 	}
-	key, ok := pair.PrivateKey.(crypto.Signer)
-	if !ok {
-		return nil, nil, fmt.Errorf("unsupported private key type %T", pair.PrivateKey)
+	key, err := uapolicy.ParsePrivateKey(b)
+	if err != nil {
+		return nil, nil, err
 	}
-	return pair.Certificate[0], key, nil
+	leaf := certs[0].Raw
+	if !uapolicy.KeyMatchesCertificate(key, leaf) {
+		return nil, nil, fmt.Errorf("private key %q does not match certificate %q", keyFile, certFile)
+	}
+	return leaf, key, nil
 }
 
 func loadTrustedCertificates(files []string) ([]*x509.Certificate, error) {
@@ -339,7 +346,7 @@ func loadCertificatesFile(filename string) ([]*x509.Certificate, error) {
 		if block.Type != "CERTIFICATE" {
 			continue
 		}
-		c, err := x509.ParseCertificate(block.Bytes)
+		c, err := uapolicy.ParseCertificate(block.Bytes)
 		if err != nil {
 			return nil, err
 		}
@@ -350,7 +357,7 @@ func loadCertificatesFile(filename string) ([]*x509.Certificate, error) {
 	}
 
 	// DER (single cert)
-	c, err := x509.ParseCertificate(b)
+	c, err := uapolicy.ParseCertificate(b)
 	if err != nil {
 		return nil, err
 	}

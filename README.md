@@ -718,7 +718,7 @@ Every networked command supports these connection and output flags:
 | `--auth-policy-id` | `OPCUACTL_AUTH_POLICY_ID` | User token PolicyId (usually set via security `auto`) |
 | `--token` | `OPCUACTL_TOKEN` | Issued token (raw or base64) for `--auth issued` |
 | `--token-file` | `OPCUACTL_TOKEN_FILE` | Issued token file for `--auth issued` |
-| `--cert` | `OPCUACTL_CERT` | Client certificate file (RSA, ECDSA or Ed25519; channel and/or certificate auth) |
+| `--cert` | `OPCUACTL_CERT` | Client certificate file (RSA, ECDSA incl. Brainpool, Ed25519 or Ed448; channel and/or certificate auth) |
 | `--key` | `OPCUACTL_KEY` | Client private key file |
 | `--server-cert` | `OPCUACTL_SERVER_CERT` | Server certificate file (overrides endpoint cert; skips the endpoint lookup for an explicit policy) |
 | `--trusted-cert` | `OPCUACTL_TRUSTED_CERT` | Trusted CA / self-signed cert (repeatable; env is CSV) |
@@ -775,6 +775,8 @@ All data goes to stdout, all errors go to stderr.
 | `ECC_nistP256`, `ECC_nistP384` | ECDSA P-256 / P-384 | ECC with ephemeral key agreement (OPC UA 1.05) |
 | `ECC_nistP256_AesGcm`, `ECC_nistP256_ChaChaPoly` | ECDSA P-256 | Authenticated encryption (OPC UA 1.05.07) |
 | `ECC_curve25519` | Ed25519 | Curve25519 key agreement, ChaCha20-Poly1305 |
+| `ECC_brainpoolP256r1`, `ECC_brainpoolP384r1` | ECDSA brainpoolP256r1 / P384r1 | Brainpool curves; the Go implementation is not constant time, so prefer the NIST policies where the server offers them |
+| `ECC_curve448` | Ed448 | Curve448 key agreement, ChaCha20-Poly1305 |
 | `Basic128Rsa15`, `Basic256` | RSA | Deprecated; only for legacy servers |
 
 The key type of `--cert` decides which policies you can use: an RSA certificate cannot open an ECC channel and the other way round. `auto`, and `discover endpoints --best --cert …`, therefore only consider endpoints that fit your certificate — a server that offers both gets an ECC channel from a client with an ECC certificate and an RSA channel otherwise. With an explicit policy the server certificate is taken from the matching endpoint (or from `--server-cert`).

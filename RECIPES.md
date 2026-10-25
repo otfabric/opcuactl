@@ -63,7 +63,7 @@ CONN=(-e opc.tcp://your-server:4840 --auth issued --token-file ./token.jwt \
   --security-policy auto --security-mode auto \
   --cert client.pem --key client.key --trusted-cert server-ca.pem)
 
-# ECC: with an ECDSA (or Ed25519) certificate, auto picks the server's best ECC endpoint
+# ECC: with an ECDSA (NIST or Brainpool), Ed25519 or Ed448 certificate, auto picks the server's best ECC endpoint
 CONN=(-e opc.tcp://your-server:4840 \
   --security-policy auto --security-mode auto \
   --cert client-ecc.pem --key client-ecc.key --trusted-cert server-ca.pem)
@@ -347,7 +347,7 @@ opcuactl get server -e opc.tcp://your-server:4840 \
   --insecure-skip-verify
 ```
 
-A `BadSecurityPolicyRejected` or "no endpoint" error with an ECC policy usually means the key type of `--cert` does not fit: the `ECC_nistP256*` policies need an ECDSA P-256 certificate, `ECC_nistP384` P-384 (or P-256), `ECC_curve25519` Ed25519, and the RSA policies an RSA certificate. `discover endpoints --best --cert … --key …` shows the best endpoint your certificate can use.
+A `BadSecurityPolicyRejected` or "no endpoint" error with an ECC policy usually means the key type of `--cert` does not fit: the `ECC_nistP256*` policies need an ECDSA P-256 certificate, `ECC_nistP384` P-384 (or P-256), `ECC_curve25519` Ed25519, `ECC_brainpoolP256r1` / `ECC_brainpoolP384r1` an ECDSA key on that Brainpool curve, `ECC_curve448` Ed448, and the RSA policies an RSA certificate. `discover endpoints --best --cert … --key …` shows the best endpoint your certificate can use.
 
 With reverse connect (`--reverse-listen`), a timeout means the server never dialled in: check the client URL configured on the server, the firewall towards the listening port, and raise `--timeout` above the server's retry interval.
 

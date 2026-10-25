@@ -11,7 +11,7 @@ import (
 // Shared completion values for reuse across commands.
 var (
 	formatValues         = []string{"table", "json", "yaml", "csv", "jsonl"}
-	securityPolicyValues = []string{"None", "Basic256Sha256", "Aes128Sha256RsaOaep", "Aes256Sha256RsaPss", "ECC_nistP256", "ECC_nistP384", "ECC_nistP256_AesGcm", "ECC_nistP256_ChaChaPoly", "ECC_curve25519", "Basic128Rsa15", "Basic256", "auto"}
+	securityPolicyValues = []string{"None", "Basic256Sha256", "Aes128Sha256RsaOaep", "Aes256Sha256RsaPss", "ECC_nistP256", "ECC_nistP384", "ECC_nistP256_AesGcm", "ECC_nistP256_ChaChaPoly", "ECC_curve25519", "ECC_brainpoolP256r1", "ECC_brainpoolP384r1", "ECC_curve448", "Basic128Rsa15", "Basic256", "auto"}
 	securityModeValues   = []string{"None", "Sign", "SignAndEncrypt", "auto"}
 	authValues           = []string{"anonymous", "username", "certificate", "issued"}
 	nodeClassValues      = []string{"all", "object", "variable", "method", "objecttype", "variabletype", "referencetype", "datatype", "view"}
