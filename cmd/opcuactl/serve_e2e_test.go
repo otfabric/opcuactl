@@ -194,6 +194,9 @@ func TestE2E_Serve(t *testing.T) {
 		out := mustRun(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoString), "-q",
 			"--auth", "username", "--username", "operator", "--password", "secret"}, secure...)...)
 		wantContains(t, out, "hello from opcuactl")
+		out = mustRun(t, append([]string{"write", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "--value", "33", "--type", "double", "--yes",
+			"--auth", "username", "--username", "operator", "--password", "secret"}, secure...)...)
+		wantContains(t, out, "Good")
 		out = mustRun(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "-q"}, secure...)...)
 		wantContains(t, out, "42")
 

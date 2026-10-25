@@ -41,13 +41,15 @@ monitoring, history retrieval, alarms and conditions, server
 diagnostics and certificate management (GDS push and pull), and works with OPC UA
 PubSub: subscribe to and publish UADP / JSON messages over UDP and MQTT,
 decode captures, get keys from a Security Key Service and configure the
-PubSub of a server.
+PubSub of a server. opcuactl serve runs an OPC UA test server to try all of
+this against.
 
 Examples:
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840
   opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258
   opcuactl browse children --endpoint opc.tcp://localhost:4840 --node ns=0;i=85
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840
+  opcuactl serve --cert-out server.pem --user operator:secret
   opcuactl alarms list --endpoint opc.tcp://localhost:4840
   opcuactl diagnostics sessions --endpoint opc.wss://localhost:4843 --tls-ca ca.pem
   opcuactl gds trustlist get --endpoint opc.tcp://plc:4840 --security-policy Basic256Sha256 \

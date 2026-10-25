@@ -7,7 +7,7 @@
 [![Codecov](https://codecov.io/gh/otfabric/opcuactl/graph/badge.svg)](https://codecov.io/gh/otfabric/opcuactl)
 [![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?label=release)](https://github.com/otfabric/opcuactl/releases)
 
-**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, acknowledges and shelves alarms, reads the server diagnostics, manages the trust list and certificates of a server (GDS push), reads historical data, exports whole subtrees, and listens to, publishes and configures OPC UA PubSub — from a terminal, over `opc.tcp`, `opc.wss` or `opc.https`, and over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
+**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, acknowledges and shelves alarms, reads the server diagnostics, manages the trust list and certificates of a server (GDS push), reads historical data, exports whole subtrees, listens to, publishes and configures OPC UA PubSub, and runs a test server of its own — from a terminal, over `opc.tcp`, `opc.wss` or `opc.https`, and over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
 
 It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is interop-tested against open62541, Eclipse Milo, async-opcua, the OPC Foundation UA-.NETStandard stack, node-opcua and opcua-asyncio.
 
@@ -32,6 +32,7 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
+- **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
@@ -113,6 +114,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
   - [HTTPS and WebSocket](#https-and-websocket)
     - [UA JSON (wss-uajson, https-uajson)](#ua-json-wss-uajson-https-uajson)
   - [Reverse connect](#reverse-connect)
+- [Test Server (serve)](#test-server-serve)
 - [PubSub](#pubsub)
   - [PubSub Actions](#pubsub-actions)
 - [NodeID Formats](#nodeid-formats)
@@ -144,6 +146,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
 - **Transports** — `opc.tcp`, `opc.wss` (WebSocket over TLS) and `opc.https` (HTTPS), the latter two in UA Binary or UA JSON (wss-uajson, https-uajson), with TLS server verification against `--tls-ca` and client certificates for mutual TLS
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
+- **Test server** — `serve` runs a go-opcua server: opc.tcp, opc.wss and opc.https listeners with the UA JSON mappings, the RSA and ECC security policies with generated or given certificates, a client trust list, anonymous and user name logins, a demo namespace (simulated, writable and historized values, a level alarm, a method) and NodeSet2 import
 - **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), PubSub Actions (request / response: `pubsub call` and a test Responder, `pubsub respond`), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
@@ -404,6 +407,7 @@ opcuactl
 │       ├── enable / disable
 │       └── diagnostics Read (and reset) the diagnostics counters of a component
 ├── ping               Test connectivity to an OPC UA server
+├── serve              Run an OPC UA test server (demo namespace, NodeSet2 import, opc.tcp/wss/https, UA JSON)
 ├── version            Print version, build, and runtime info
 └── completion         Generate shell completion scripts (bash|zsh|fish|powershell)
 ```
@@ -1139,6 +1143,74 @@ opcuactl monitor value --reverse-listen 0.0.0.0:4841 --timeout 60s -n "ns=2;s=Te
 
 `--endpoint` is optional with reverse connect: without it opcuactl uses the endpoint URL the server announces; with it the announcement has to match. The announcement itself is not authenticated — anyone who can reach the listener can send one — so use a security mode other than `None` and validate the server certificate when the network is not trusted. `ping` skips its TCP stage, as there is nothing to dial.
 
+## Test Server (serve)
+
+`opcuactl serve` runs an OPC UA server built on [go-opcua](https://github.com/otfabric/go-opcua): to try the commands without a PLC, to give a CI job a server, or to test another client against a known server, over UA Binary and UA JSON. It runs until Ctrl+C or SIGTERM (or for `--duration`), then closes its listeners, secure channels and sessions and exits with 0.
+
+```sh
+# Port 4840 with None and Basic256Sha256 endpoints; save the self-signed certificate it makes
+opcuactl serve --cert-out server.pem --key-out server.key --user operator:secret
+
+# In another terminal: the demo namespace is ns=1
+opcuactl get value -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Counter"
+opcuactl write value -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Level" --value 90 --type double --yes
+opcuactl alarms list -e opc.tcp://localhost:4840
+opcuactl call method -e opc.tcp://localhost:4840 --object "ns=1;s=Demo" --method "ns=1;s=Demo.Add" --arg 2 --arg 3 --types int32,int32
+opcuactl get value -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.String" \
+  --security-policy Basic256Sha256 --security-mode SignAndEncrypt --cert client.pem --key client.key \
+  --trusted-cert server.pem --auth username --username operator --password secret
+
+# opc.wss and opc.https next to opc.tcp, with their UA JSON mappings; the RSA certificate serves TLS
+opcuactl serve --wss 0.0.0.0:4843 --https 0.0.0.0:4443 --uajson --cert-out server.pem
+opcuactl get value -e opc.wss://localhost:4843 --transport wss-uajson --tls-ca server.pem -n "ns=1;s=Demo.Sine"
+opcuactl monitor value -e opc.https://localhost:4443 --transport https-uajson --tls-ca server.pem -n "ns=1;s=Demo.Counter"
+
+# Next time the same certificate; only trusted clients; your information model instead of the demo
+opcuactl serve --cert server.pem --key server.key --trust-dir ./pki/trusted --no-demo --nodeset machine.NodeSet2.xml
+
+# For scripts: the server as JSON, or just the endpoint URLs
+opcuactl serve --listen 127.0.0.1:0 --format json
+opcuactl serve --listen 127.0.0.1:0 -q
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--listen` | `opc.tcp://0.0.0.0:4840` | opc.tcp address (`opc.tcp://host:port` or `host:port`; port 0 picks a free one) |
+| `--hostname` | host of `--listen` | Host of the endpoint URLs; for a wildcard `--listen` the name of the machine |
+| `--wss`, `--https` | off | Also listen for `opc.wss` (WebSocket over TLS) and `opc.https` (UA Binary over HTTPS) on `host:port` |
+| `--uajson` | off | Serve wss-uajson and https-uajson on those listeners as well |
+| `--tls-cert`, `--tls-key` | the RSA application certificate | TLS certificate of `opc.wss` / `opc.https` (PEM) |
+| `--security-policy` | `None,Basic256Sha256` | Policies to offer (repeatable or comma-separated): `None`, `Basic256Sha256`, `Aes128Sha256RsaOaep`, `Aes256Sha256RsaPss`, `ECC_nistP256`, …, `ECC_curve448` |
+| `--security-mode` | `Sign,SignAndEncrypt` | Modes of the policies other than None |
+| `--cert`, `--key` | self-signed | Application instance certificate and key (PEM or DER, repeatable; a file may hold several, matched by key) |
+| `--cert-out`, `--key-out` | — | Write the application certificates (for clients to trust) and their keys (mode 0600, to reuse with `--cert` / `--key`) |
+| `--application-uri` | from `--cert`, else `urn:<hostname>:opcuactl:serve` | ApplicationUri of the server and its self-signed certificates |
+| `--trusted-cert`, `--trust-dir` | any client | Trusted client certificates or CAs (files, or a directory of `*.der`, `*.pem`, `*.crt`, `*.cer`); other clients are rejected |
+| `--allow-anonymous` | `true` | Anonymous sessions (`--allow-anonymous=false` requires a user) |
+| `--user` | — | `name:password` (repeatable); `OPCUACTL_SERVE_USERS` (comma-separated) when not given |
+| `--nodeset` | — | Import a NodeSet2 XML file (repeatable) |
+| `--no-demo` | — | Leave out the demo namespace |
+| `--sim-interval` | `1s` | Update interval of the simulated values |
+| `--log-level` | `error` | Server log on stderr: `debug`, `info`, `warn`, `error`, `off` |
+| `--duration` | until Ctrl+C / SIGTERM | Stop after this time |
+
+The demo namespace `urn:otfabric:opcuactl:demo` (ns=1; the namespaces of `--nodeset` files come after it) has the object `Demo` under Objects with string NodeIds:
+
+| Node | Type | |
+|------|------|-|
+| `Demo.Boolean`, `Demo.Int32`, `Demo.Double`, `Demo.String`, `Demo.DateTime`, `Demo.Int32Array` | Boolean, Int32 (42), Double, String, DateTime, Int32[5] | read-only |
+| `Demo.Counter` | UInt32 | counts up every `--sim-interval` (subscriptions) |
+| `Demo.Sine` | Double | a sine wave between -1 and 1 over 60 intervals, historized (`history value`) |
+| `Demo.Level` | Double (50) | writable (`--type double`) |
+| `Demo.LevelAlarm` | ExclusiveLevelAlarmType | on `Demo.Level`: High at 80, HighHigh at 95; acknowledge and shelve with `alarms` |
+| `Demo.Add` | method of `Demo` | `Add(a, b Int32) -> sum` |
+
+- **Certificates.** Every security policy gets an application certificate: one of `--cert`, or a self-signed one made at start (RSA for the RSA policies, ECDSA P-256 / P-384 and Ed25519 for the ECC ones; Brainpool and Curve448 need `--cert`). Its SHA-1 thumbprint is printed. The self-signed certificates name the hostname, `localhost`, `127.0.0.1` and `::1`, so clients can verify them as TLS certificates too. Without `--cert-out` a restart makes new ones.
+- **Users.** User names are offered on the secure endpoints and on opc.https, where TLS protects them; `--user` with only `--security-policy None` and no `--https` is a usage error. Anonymous and authenticated users may read, write and call.
+- **Output.** On start the server prints its ApplicationUri, the demo namespace, its certificates, the client trust and the users, then the endpoint table of `discover endpoints`. `--format json|yaml` prints all of it as one document (with `endpoints`, `certificates` and `namespaces`), `--format csv` the endpoint table and `-q` the endpoint URLs; "Serving" and "Server stopped" go to stderr.
+- **Exit codes.** 1 for an invalid flag or file (before anything listens), 2 when a listener cannot start (port in use). The connection flags of the client (`-e`, `--auth`, `OPCUACTL_*` of the client) do not apply to `serve`; its `--security-policy`, `--security-mode`, `--cert`, `--key`, `--trusted-cert`, `--tls-cert` and `--tls-key` configure the server.
+- **For tests only.** Without `--trusted-cert` / `--trust-dir` every client certificate is accepted, and the user list and passwords live on the command line or in the environment.
+
 ## PubSub
 
 OPC UA PubSub (Part 14) sends DataSets from publishers to subscribers without sessions. The `pubsub` commands work with the UADP and JSON message mappings over these transports (`--url`):
@@ -1406,6 +1478,7 @@ internal/conn/         Client connection management and auth/security options
 internal/format/       Output formatting (table, JSON, YAML)
 internal/model/        Output data models
 internal/parse/        NodeID parsing, type coercion, security policy handling
+internal/serve/        The server of `opcuactl serve`: configuration, certificates, demo namespace
 ```
 
 ## Supported Value Types

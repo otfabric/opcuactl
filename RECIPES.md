@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.8.0**: Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, certificate management by the GDS push model (trust list, CSR, certificate renewal, rejected certificates), `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
+Aligned with **v0.10.0**: a test server (`serve`), UA JSON over WebSockets and HTTPS (wss-uajson, https-uajson), Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, certificate management by the GDS push model (trust list, CSR, certificate renewal, rejected certificates), `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
 
 ## Table of Contents
 
@@ -35,6 +35,7 @@ Aligned with **v0.8.0**: Alarms & Conditions (list, acknowledge, confirm, shelve
 - [26. Manage a Server's Certificates (GDS Push)](#26-manage-a-servers-certificates-gds-push)
 - [27. Alarm Maintenance: Out of Service, Suppression, Latched Alarms, Dialogs, Audit](#27-alarm-maintenance-out-of-service-suppression-latched-alarms-dialogs-audit)
 - [28. Get a Certificate from a GDS (Pull)](#28-get-a-certificate-from-a-gds-pull)
+- [29. Run a Test Server and Talk to It (incl. UA JSON)](#29-run-a-test-server-and-talk-to-it-incl-ua-json)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -114,6 +115,7 @@ Useful when you do not want secrets on the command line:
 | `OPCUACTL_JSON_CONTENT_TYPE` | `--json-content-type` (`standard`, `legacy`; https-uajson) |
 | `OPCUACTL_RETURN_DIAGNOSTICS` | `--return-diagnostics` (`none`, `service`, `operation`, `all`) |
 | `OPCUACTL_BROKER_PASSWORD` (or the older `OPCUACTL_MQTT_PASSWORD`) | `pubsub --broker-password` (MQTT and AMQP brokers) |
+| `OPCUACTL_SERVE_USERS` | `serve --user` (comma-separated `name:password`) |
 
 ```sh
 export OPCUACTL_ENDPOINT=opc.tcp://your-server:4840
@@ -1103,4 +1105,79 @@ opcuactl gds pull trustlist "${GDS[@]}" "$APP" --out ./line4-pki
 opcuactl gds pull revoke "${GDS[@]}" "$APP" line4.pem --yes
 opcuactl gds pull check-revocation "${GDS[@]}" line4.pem || echo "revoked or unknown"   # exit 4
 opcuactl gds pull unregister "${GDS[@]}" "$APP" --yes           # also revokes its certificates
+```
+
+---
+
+## 29. Run a Test Server and Talk to It (incl. UA JSON)
+
+`opcuactl serve` gives you a server to point the other commands at: on a laptop without a PLC, in a CI job, or to check another client. Its demo namespace (ns=1) has values that change (`Demo.Counter`, `Demo.Sine`), a writable one with an alarm (`Demo.Level`, `Demo.LevelAlarm`), a historized one (`Demo.Sine`) and a method (`Demo.Add`).
+
+**Start it** with opc.tcp, opc.wss and opc.https, the UA JSON mappings, a user, and the certificate saved for the clients:
+
+```sh
+opcuactl serve --wss 0.0.0.0:4843 --https 0.0.0.0:4443 --uajson \
+  --user operator:secret --cert-out ./pki/server.pem --key-out ./pki/server.key
+# Application URI:  urn:myhost:opcuactl:serve
+# Demo namespace:   ns=1 urn:otfabric:opcuactl:demo (ns=1;s=Demo.Counter, ...)
+# Certificate:      rsa 041463BD0F7B1FF91FF86CBD92CDF69B4587CA1F (self-signed, generated, ./pki/server.pem)
+# ...
+# ENDPOINT URL             TRANSPORT         SECURITY POLICY  SECURITY MODE ...
+```
+
+**Read, write, call, subscribe** over opc.tcp:
+
+```sh
+EP=opc.tcp://localhost:4840
+opcuactl browse children -e $EP -n "ns=1;s=Demo"
+opcuactl monitor value -e $EP -n "ns=1;s=Demo.Counter" -n "ns=1;s=Demo.Sine" --count 10
+opcuactl call method -e $EP --object "ns=1;s=Demo" --method "ns=1;s=Demo.Add" --arg 2 --arg 40 --types int32,int32
+
+# Raise the alarm (High at 80, HighHigh at 95), acknowledge it, lower the level again
+opcuactl write value -e $EP -n "ns=1;s=Demo.Level" --value 90 --type double --yes
+opcuactl alarms list -e $EP
+opcuactl alarms ack -e $EP "ns=1;s=Demo.LevelAlarm" -m "seen"
+opcuactl write value -e $EP -n "ns=1;s=Demo.Level" --value 20 --type double --yes
+
+# The last minute of the sine wave
+opcuactl history value -e $EP -n "ns=1;s=Demo.Sine" \
+  --start "$(date -u -d '-1 min' +%Y-%m-%dT%H:%M:%SZ)" --end "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+**Securely, with the user** (the client needs a certificate of its own; the server accepts any unless `--trusted-cert` / `--trust-dir` say otherwise):
+
+```sh
+opcuactl get value -e $EP -n "ns=1;s=Demo.String" \
+  --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
+  --cert ./pki/client.pem --key ./pki/client.key --trusted-cert ./pki/server.pem \
+  --auth username --username operator --password secret
+```
+
+**UA JSON** over the same listeners: wss-uajson is None only (TLS protects it), https-uajson also signs the session with Basic256Sha256. The server certificate is the TLS certificate, so it is the `--tls-ca` too:
+
+```sh
+opcuactl discover endpoints -e opc.wss://localhost:4843 --tls-ca ./pki/server.pem --transport-profile wss-uajson
+opcuactl get value -e opc.wss://localhost:4843 --transport wss-uajson --tls-ca ./pki/server.pem -n "ns=1;s=Demo.Sine"
+opcuactl monitor value -e opc.https://localhost:4443 --transport https-uajson --tls-ca ./pki/server.pem \
+  -n "ns=1;s=Demo.Counter" --count 5
+opcuactl write value -e opc.https://localhost:4443 --transport https-uajson --tls-ca ./pki/server.pem \
+  -n "ns=1;s=Demo.Level" --value 85 --type double --yes --auth username --username operator --password secret
+```
+
+**In CI**: a free port, the endpoint from the JSON output, and a clean stop:
+
+```sh
+opcuactl serve --listen 127.0.0.1:0 --security-policy None --format json > serve.json &
+SERVE=$!
+until EP=$(jq -er '.endpoints[0].endpointUrl' serve.json 2>/dev/null); do sleep 0.1; done
+opcuactl ping -e "$EP" && opcuactl get value -e "$EP" -n "ns=1;s=Demo.Int32" -q   # 42
+kill -TERM $SERVE; wait $SERVE        # exit 0 after "Server stopped"
+```
+
+**Your own information model**: `--nodeset` imports NodeSet2 XML files (companion specifications, a model exported from your modelling tool); `--no-demo` leaves the demo out. Reuse the saved certificate so clients keep trusting it:
+
+```sh
+opcuactl serve --cert ./pki/server.pem --key ./pki/server.key --no-demo \
+  --nodeset Opc.Ua.Di.NodeSet2.xml --nodeset machine.NodeSet2.xml
+opcuactl find namespace -e opc.tcp://localhost:4840
 ```

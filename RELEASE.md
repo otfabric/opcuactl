@@ -1,5 +1,31 @@
 # opcuactl Releases
 
+## v0.10.0
+
+**Date:** 2026-10-25  
+**Previous release:** v0.9.0
+
+### Summary
+
+`opcuactl serve` runs an OPC UA test server built on **[go-opcua v1.25.0](https://github.com/otfabric/go-opcua/releases/tag/v1.25.0)**: opc.tcp, opc.wss and opc.https with the UA JSON mappings of `server.EnableUAJSON`, generated or given certificates, a client trust list and users, and a demo address space with changing, writable and historized values, an alarm and a method, or your own NodeSet2 models. The client commands can now be tried, and other clients tested, without a PLC.
+
+### Added
+
+- **`serve`.** Runs until Ctrl+C or SIGTERM (or `--duration`) and shuts down gracefully, closing the sessions; exit 1 for an invalid flag or file, 2 when a listener cannot start.
+  - **Endpoints.** `--listen` (opc.tcp, default `opc.tcp://0.0.0.0:4840`, port 0 picks a free one), `--wss` and `--https` for opc.wss and opc.https, `--uajson` for wss-uajson and https-uajson on them, `--tls-cert` / `--tls-key` for their TLS certificate (default: the RSA application certificate) and `--hostname` for the endpoint URLs.
+  - **Security.** `--security-policy` (repeatable or comma-separated, default `None,Basic256Sha256`, all policies of the client) and `--security-mode` (default `Sign,SignAndEncrypt`). `--cert` / `--key` give the application certificates; every other policy gets a self-signed one at start (RSA, ECDSA P-256 / P-384, Ed25519), printed with its thumbprint. `--cert-out` / `--key-out` save them for the clients and the next run. `--trusted-cert` and `--trust-dir` restrict the clients to a trust list.
+  - **Users.** `--allow-anonymous` (default true) and `--user name:password` (repeatable, or `OPCUACTL_SERVE_USERS`).
+  - **Address space.** The demo namespace `urn:otfabric:opcuactl:demo` (ns=1): read-only values of the common types, `Demo.Counter` and `Demo.Sine` changing every `--sim-interval` (Sine historized for `history value`), the writable `Demo.Level` with the exclusive level alarm `Demo.LevelAlarm`, and the method `Demo.Add`. `--nodeset` imports NodeSet2 files; `--no-demo` leaves the demo out.
+  - **Output.** The server and its endpoints (the table of `discover endpoints`) on start; `--format json|yaml` as one document, `-q` the endpoint URLs. `--log-level` shows the server log on stderr.
+- **Shell completion** of the `serve` values of `--security-policy`, `--security-mode` and `--log-level`.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.25.0 (unchanged)
+  - `serve` uses the server package: `server.EnableUAJSON`, `WebSocketEndPoint` / `HTTPSEndPoint`, `ApplicationIdentity`, `WithClientCertificateTrustList`, `WithUsernameValidator`, `AddCondition`, `NewHistorian`, `RegisterMethod` and `ImportNodeSetXML`.
+
+---
+
 ## v0.9.0
 
 **Date:** 2026-10-25  
