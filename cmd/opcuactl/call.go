@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/otfabric/go-opcua"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -201,7 +203,7 @@ Examples:
 				}
 			}
 
-			result, err := c.CallMethod(opCtx, objectID, methodID, callArgs...)
+			result, err := callMethod(opCtx, c, objectID, methodID, callArgs)
 			if err != nil {
 				format.Errf("calling method %s on %s: %v", methodID, objectID, err)
 				return exitCode(3, err)
@@ -250,4 +252,44 @@ Examples:
 	cmd.Flags().StringVar(&argFile, "arg-file", "", "Read arguments from a JSON file containing an array")
 	cmd.Flags().BoolVar(&introspect, "introspect", false, "Show method argument signatures without calling")
 	return cmd
+}
+
+// callMethod calls one method and prints the DiagnosticInfos the server
+// returns for it and its input arguments (--return-diagnostics operation).
+func callMethod(ctx context.Context, c *opcua.Client, objectID, methodID *ua.NodeID, args []any) (*ua.CallMethodResult, error) {
+	variants := make([]*ua.Variant, len(args))
+	for i, a := range args {
+		v, err := ua.NewVariant(a)
+		if err != nil {
+			return nil, fmt.Errorf("argument %d: %w", i, err)
+		}
+		variants[i] = v
+	}
+	var resp *ua.CallResponse
+	err := c.Send(ctx, &ua.CallRequest{MethodsToCall: []*ua.CallMethodRequest{{
+		ObjectID:       objectID,
+		MethodID:       methodID,
+		InputArguments: variants,
+	}}}, func(r ua.Response) error {
+		cr, ok := r.(*ua.CallResponse)
+		if !ok {
+			return fmt.Errorf("unexpected response %T", r)
+		}
+		resp = cr
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Results) != 1 || resp.Results[0] == nil {
+		return nil, ua.StatusBadUnknownResponse
+	}
+	res := resp.Results[0]
+	printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
+		return "call " + methodID.String()
+	})
+	printOperationDiagnostics(resp.ResponseHeader, res.InputArgumentDiagnosticInfos, func(i int) string {
+		return fmt.Sprintf("call %s input argument %d", methodID, i)
+	})
+	return res, nil
 }

@@ -161,32 +161,27 @@ Examples:
 			opCtx, opCancel := connCfg.TimeoutContext(ctx)
 			defer opCancel()
 
+			v, vErr := ua.NewVariant(goVal)
+			if vErr != nil {
+				return exitCodef(1, "creating variant: %v", vErr)
+			}
+			dv := &ua.DataValue{EncodingMask: ua.DataValueValue, Value: v}
+			resp, wErr := c.Write(opCtx, &ua.WriteRequest{NodesToWrite: []*ua.WriteValue{{
+				NodeID:      nodeID,
+				AttributeID: ua.AttributeIDValue,
+				IndexRange:  indexRange,
+				Value:       dv,
+			}}})
+			if wErr != nil {
+				format.Errf("writing value to %s: %v", nodeID, wErr)
+				return exitCode(3, wErr)
+			}
+			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
+				return "write " + nodeID.String()
+			})
 			var sc ua.StatusCode
-			if indexRange != "" {
-				v, vErr := ua.NewVariant(goVal)
-				if vErr != nil {
-					return exitCodef(1, "creating variant: %v", vErr)
-				}
-				scs, wErr := c.WriteValues(opCtx, &ua.WriteValue{
-					NodeID:      nodeID,
-					AttributeID: ua.AttributeIDValue,
-					IndexRange:  indexRange,
-					Value:       &ua.DataValue{Value: v},
-				})
-				if wErr != nil {
-					format.Errf("writing value to %s: %v", nodeID, wErr)
-					return exitCode(3, wErr)
-				}
-				if len(scs) > 0 {
-					sc = scs[0]
-				}
-			} else {
-				var wErr error
-				sc, wErr = c.WriteNodeValue(opCtx, nodeID, goVal)
-				if wErr != nil {
-					format.Errf("writing value to %s: %v", nodeID, wErr)
-					return exitCode(3, wErr)
-				}
+			if len(resp.Results) > 0 {
+				sc = resp.Results[0]
 			}
 
 			result := model.WriteResult{

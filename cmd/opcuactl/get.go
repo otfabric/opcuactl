@@ -114,6 +114,9 @@ Examples:
 				format.Errf("reading value: %v", err)
 				return exitCode(3, err)
 			}
+			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(i int) string {
+				return "read " + nodeIDs[i].String()
+			})
 
 			if encoding != nil {
 				for _, dv := range resp.Results {

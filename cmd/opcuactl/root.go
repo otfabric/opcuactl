@@ -11,16 +11,18 @@ import (
 
 	"github.com/otfabric/opcuactl/internal/conn"
 	"github.com/otfabric/opcuactl/internal/format"
+	"github.com/otfabric/opcuactl/internal/parse"
 	"github.com/spf13/cobra"
 )
 
 var (
-	connCfg      conn.Config
-	outputFormat string
-	prettyOutput bool
-	verbose      bool
-	quiet        bool
-	namespace    string
+	connCfg           conn.Config
+	returnDiagnostics string
+	outputFormat      string
+	prettyOutput      bool
+	verbose           bool
+	quiet             bool
+	namespace         string
 )
 
 func newWriter() *format.Writer {
@@ -33,7 +35,8 @@ var rootCmd = &cobra.Command{
 	Long: `opcuactl is a production-grade CLI for interacting with OPC UA servers.
 
 It provides discovery, browsing, reading, writing, method invocation,
-monitoring, history retrieval and alarms and conditions, and works with OPC UA
+monitoring, history retrieval, alarms and conditions and server
+diagnostics, and works with OPC UA
 PubSub: subscribe to and publish UADP / JSON messages over UDP and MQTT,
 decode captures, get keys from a Security Key Service and configure the
 PubSub of a server.
@@ -44,6 +47,7 @@ Examples:
   opcuactl browse children --endpoint opc.tcp://localhost:4840 --node ns=0;i=85
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840
   opcuactl alarms list --endpoint opc.tcp://localhost:4840
+  opcuactl diagnostics sessions --endpoint opc.wss://localhost:4843 --tls-ca ca.pem
 
 Besides opc.tcp, endpoints can be opc.wss:// (OPC UA over a TLS
 WebSocket) and opc.https:// (UA Binary over HTTPS); --tls-ca, --tls-cert and
@@ -85,6 +89,7 @@ func init() {
 	pf.StringVar(&connCfg.TLSCertFile, "tls-cert", "", "opc.wss/opc.https: client TLS certificate (PEM) for mutual TLS")
 	pf.StringVar(&connCfg.TLSKeyFile, "tls-key", "", "opc.wss/opc.https: private key (PEM) of --tls-cert")
 	pf.BoolVar(&connCfg.TLSInsecureSkipVerify, "tls-insecure-skip-verify", false, "opc.wss/opc.https: do not verify the server's TLS certificate (INSECURE, development only)")
+	pf.StringVar(&returnDiagnostics, "return-diagnostics", "", "Ask the server for DiagnosticInfos and print them on failures (none|service|operation|all)")
 	pf.DurationVar(&connCfg.Timeout, "timeout", 10*time.Second, "Connection/operation timeout")
 	pf.StringVarP(&outputFormat, "format", "f", "table", "Output format (table|json|yaml)")
 	pf.BoolVar(&prettyOutput, "pretty", false, "Pretty-print structured output")
@@ -96,6 +101,7 @@ func init() {
 	_ = rootCmd.RegisterFlagCompletionFunc("security-policy", fixedCompletion(securityPolicyValues))
 	_ = rootCmd.RegisterFlagCompletionFunc("security-mode", fixedCompletion(securityModeValues))
 	_ = rootCmd.RegisterFlagCompletionFunc("auth", fixedCompletion(authValues))
+	_ = rootCmd.RegisterFlagCompletionFunc("return-diagnostics", fixedCompletion(returnDiagnosticsValues))
 
 	rootCmd.AddCommand(
 		newDiscoverCmd(),
@@ -107,6 +113,7 @@ func init() {
 		newMonitorCmd(),
 		newHistoryCmd(),
 		newAlarmsCmd(),
+		newDiagnosticsCmd(),
 		newExportCmd(),
 		newPubSubCmd(),
 		newPingCmd(),
@@ -144,6 +151,7 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 	setString("tls-ca", "OPCUACTL_TLS_CA", &connCfg.TLSCAFile)
 	setString("tls-cert", "OPCUACTL_TLS_CERT", &connCfg.TLSCertFile)
 	setString("tls-key", "OPCUACTL_TLS_KEY", &connCfg.TLSKeyFile)
+	setString("return-diagnostics", "OPCUACTL_RETURN_DIAGNOSTICS", &returnDiagnostics)
 	setString("format", "OPCUACTL_FORMAT", &outputFormat)
 	setString("namespace", "OPCUACTL_NAMESPACE", &namespace)
 
@@ -176,10 +184,15 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 }
 
 // validateGlobalFlags checks the global flags that every command shares:
-// the TLS files, so that a typo fails before anything is sent.
+// the --return-diagnostics mask and the TLS files, so that a typo fails
+// before anything is sent.
 func validateGlobalFlags() error {
-	_, err := connCfg.TLSConfig()
+	mask, err := parse.ReturnDiagnostics(returnDiagnostics)
 	if err != nil {
+		return exitCodef(1, "invalid --return-diagnostics: %v", err)
+	}
+	connCfg.ReturnDiagnostics = mask
+	if _, err := connCfg.TLSConfig(); err != nil {
 		return exitCode(1, err)
 	}
 	if connCfg.TLSInsecureSkipVerify {
@@ -209,5 +222,6 @@ func Execute() error {
 	if err != nil && !format.ErrPrinted(err.Error()) {
 		format.Errf("%v", err)
 	}
+	printServiceDiagnostic(os.Stderr, err)
 	return err
 }
