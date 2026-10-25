@@ -54,6 +54,16 @@ type Config struct {
 	TLSKeyFile            string
 	TLSInsecureSkipVerify bool
 
+	// TransportProfile is the transport profile URI of --transport, "" for
+	// the one of the endpoint URL. ua.TransportProfileWSSJSON and
+	// ua.TransportProfileHTTPSJSON select the UA JSON mapping of opc.wss
+	// and opc.https (Part 6 §7.5.2, §7.4.5); the URL scheme alone means UA
+	// Binary.
+	TransportProfile string
+	// JSONContentType is the Content-Type of https-uajson requests, "" for
+	// the library default (application/json).
+	JSONContentType string
+
 	// ReturnDiagnostics is the ReturnDiagnostics mask of every request
 	// (Part 4 §7.33); 0 asks for none.
 	ReturnDiagnostics uint32
@@ -76,7 +86,7 @@ func (cfg *Config) RequireEndpoint() error {
 // (GetEndpoints, FindServers, FindServersOnNetwork): how to reach the server
 // and how long to wait for it.
 func (cfg *Config) DiscoveryOptions() []opcua.Option {
-	var opts []opcua.Option
+	opts := cfg.transportOptions()
 	if cfg.HasTLS() {
 		opts = append(opts, cfg.tlsOption())
 	}
@@ -100,8 +110,10 @@ func (cfg *Config) DiscoveryOptions() []opcua.Option {
 // (either may be empty / invalid to match anything). When a client
 // certificate is configured, only endpoints usable with its key type are
 // considered, so an RSA certificate is not paired with an ECC endpoint.
-// Only endpoints of the transport of the endpoint URL are considered: an
-// opc.wss URL selects among the opc.wss endpoints.
+// Only endpoints of the transport of the client are considered (Transport:
+// --transport, or else the transport of the endpoint URL): an opc.wss URL
+// selects among the opc.wss endpoints, --transport wss-uajson among the
+// wss-uajson ones.
 func (cfg *Config) SelectEndpoint(endpoints []*ua.EndpointDescription, policy string, mode ua.MessageSecurityMode) (*ua.EndpointDescription, error) {
 	if t := cfg.Transport(); t != "" && len(endpoints) > 0 {
 		endpoints = EndpointsForTransport(endpoints, t)

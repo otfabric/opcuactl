@@ -280,17 +280,21 @@ func newDiscoverEndpointsCmd() *cobra.Command {
 --best selects the most secure endpoint. With --cert it only considers
 endpoints the key of that certificate can use (RSA or ECC). It selects among
 the endpoints of one transport: the one of --transport-profile, or else the
-one of the --endpoint URL (an opc.wss URL picks an opc.wss endpoint).
+one the client uses (--transport, or the --endpoint URL: an opc.wss URL picks
+an opc.wss endpoint).
 
 The TRANSPORT column shows the transport profile of each endpoint: opc.tcp
-(uatcp-uasc-uabinary), opc.wss (wss-uasc-uabinary) or opc.https
-(https-uabinary). --transport-profile filters by it (tcp, wss, https or the
-profile URI). opc.wss and opc.https endpoints are queried over TLS: see
---tls-ca, --tls-cert/--tls-key and --tls-insecure-skip-verify.
+(uatcp-uasc-uabinary), opc.wss (wss-uasc-uabinary), opc.https
+(https-uabinary), opc.wss (json) (wss-uajson) or opc.https (json)
+(https-uajson). --transport-profile filters by it (tcp, wss, https,
+wss-uajson, https-uajson or the profile URI). opc.wss and opc.https endpoints
+are queried over TLS: see --tls-ca, --tls-cert/--tls-key and
+--tls-insecure-skip-verify.
 
 Examples:
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --transport-profile wss
+  opcuactl discover endpoints --endpoint opc.wss://localhost:4843 --transport-profile wss-uajson --tls-ca server-ca.pem
   opcuactl discover endpoints --endpoint opc.https://localhost:4443 --tls-ca server-ca.pem
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --best
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --best --cert ecc-cert.pem --key ecc-key.pem
@@ -322,7 +326,7 @@ Examples:
 
 	cmd.Flags().StringVar(&policyFilter, "policy", "", "Filter by security policy")
 	cmd.Flags().StringVar(&modeFilter, "mode", "", "Filter by security mode")
-	cmd.Flags().StringVar(&transportFilter, "transport-profile", "", "Filter by transport (tcp|wss|https or a transport profile URI)")
+	cmd.Flags().StringVar(&transportFilter, "transport-profile", "", "Filter by transport (tcp|wss|https|wss-uajson|https-uajson or a transport profile URI)")
 	cmd.Flags().BoolVar(&best, "best", false, "Select the best (most secure) endpoint")
 	_ = cmd.RegisterFlagCompletionFunc("policy", fixedCompletion(securityPolicyValues))
 	_ = cmd.RegisterFlagCompletionFunc("mode", fixedCompletion(securityModeValues))

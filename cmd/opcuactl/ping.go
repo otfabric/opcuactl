@@ -27,7 +27,8 @@ Each stage is tested and reported individually:
   1. TCP    — raw TCP connection to the endpoint (also for opc.wss and
               opc.https: the TLS handshake is part of the next stage)
   2. Secure — SecureChannel (TLS and WebSocket upgrade for opc.wss) +
-              Session creation
+              Session creation; over wss-uajson and https-uajson
+              (--transport) there is no SecureChannel, only TLS
   3. Browse — read the Root/Objects folder to confirm operability
 
 With --reverse-listen the TCP stage is skipped: the server connects to opcuactl.

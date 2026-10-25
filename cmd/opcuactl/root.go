@@ -18,6 +18,8 @@ import (
 var (
 	connCfg           conn.Config
 	returnDiagnostics string
+	transportFlag     string
+	jsonContentType   string
 	outputFormat      string
 	prettyOutput      bool
 	verbose           bool
@@ -54,7 +56,8 @@ Examples:
 
 Besides opc.tcp, endpoints can be opc.wss:// (OPC UA over a TLS
 WebSocket) and opc.https:// (UA Binary over HTTPS); --tls-ca, --tls-cert and
---tls-key configure their TLS.
+--tls-key configure their TLS. --transport wss-uajson or https-uajson uses
+their UA JSON mapping instead of UA Binary.
 
 Servers that cannot be reached but can connect out (firewall, NAT) are
 supported with reverse connect: --reverse-listen host:port makes opcuactl
@@ -92,6 +95,8 @@ func init() {
 	pf.StringVar(&connCfg.TLSCertFile, "tls-cert", "", "opc.wss/opc.https: client TLS certificate (PEM) for mutual TLS")
 	pf.StringVar(&connCfg.TLSKeyFile, "tls-key", "", "opc.wss/opc.https: private key (PEM) of --tls-cert")
 	pf.BoolVar(&connCfg.TLSInsecureSkipVerify, "tls-insecure-skip-verify", false, "opc.wss/opc.https: do not verify the server's TLS certificate (INSECURE, development only)")
+	pf.StringVar(&transportFlag, "transport", "", "Transport mapping (tcp|wss|https|wss-uajson|https-uajson; default: UA Binary over the scheme of --endpoint)")
+	pf.StringVar(&jsonContentType, "json-content-type", "", "https-uajson: Content-Type of the requests (standard: application/json | legacy: application/opcua+uajson, for UA-.NETStandard)")
 	pf.StringVar(&returnDiagnostics, "return-diagnostics", "", "Ask the server for DiagnosticInfos and print them on failures (none|service|operation|all)")
 	pf.DurationVar(&connCfg.Timeout, "timeout", 10*time.Second, "Connection/operation timeout")
 	pf.StringVarP(&outputFormat, "format", "f", "table", "Output format (table|json|yaml)")
@@ -105,6 +110,8 @@ func init() {
 	_ = rootCmd.RegisterFlagCompletionFunc("security-mode", fixedCompletion(securityModeValues))
 	_ = rootCmd.RegisterFlagCompletionFunc("auth", fixedCompletion(authValues))
 	_ = rootCmd.RegisterFlagCompletionFunc("return-diagnostics", fixedCompletion(returnDiagnosticsValues))
+	_ = rootCmd.RegisterFlagCompletionFunc("transport", fixedCompletion(transportValues))
+	_ = rootCmd.RegisterFlagCompletionFunc("json-content-type", fixedCompletion(jsonContentTypeValues))
 
 	rootCmd.AddCommand(
 		newDiscoverCmd(),
@@ -155,6 +162,8 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 	setString("tls-ca", "OPCUACTL_TLS_CA", &connCfg.TLSCAFile)
 	setString("tls-cert", "OPCUACTL_TLS_CERT", &connCfg.TLSCertFile)
 	setString("tls-key", "OPCUACTL_TLS_KEY", &connCfg.TLSKeyFile)
+	setString("transport", "OPCUACTL_TRANSPORT", &transportFlag)
+	setString("json-content-type", "OPCUACTL_JSON_CONTENT_TYPE", &jsonContentType)
 	setString("return-diagnostics", "OPCUACTL_RETURN_DIAGNOSTICS", &returnDiagnostics)
 	setString("format", "OPCUACTL_FORMAT", &outputFormat)
 	setString("namespace", "OPCUACTL_NAMESPACE", &namespace)
@@ -188,14 +197,23 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 }
 
 // validateGlobalFlags checks the global flags that every command shares:
-// the --return-diagnostics mask and the TLS files, so that a typo fails
-// before anything is sent.
+// the --return-diagnostics mask, the transport and the TLS files, so that a
+// typo fails before anything is sent.
 func validateGlobalFlags() error {
 	mask, err := parse.ReturnDiagnostics(returnDiagnostics)
 	if err != nil {
 		return exitCodef(1, "invalid --return-diagnostics: %v", err)
 	}
 	connCfg.ReturnDiagnostics = mask
+	if connCfg.TransportProfile, err = conn.ParseTransport(transportFlag); err != nil {
+		return exitCodef(1, "invalid --transport: %v", err)
+	}
+	if err := connCfg.ValidateTransport(); err != nil {
+		return exitCode(1, err)
+	}
+	if connCfg.JSONContentType, err = conn.ParseJSONContentType(jsonContentType); err != nil {
+		return exitCodef(1, "invalid --json-content-type: %v", err)
+	}
 	if _, err := connCfg.TLSConfig(); err != nil {
 		return exitCode(1, err)
 	}

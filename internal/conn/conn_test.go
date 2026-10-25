@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/go-opcua/uasc"
 )
 
 func TestConfig_NewClient_emptyEndpoint(t *testing.T) {
@@ -306,6 +307,123 @@ func TestSelectEndpoint_transport(t *testing.T) {
 	}
 	if _, err := (&Config{Endpoint: "opc.https://h:4443"}).SelectEndpoint(eps, "", ua.MessageSecurityModeInvalid); err == nil || !strings.Contains(err.Error(), "no opc.https endpoint") {
 		t.Errorf("https: %v", err)
+	}
+}
+
+func TestTransport_UAJSON(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"wss-uajson": ua.TransportProfileWSSJSON, "WSS-JSON": ua.TransportProfileWSSJSON, "websocket-json": ua.TransportProfileWSSJSON,
+		ua.TransportProfileWSSJSON: ua.TransportProfileWSSJSON, "opc.wss": ua.TransportProfileWSS, "wss-uasc-uabinary": ua.TransportProfileWSS,
+		"https-uajson": ua.TransportProfileHTTPSJSON, "https-json": ua.TransportProfileHTTPSJSON,
+		ua.TransportProfileHTTPSJSON: ua.TransportProfileHTTPSJSON, "https-uabinary": ua.TransportProfileHTTPS,
+	} {
+		got, err := ParseTransport(in)
+		if err != nil || got != want {
+			t.Errorf("ParseTransport(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"json", "uajson", "tcp-json"} {
+		if got, err := ParseTransport(in); err == nil {
+			t.Errorf("ParseTransport(%q) = %q, want an error", in, got)
+		}
+	}
+
+	for uri, want := range map[string]string{
+		ua.TransportProfileWSSJSON: "opc.wss (json)", ua.TransportProfileHTTPSJSON: "opc.https (json)",
+	} {
+		if got := TransportName(uri); got != want {
+			t.Errorf("TransportName(%q) = %q, want %q", uri, got, want)
+		}
+	}
+
+	// --transport wins over the URL scheme.
+	if got := (&Config{Endpoint: "opc.wss://h:4843", TransportProfile: ua.TransportProfileWSSJSON}).Transport(); got != ua.TransportProfileWSSJSON {
+		t.Errorf("Transport() = %q", got)
+	}
+
+	for _, tc := range []struct {
+		cfg  Config
+		want string // "" for no error
+	}{
+		{Config{}, ""},
+		{Config{Endpoint: "opc.tcp://h"}, ""},
+		{Config{TransportProfile: ua.TransportProfileWSSJSON}, ""},
+		{Config{Endpoint: "opc.wss://h", TransportProfile: ua.TransportProfileWSSJSON}, ""},
+		{Config{Endpoint: "opc.https://h", TransportProfile: ua.TransportProfileHTTPSJSON}, ""},
+		{Config{Endpoint: "https://h", TransportProfile: ua.TransportProfileHTTPSJSON}, ""},
+		{Config{Endpoint: "opc.wss://h", TransportProfile: ua.TransportProfileWSS}, ""},
+		{Config{Endpoint: "opc.tcp://h", TransportProfile: ua.TransportProfileUATCP}, ""},
+		{Config{Endpoint: "opc.tcp://h", TransportProfile: ua.TransportProfileWSSJSON}, "needs an opc.wss:// endpoint"},
+		{Config{Endpoint: "opc.wss://h", TransportProfile: ua.TransportProfileHTTPSJSON}, "needs an opc.https:// endpoint"},
+		{Config{Endpoint: "pigeon://h", TransportProfile: ua.TransportProfileHTTPS}, "needs an opc.https:// endpoint"},
+		{Config{Endpoint: "opc.tcp://h", TransportProfile: "urn:x"}, "not a transport this client implements"},
+		{Config{ReverseListen: "localhost:4841", TransportProfile: ua.TransportProfileHTTPSJSON}, "reverse connect"},
+	} {
+		err := tc.cfg.ValidateTransport()
+		if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
+			t.Errorf("ValidateTransport(%+v) = %v, want %q", tc.cfg, err, tc.want)
+		}
+	}
+
+	for in, want := range map[string]string{
+		"": "", "standard": uasc.HTTPSJSONContentType, "Legacy": uasc.HTTPSJSONContentTypeLegacy,
+		"application/json": uasc.HTTPSJSONContentType, "application/opcua+uajson": uasc.HTTPSJSONContentTypeLegacy,
+	} {
+		got, err := ParseJSONContentType(in)
+		if err != nil || got != want {
+			t.Errorf("ParseJSONContentType(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := ParseJSONContentType("text/plain"); err == nil {
+		t.Error("ParseJSONContentType(text/plain) succeeded")
+	}
+
+	// The profile goes to the client only for the JSON mappings: the URL
+	// scheme selects UA Binary.
+	for _, tc := range []struct {
+		cfg  Config
+		want int
+	}{
+		{Config{}, 0},
+		{Config{TransportProfile: ua.TransportProfileWSS}, 0},
+		{Config{TransportProfile: ua.TransportProfileWSSJSON}, 1},
+		{Config{TransportProfile: ua.TransportProfileHTTPSJSON, JSONContentType: uasc.HTTPSJSONContentTypeLegacy}, 2},
+	} {
+		if got := len(tc.cfg.transportOptions()); got != tc.want {
+			t.Errorf("transportOptions(%+v): %d options, want %d", tc.cfg, got, tc.want)
+		}
+	}
+}
+
+func TestSelectEndpoint_UAJSON(t *testing.T) {
+	t.Parallel()
+	none := func(url, profile string, level byte) *ua.EndpointDescription {
+		return &ua.EndpointDescription{EndpointURL: url, TransportProfileURI: profile, SecurityPolicyURI: ua.SecurityPolicyURINone, SecurityMode: ua.MessageSecurityModeNone, SecurityLevel: level}
+	}
+	wss := none("opc.wss://h:4843", ua.TransportProfileWSS, 3)
+	wssJSON := none("opc.wss://h:4843", ua.TransportProfileWSSJSON, 1)
+	https := none("opc.https://h:4443", ua.TransportProfileHTTPS, 3)
+	httpsJSON := none("opc.https://h:4443", ua.TransportProfileHTTPSJSON, 1)
+	eps := []*ua.EndpointDescription{wss, wssJSON, https, httpsJSON}
+
+	for _, tc := range []struct {
+		cfg  Config
+		want *ua.EndpointDescription
+	}{
+		{Config{Endpoint: "opc.wss://h:4843"}, wss},
+		{Config{Endpoint: "opc.wss://h:4843", TransportProfile: ua.TransportProfileWSSJSON}, wssJSON},
+		{Config{Endpoint: "opc.https://h:4443"}, https},
+		{Config{Endpoint: "opc.https://h:4443", TransportProfile: ua.TransportProfileHTTPSJSON}, httpsJSON},
+	} {
+		ep, err := tc.cfg.SelectEndpoint(eps, "", ua.MessageSecurityModeInvalid)
+		if err != nil || ep != tc.want {
+			t.Errorf("%s %s: %v, %v; want %v", tc.cfg.Endpoint, tc.cfg.TransportProfile, ep, err, tc.want)
+		}
+	}
+	_, err := (&Config{Endpoint: "opc.wss://h:4843", TransportProfile: ua.TransportProfileWSSJSON}).SelectEndpoint([]*ua.EndpointDescription{wss}, "", ua.MessageSecurityModeInvalid)
+	if err == nil || !strings.Contains(err.Error(), "no opc.wss (json) endpoint") {
+		t.Errorf("no JSON endpoint: %v", err)
 	}
 }
 
