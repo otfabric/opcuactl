@@ -27,12 +27,12 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **Alarms and conditions** — `alarms list` shows the retained conditions of a server (ConditionRefresh) with their states, branches and EventIds; `alarms ack`, `confirm`, `comment`, `enable`, `disable`, `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `silence`, `reset` and `respond` call the Part 9 methods (with a comment where Part 9 1.05 allows one), `alarms groups` and `alarms metrics` read alarm groups and metrics, `alarms watch` streams the condition events and `alarms audit` the audit events of who did what.
 - **Server diagnostics** — `diagnostics summary|sessions|subscriptions|sampling` read what the server counts about its sessions and subscriptions; `diagnostics enable|disable` switch it (administrators); `--return-diagnostics` prints the DiagnosticInfos the server returns for a failed request.
 - **Certificate management** — `gds trustlist get|add|remove|set` read and change the trust lists of a server's certificate groups, `gds csr` and `gds update-cert` renew its certificates through your CA (PEM or PKCS #12 keys), `gds self-signed`, `gds delete-cert` and `gds reset` cover the rest of the push model of OPC UA Part 12 (as a SecurityAdmin over an encrypted channel); `gds pull` registers applications with a Global Discovery Server and gets their certificates and trust lists from it, `gds pull enroll` in one step.
-- **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
+- **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them (OPC UA Part 11).
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
-- **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
+- **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, an event history, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
@@ -386,7 +386,9 @@ opcuactl
 │       └── enroll     Register, request, wait; write certificate, key and trust list
 ├── history
 │   ├── value          Read historical data values
-│   └── event          Read historical events
+│   ├── event          Read historical events (WhereClause, BrowsePath fields, paging)
+│   ├── update-events  Insert, replace or update historical events (JSON)
+│   └── delete-events  Delete historical events by EventId
 ├── export
 │   ├── nodes          Export node metadata from a subtree
 │   └── values         Export value snapshots or historical time-series
@@ -804,10 +806,30 @@ opcuactl history value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
 opcuactl history value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" \
   --mode attime --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z
 
-# Read historical events
-opcuactl history event -e opc.tcp://localhost:4840 -n i=2253 \
+# Read historical events of an event notifier (EventId, EventType, SourceName, Time, Message, Severity)
+opcuactl history event -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" \
   --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z
+
+# Alarms of Severity 500 and more, newest first, with condition fields, in pages of 100
+opcuactl history event -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" \
+  --start 2026-03-11T00:00:00Z --end 2026-03-10T00:00:00Z \
+  --of-type AlarmConditionType --severity-min 500 \
+  --select EventId --select Time --select ConditionId --select ActiveState/Id --num-values 100
+
+# The last 10 events before a time
+opcuactl history event -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --end 2026-03-11T00:00:00Z --max-events 10
+
+# Insert an event, correct it, delete it (the notifier needs HistoryWrite)
+opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --yes \
+  --event '{"EventId":"0x0a01","Time":"2026-03-10T08:00:00Z","Message":"shift handover","Severity":100}'
+opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --yes --mode replace \
+  --event '{"EventId":"0x0a01","Message":"shift handover, line 2","Severity":200}'
+opcuactl history delete-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event-id 0x0a01 --yes
 ```
+
+`history event` reads with ReadEventDetails (Part 11 §6.5.2): `--start` after `--end` reads backward (newest first); one of them is enough with `--num-values` or `--max-events`. `--select` takes BrowsePaths (`AckedState/Id`, `2:Temperature`) and `ConditionId`; EventIds print in base64. `--of-type`, `--severity-min` and `--severity-max` build the WhereClause, combined with And. `--num-values` is the page size: opcuactl follows the continuation points until the history is read, `--max-events` events were returned or, with `--continuation single`, after one page, and releases the continuation point it leaves. A Bad status of the node (unknown node, no event history) exits 3; an empty range is success.
+
+`history update-events` (UpdateEventDetails, Part 11 §6.9.4) takes events as JSON objects (`--event`, repeatable, or `--events-file`, `-` for stdin) with `--mode insert|replace|update`: EventId in base64 or 0x hex (insert and update make one when missing and print it), EventType and SourceNode as NodeIds, Time in RFC 3339 (default now), Message, SourceName, Severity, and any other field as a string, boolean, number or OPC UA JSON Variant (`{"UaType":7,"Value":42}`). `history delete-events` (DeleteEventDetails, §6.9.7) takes `--event-id` (repeatable); an unknown EventId is `Bad_NoData`. Both print the result of each event, ask before changing anything on a terminal (`--yes` skips it, `--dry-run` only prints) and exit 4 when some events failed, 3 when all did.
 
 ### Export
 
@@ -1002,7 +1024,7 @@ All data goes to stdout, all errors go to stderr.
 | `1` | Usage or validation error |
 | `2` | Connection or transport failure |
 | `3` | OPC UA service or status-code failure |
-| `4` | Partial success (batch/export operations); `gds pull check-revocation`: the certificate is not valid |
+| `4` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events); `gds pull check-revocation`: the certificate is not valid |
 
 ## Security
 
@@ -1194,7 +1216,7 @@ opcuactl serve --listen 127.0.0.1:0 -q
 | `--log-level` | `error` | Server log on stderr: `debug`, `info`, `warn`, `error`, `off` |
 | `--duration` | until Ctrl+C / SIGTERM | Stop after this time |
 
-The demo namespace `urn:otfabric:opcuactl:demo` (ns=1; the namespaces of `--nodeset` files come after it) has the object `Demo` under Objects with string NodeIds:
+The demo namespace `urn:otfabric:opcuactl:demo` (ns=1; the namespaces of `--nodeset` files come after it) has the object `Demo` under Objects with string NodeIds. `Demo` is an event notifier with an event history (EventNotifier SubscribeToEvents, HistoryRead and HistoryWrite): it keeps the last 1000 events reported on it, an event "opcuactl serve started" (Severity 100) and the LevelAlarm transitions, for `history event`, `history update-events` and `history delete-events`.
 
 | Node | Type | |
 |------|------|-|

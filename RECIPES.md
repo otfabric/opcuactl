@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.10.0**: a test server (`serve`), UA JSON over WebSockets and HTTPS (wss-uajson, https-uajson), Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, certificate management by the GDS push model (trust list, CSR, certificate renewal, rejected certificates), `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
+Aligned with **v0.10.0**: a test server (`serve`), UA JSON over WebSockets and HTTPS (wss-uajson, https-uajson), Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, certificate management by the GDS push model (trust list, CSR, certificate renewal, rejected certificates), `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, history `raw|modified|processed|attime`, and historical events (read with filters and paging, insert, replace, update, delete).
 
 ## Table of Contents
 
@@ -336,6 +336,30 @@ opcuactl export values "${CONN[@]}" -n "ns=2;s=Temperature" \
   --history --mode attime \
   --at 2026-03-10T12:00:00Z --at 2026-03-10T13:00:00Z \
   -f csv --output history-attime.csv
+```
+
+Historical events of an event notifier (an Object with the HistoryRead bit in its EventNotifier, often the Server object `i=2253` or an area): `--select` picks fields by BrowsePath, `--of-type` / `--severity-min` / `--severity-max` filter on the server, `--num-values` pages and `--max-events` stops early.
+
+```sh
+# A day of events, oldest first, as JSON Lines
+opcuactl history event "${CONN[@]}" -n i=2253 \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z --num-values 500 -f jsonl > events.jsonl
+
+# The 20 latest alarm events of Severity >= 700 with their state
+opcuactl history event "${CONN[@]}" -n i=2253 --end "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --max-events 20 \
+  --of-type AlarmConditionType --severity-min 700 \
+  --select EventId --select Time --select SourceName --select ConditionId --select ActiveState/Id --select AckedState/Id
+
+# Annotate the history, fix a typo, remove a wrong entry (HistoryWrite needed)
+opcuactl history update-events "${CONN[@]}" -n i=2253 --yes \
+  --event '{"Time":"2026-03-10T06:00:00Z","SourceName":"Line 2","Message":"planned stop","Severity":100}'
+opcuactl history update-events "${CONN[@]}" -n i=2253 --mode replace --yes \
+  --event '{"EventId":"<base64 from history event>","Message":"planned stop, line 2","Severity":100}'
+opcuactl history delete-events "${CONN[@]}" -n i=2253 --event-id "<base64 from history event>" --yes
+
+# Load events from a file, check them first
+opcuactl history update-events "${CONN[@]}" -n i=2253 --events-file shift-log.json --dry-run
+opcuactl history update-events "${CONN[@]}" -n i=2253 --events-file shift-log.json --yes || echo "exit $? (4: some events failed)"
 ```
 
 `--aggregate` accepts `average` (default), `min`, `max`, `count`.
@@ -1142,6 +1166,12 @@ opcuactl write value -e $EP -n "ns=1;s=Demo.Level" --value 20 --type double --ye
 # The last minute of the sine wave
 opcuactl history value -e $EP -n "ns=1;s=Demo.Sine" \
   --start "$(date -u -d '-1 min' +%Y-%m-%dT%H:%M:%SZ)" --end "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# The event history of Demo: the start event and the alarm transitions, newest first
+opcuactl history event -e $EP -n "ns=1;s=Demo" --end "$(date -u -d '+1 min' +%Y-%m-%dT%H:%M:%SZ)" --max-events 10
+opcuactl history event -e $EP -n "ns=1;s=Demo" --start 2026-01-01T00:00:00Z --end 2100-01-01T00:00:00Z \
+  --of-type ExclusiveLevelAlarmType --select Time --select ActiveState/Id --select Severity
+opcuactl history update-events -e $EP -n "ns=1;s=Demo" --event '{"Message":"calibrated","Severity":100}' --yes
 ```
 
 **Securely, with the user** (the client needs a certificate of its own; the server accepts any unless `--trusted-cert` / `--trust-dir` say otherwise):

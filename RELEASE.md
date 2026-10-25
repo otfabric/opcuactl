@@ -7,7 +7,7 @@
 
 ### Summary
 
-`opcuactl serve` runs an OPC UA test server built on **[go-opcua v1.25.0](https://github.com/otfabric/go-opcua/releases/tag/v1.25.0)**: opc.tcp, opc.wss and opc.https with the UA JSON mappings of `server.EnableUAJSON`, generated or given certificates, a client trust list and users, and a demo address space with changing, writable and historized values, an alarm and a method, or your own NodeSet2 models. The client commands can now be tried, and other clients tested, without a PLC.
+`opcuactl serve` runs an OPC UA test server built on **[go-opcua v1.26.0](https://github.com/otfabric/go-opcua/releases/tag/v1.26.0)**: opc.tcp, opc.wss and opc.https with the UA JSON mappings of `server.EnableUAJSON`, generated or given certificates, a client trust list and users, and a demo address space with changing, writable and historized values, an alarm with an event history and a method, or your own NodeSet2 models. The client commands can now be tried, and other clients tested, without a PLC. Historical events (Part 11) get a full client: `history event` reads them with a WhereClause, BrowsePath fields and paging, `history update-events` and `history delete-events` change them.
 
 ### Added
 
@@ -17,16 +17,32 @@
   - **Users.** `--allow-anonymous` (default true) and `--user name:password` (repeatable, or `OPCUACTL_SERVE_USERS`).
   - **Address space.** The demo namespace `urn:otfabric:opcuactl:demo` (ns=1): read-only values of the common types, `Demo.Counter` and `Demo.Sine` changing every `--sim-interval` (Sine historized for `history value`), the writable `Demo.Level` with the exclusive level alarm `Demo.LevelAlarm`, and the method `Demo.Add`. `--nodeset` imports NodeSet2 files; `--no-demo` leaves the demo out.
   - **Output.** The server and its endpoints (the table of `discover endpoints`) on start; `--format json|yaml` as one document, `-q` the endpoint URLs. `--log-level` shows the server log on stderr.
-- **Shell completion** of the `serve` values of `--security-policy`, `--security-mode` and `--log-level`.
+  - **Event history.** `Demo` is a HistoricalEventNode (EventNotifier SubscribeToEvents | HistoryRead | HistoryWrite, `Server.EnableEventHistory`): it keeps its last 1000 events, an "opcuactl serve started" event (Severity 100) and the LevelAlarm transitions, for `history event`, `update-events` and `delete-events`.
+- **`history event`: event history reads as Part 11 §6.5.2 has them.** HistoryRead with ReadEventDetails on an event notifier.
+  - `--start` after `--end` reads backward (newest first); one of them is enough with `--num-values` or `--max-events` (two of StartTime, EndTime and NumValuesPerNode).
+  - `--select` takes BrowsePaths (`AckedState/Id`, `2:Temperature`) and `ConditionId`; the default fields are EventId, EventType, SourceName, Time, Message and Severity; EventIds print in base64.
+  - `--of-type`, `--severity-min` and `--severity-max` build the WhereClause, combined with And (`[And(1,2), OfType, GreaterThanOrEqual]`, only the elements needed).
+  - `--num-values` is the page size (NumValuesPerNode): the continuation points are followed until the history is read, `--max-events` events were returned or, with `--continuation single`, after one page; a continuation point left over is released.
+  - A Bad status of the node (`BadNodeIdUnknown`, `BadHistoryOperationUnsupported`, ...) exits 3; an empty range (`GoodNoData`) is success.
+- **`history update-events`.** Insert, replace or update events (HistoryUpdate with UpdateEventDetails, Part 11 §6.9.4, `--mode insert|replace|update`) given as JSON objects (`--event`, repeatable, or `--events-file`, `-` for stdin): EventId in base64 or 0x hex (made for insert and update when missing), EventType / SourceNode as NodeIds, Time in RFC 3339 (default now), Message, SourceName, Severity, other fields as JSON or OPC UA JSON Variants. Events with the same fields share one UpdateEventDetails.
+- **`history delete-events`.** Delete events by `--event-id` (HistoryUpdate with DeleteEventDetails, Part 11 §6.9.7); an unknown EventId is `BadNoData`.
+  - Both print the result of each event, confirm on a terminal like `write value` (`--yes`, `--dry-run`) and exit 4 when some events failed, 3 when all failed or the HistoryUpdate did.
+- **Shell completion** of the `serve` values of `--security-policy`, `--security-mode` and `--log-level`, of `history update-events --mode` and of the common `history event --select` fields.
+
+### Changed
+
+- **`history event`.** `--max-events` is the number of events to return across pages (it was NumValuesPerNode of one request, without paging; that is now `--num-values`), the default fields start with EventId, the range may run backward, and a Bad status of the node exits 3 (it was printed and skipped with exit 0).
 
 ### Fixed
 
+- **`--format jsonl` writes one line per item for every list.** Lists of typed results (`history value`, `history event`, ...) were written as one JSON array on one line.
 - **`write value` exits 3 on a Bad write status.** The result is still printed, but a Bad StatusCode from the server (for example `BadUserAccessDenied` or `BadTypeMismatch`) now exits 3, the README's status-code failure, instead of 0.
 
 ### Dependency
 
-- **`github.com/otfabric/go-opcua`**: v1.25.0 (unchanged)
-  - `serve` uses the server package: `server.EnableUAJSON`, `WebSocketEndPoint` / `HTTPSEndPoint`, `ApplicationIdentity`, `WithClientCertificateTrustList`, `WithUsernameValidator`, `AddCondition`, `NewHistorian`, `RegisterMethod` and `ImportNodeSetXML`.
+- **`github.com/otfabric/go-opcua`**: v1.25.0 → [v1.26.0](https://github.com/otfabric/go-opcua/releases/tag/v1.26.0)
+  - Event history in the server: `Server.EnableEventHistory`, `Historian.EnableEvents`, HistoryRead ReadEventDetails and HistoryUpdate UpdateEventDetails / DeleteEventDetails, which `serve` offers on `Demo` and the `history` commands use with `HistoryReadEvent`, `HistoryUpdateEvents` and `HistoryDeleteEvents`.
+  - `serve` uses the server package: `server.EnableUAJSON`, `WebSocketEndPoint` / `HTTPSEndPoint`, `ApplicationIdentity`, `WithClientCertificateTrustList`, `WithUsernameValidator`, `AddCondition`, `NewHistorian`, `EnableEventHistory`, `RegisterMethod` and `ImportNodeSetXML`.
 
 ---
 
