@@ -241,6 +241,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	if s.demo != nil {
+		s.demo.emitStarted()
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()

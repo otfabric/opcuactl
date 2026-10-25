@@ -4,6 +4,7 @@ package serve
 
 import (
 	"context"
+	"crypto/rand"
 	"math"
 	"sync/atomic"
 	"time"
@@ -19,7 +20,7 @@ const DemoNamespaceURI = "urn:otfabric:opcuactl:demo"
 
 // The demo address space: string NodeIds in the demo namespace.
 const (
-	DemoFolder     = "Demo"            // the object all demo nodes are components of
+	DemoFolder     = "Demo"            // the object all demo nodes are components of; event history of its events
 	DemoBoolean    = "Demo.Boolean"    // Boolean, read-only
 	DemoInt32      = "Demo.Int32"      // Int32, read-only
 	DemoDouble     = "Demo.Double"     // Double, read-only
@@ -37,11 +38,17 @@ const (
 const (
 	DemoLevelHigh     = 80.0
 	DemoLevelHighHigh = 95.0
-	demoLevelStart    = 50.0
+	// DemoStartedSeverity is the Severity of the event Demo reports at
+	// start.
+	DemoStartedSeverity = 100
+	demoLevelStart      = 50.0
 	// demoSinePeriod is the number of intervals of one sine period.
 	demoSinePeriod = 60
 	// demoHistory is the number of samples of DemoSine the historian keeps.
 	demoHistory = 10000
+	// demoEventHistory is the number of events of DemoFolder the historian
+	// keeps.
+	demoEventHistory = 1000
 )
 
 type demo struct {
@@ -121,8 +128,32 @@ func newDemo(srv *server.Server) (*demo, error) {
 		return nil, err
 	}
 
+	// Demo is a HistoricalEventNode (Part 11 §5.4): the events reported on
+	// it, the LevelAlarm transitions and the start event, are kept and may
+	// be inserted, replaced and deleted with HistoryUpdate.
+	d.hist.EnableEvents(folder.ID(), demoEventHistory)
+	if err := srv.EnableEventHistory(folder.ID(), server.EventHistoryOptions{Writable: true}); err != nil {
+		return nil, err
+	}
+
 	d.addMethod(folder)
 	return d, nil
+}
+
+// emitStarted reports the start of the server as an event of Demo, so its
+// event history is never empty.
+func (d *demo) emitStarted() {
+	eventID := make([]byte, 16)
+	_, _ = rand.Read(eventID)
+	_ = d.srv.EmitBaseEvent(d.nodeID(DemoFolder), &server.BaseEvent{
+		EventID:    eventID,
+		EventType:  ua.NewNumericNodeID(0, id.BaseEventType),
+		SourceNode: d.nodeID(DemoFolder),
+		SourceName: DemoFolder,
+		Time:       time.Now().UTC(),
+		Message:    ua.NewLocalizedText("opcuactl serve started"),
+		Severity:   DemoStartedSeverity,
+	})
 }
 
 // addMethod adds Demo.Add(a, b Int32) -> sum Int32 with its argument

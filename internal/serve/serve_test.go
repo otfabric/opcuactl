@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-opcua"
+	"github.com/otfabric/go-opcua/id"
 	"github.com/otfabric/go-opcua/ua"
 )
 
@@ -213,6 +214,29 @@ func TestDemo(t *testing.T) {
 	hd, ok := res.HistoryData.Value.(*ua.HistoryData)
 	if !ok || len(hd.DataValues) < 3 {
 		t.Errorf("history of Sine: %+v", res.HistoryData)
+	}
+
+	// Demo is a HistoricalEventNode: the start event and the LevelAlarm
+	// transitions are in its event history.
+	en, err := c.Node(node(DemoFolder)).Attribute(ctx, ua.AttributeIDEventNotifier)
+	if want := byte(ua.EventNotifierTypeSubscribeToEvents | ua.EventNotifierTypeHistoryRead | ua.EventNotifierTypeHistoryWrite); err != nil || en.Value() != want {
+		t.Errorf("EventNotifier of Demo = %v %v, want %d", en, err, want)
+	}
+	events, _, st := s.demo.hist.ReadEvents(node(DemoFolder), time.Now().Add(-time.Minute), time.Now().Add(time.Minute), 0, nil, nil)
+	if st != ua.StatusOK || len(events) < 3 {
+		t.Fatalf("event history of Demo: %v %d events", st, len(events))
+	}
+	if msg, _ := events[0].Fields["Message"].Value().(*ua.LocalizedText); msg == nil || msg.Text != "opcuactl serve started" || len(events[0].EventID()) != 16 {
+		t.Errorf("start event %+v", events[0].Fields)
+	}
+	alarms := 0
+	for _, ev := range events {
+		if ev.EventType().IntID() == id.ExclusiveLevelAlarmType {
+			alarms++
+		}
+	}
+	if alarms < 2 {
+		t.Errorf("%d LevelAlarm events in the history of Demo", alarms)
 	}
 
 	if err := s.Close(); err != nil {
