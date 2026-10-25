@@ -7,7 +7,7 @@
 
 ### Summary
 
-Alarms and conditions, server diagnostics, certificate management by the push and the pull model of Part 12, OPC UA over HTTPS and WebSockets, and Brainpool and Ed448 certificates, on **[go-opcua v1.21.0](https://github.com/otfabric/go-opcua/releases/tag/v1.21.0)**. It also fixes `--timestamps-to-return`, which ignored most of its documented values.
+Alarms and conditions, server diagnostics, certificate management by the push and the pull model of Part 12, OPC UA over HTTPS and WebSockets, and Brainpool and Ed448 certificates, on **[go-opcua v1.23.0](https://github.com/otfabric/go-opcua/releases/tag/v1.23.0)**. It also fixes `--timestamps-to-return`, which ignored most of its documented values.
 
 ### Added
 
@@ -52,7 +52,7 @@ Alarms and conditions, server diagnostics, certificate management by the push an
 
 ### Dependency
 
-- **`github.com/otfabric/go-opcua`**: v1.11.0 → **[v1.21.0](https://github.com/otfabric/go-opcua/releases/tag/v1.21.0)**
+- **`github.com/otfabric/go-opcua`**: v1.11.0 → **[v1.23.0](https://github.com/otfabric/go-opcua/releases/tag/v1.23.0)**
 
 ---
 
