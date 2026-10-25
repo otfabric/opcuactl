@@ -12,6 +12,7 @@ import (
 
 	"github.com/otfabric/go-opcua"
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/opcuactl/internal/conn"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
@@ -277,10 +278,20 @@ func newDiscoverEndpointsCmd() *cobra.Command {
 		Long: `List server endpoints with security and user token information.
 
 --best selects the most secure endpoint. With --cert it only considers
-endpoints the key of that certificate can use (RSA or ECC).
+endpoints the key of that certificate can use (RSA or ECC). It selects among
+the endpoints of one transport: the one of --transport-profile, or else the
+one of the --endpoint URL (an opc.wss URL picks an opc.wss endpoint).
+
+The TRANSPORT column shows the transport profile of each endpoint: opc.tcp
+(uatcp-uasc-uabinary), opc.wss (wss-uasc-uabinary) or opc.https
+(https-uabinary). --transport-profile filters by it (tcp, wss, https or the
+profile URI). opc.wss and opc.https endpoints are queried over TLS: see
+--tls-ca, --tls-cert/--tls-key and --tls-insecure-skip-verify.
 
 Examples:
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840
+  opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --transport-profile wss
+  opcuactl discover endpoints --endpoint opc.https://localhost:4443 --tls-ca server-ca.pem
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --best
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --best --cert ecc-cert.pem --key ecc-key.pem
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --policy Basic256Sha256 --format json`,
@@ -298,23 +309,30 @@ Examples:
 				return exitCode(2, err)
 			}
 
-			if best {
-				return selectBestEndpoint(eps, policyFilter, modeFilter)
+			transport, err := conn.ParseTransport(transportFilter)
+			if err != nil {
+				return exitCodef(1, "invalid --transport-profile: %v", err)
 			}
-			return listEndpoints(eps, policyFilter, modeFilter, transportFilter)
+			if best {
+				return selectBestEndpoint(eps, policyFilter, modeFilter, transport)
+			}
+			return listEndpoints(eps, policyFilter, modeFilter, transport)
 		},
 	}
 
 	cmd.Flags().StringVar(&policyFilter, "policy", "", "Filter by security policy")
 	cmd.Flags().StringVar(&modeFilter, "mode", "", "Filter by security mode")
-	cmd.Flags().StringVar(&transportFilter, "transport-profile", "", "Filter by transport profile")
+	cmd.Flags().StringVar(&transportFilter, "transport-profile", "", "Filter by transport (tcp|wss|https or a transport profile URI)")
 	cmd.Flags().BoolVar(&best, "best", false, "Select the best (most secure) endpoint")
 	_ = cmd.RegisterFlagCompletionFunc("policy", fixedCompletion(securityPolicyValues))
 	_ = cmd.RegisterFlagCompletionFunc("mode", fixedCompletion(securityModeValues))
+	_ = cmd.RegisterFlagCompletionFunc("transport-profile", fixedCompletion(transportValues))
 	return cmd
 }
 
-func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, transportFilter string) error {
+// listEndpoints lists the endpoints; transport is a transport profile URI
+// to filter by ("" for all).
+func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, transport string) error {
 	w := newWriter()
 	var endpoints []model.Endpoint
 	for _, ep := range eps {
@@ -325,7 +343,7 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 		if modeFilter != "" && !strings.EqualFold(ep.SecurityMode.String(), modeFilter) {
 			continue
 		}
-		if transportFilter != "" && !strings.Contains(ep.TransportProfileURI, transportFilter) {
+		if transport != "" && conn.EndpointTransport(ep) != transport {
 			continue
 		}
 
@@ -335,7 +353,7 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 			SecurityMode:     ep.SecurityMode.String(),
 			SecurityLevel:    ep.SecurityLevel,
 			HasCertificate:   len(ep.ServerCertificate) > 0,
-			TransportProfile: ep.TransportProfileURI,
+			TransportProfile: conn.EndpointTransport(ep),
 		}
 		if ep.Server != nil {
 			e.ApplicationURI = ep.Server.ApplicationURI
@@ -358,7 +376,7 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 
 	f := format.ParseFormat(outputFormat)
 	if f == format.Table {
-		headers := []string{"ENDPOINT URL", "SECURITY POLICY", "SECURITY MODE", "LEVEL", "CERT", "TOKEN TYPES"}
+		headers := []string{"ENDPOINT URL", "TRANSPORT", "SECURITY POLICY", "SECURITY MODE", "LEVEL", "CERT", "TOKEN TYPES"}
 		if verbose {
 			headers = append(headers, "APP URI", "CERT THUMBPRINT", "URL MISMATCH")
 		}
@@ -372,7 +390,7 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 			if e.HasCertificate {
 				cert = "yes"
 			}
-			row := []string{e.EndpointURL, e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel), cert, strings.Join(tokenTypes, ", ")}
+			row := []string{e.EndpointURL, conn.TransportName(e.TransportProfile), e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel), cert, strings.Join(tokenTypes, ", ")}
 			if verbose {
 				row = append(row, e.ApplicationURI, e.CertThumbprint, e.URLMismatch)
 			}
@@ -383,11 +401,21 @@ func listEndpoints(eps []*ua.EndpointDescription, policyFilter, modeFilter, tran
 	return w.Write(endpoints)
 }
 
-func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter string) error {
+func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter, transport string) error {
 	w := newWriter()
 
 	if len(eps) == 0 {
 		return exitCodef(3, "no endpoints returned by server")
+	}
+	// One transport: the one asked for, or else the one of the endpoint URL.
+	if transport == "" {
+		transport = connCfg.Transport()
+	}
+	if transport != "" {
+		eps = conn.EndpointsForTransport(eps, transport)
+		if len(eps) == 0 {
+			return exitCodef(3, "the server offers no %s endpoint", conn.TransportName(transport))
+		}
 	}
 
 	var ep *ua.EndpointDescription
@@ -427,11 +455,12 @@ func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter 
 	}
 
 	e := model.Endpoint{
-		EndpointURL:    ep.EndpointURL,
-		SecurityPolicy: parse.SecurityPolicyShortName(ep.SecurityPolicyURI),
-		SecurityMode:   ep.SecurityMode.String(),
-		SecurityLevel:  ep.SecurityLevel,
-		HasCertificate: len(ep.ServerCertificate) > 0,
+		EndpointURL:      ep.EndpointURL,
+		SecurityPolicy:   parse.SecurityPolicyShortName(ep.SecurityPolicyURI),
+		SecurityMode:     ep.SecurityMode.String(),
+		SecurityLevel:    ep.SecurityLevel,
+		HasCertificate:   len(ep.ServerCertificate) > 0,
+		TransportProfile: conn.EndpointTransport(ep),
 	}
 	for _, tp := range ep.UserIdentityTokens {
 		e.UserTokenPolicies = append(e.UserTokenPolicies, model.UserTokenPolicy{
@@ -442,8 +471,8 @@ func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter 
 
 	f := format.ParseFormat(outputFormat)
 	if f == format.Table {
-		headers := []string{"ENDPOINT URL", "SECURITY POLICY", "SECURITY MODE", "LEVEL"}
-		rows := [][]string{{e.EndpointURL, e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel)}}
+		headers := []string{"ENDPOINT URL", "TRANSPORT", "SECURITY POLICY", "SECURITY MODE", "LEVEL"}
+		rows := [][]string{{e.EndpointURL, conn.TransportName(e.TransportProfile), e.SecurityPolicy, e.SecurityMode, fmt.Sprintf("%d", e.SecurityLevel)}}
 		return w.WriteTable(headers, rows)
 	}
 	return w.Write(e)
@@ -460,11 +489,10 @@ func endpointURLMismatch(dialURL, endpointURL string) string {
 	return fmt.Sprintf("dial=%s ep=%s", dialHost, epHost)
 }
 
-// hostFromOPCURL extracts the hostname from an opc.tcp:// or http(s):// URL.
+// hostFromOPCURL extracts the hostname from an opc.tcp://, opc.wss://,
+// opc.https:// or http(s):// URL.
 func hostFromOPCURL(rawURL string) string {
-	// opc.tcp:// is not a standard scheme; normalize for url.Parse.
-	normalized := strings.Replace(rawURL, "opc.tcp://", "http://", 1)
-	u, err := url.Parse(normalized)
+	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
 	}

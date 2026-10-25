@@ -5,6 +5,7 @@ package opcuactl
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,20 +44,27 @@ Examples:
   opcuactl browse children --endpoint opc.tcp://localhost:4840 --node ns=0;i=85
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840
 
+Besides opc.tcp, endpoints can be opc.wss:// (OPC UA over a TLS
+WebSocket) and opc.https:// (UA Binary over HTTPS); --tls-ca, --tls-cert and
+--tls-key configure their TLS.
+
 Servers that cannot be reached but can connect out (firewall, NAT) are
 supported with reverse connect: --reverse-listen host:port makes opcuactl
 wait for the server instead of dialling it.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-		return applyEnvOverrides(cmd)
+		if err := applyEnvOverrides(cmd); err != nil {
+			return err
+		}
+		return validateGlobalFlags()
 	},
 }
 
 func init() {
 	pf := rootCmd.PersistentFlags()
 
-	pf.StringVarP(&connCfg.Endpoint, "endpoint", "e", "", "OPC UA server endpoint (opc.tcp://host:port)")
+	pf.StringVarP(&connCfg.Endpoint, "endpoint", "e", "", "OPC UA server endpoint (opc.tcp://host:port, opc.wss://host:port or opc.https://host:port)")
 	pf.StringVar(&connCfg.SecurityPolicy, "security-policy", "None", "Security policy (None|Basic256Sha256|Aes128Sha256RsaOaep|Aes256Sha256RsaPss|ECC_nistP256|ECC_nistP384|ECC_nistP256_AesGcm|ECC_nistP256_ChaChaPoly|ECC_curve25519|ECC_brainpoolP256r1|ECC_brainpoolP384r1|ECC_curve448|Basic128Rsa15|Basic256|auto)")
 	pf.StringVar(&connCfg.SecurityMode, "security-mode", "None", "Security mode (None|Sign|SignAndEncrypt|auto)")
 	pf.StringVar(&connCfg.Auth, "auth", "anonymous", "Authentication mode (anonymous|username|certificate|issued)")
@@ -72,6 +80,10 @@ func init() {
 	pf.BoolVar(&connCfg.InsecureSkipVerify, "insecure-skip-verify", false, "Skip server certificate verification (INSECURE)")
 	pf.StringVar(&connCfg.ReverseListen, "reverse-listen", "", "Reverse connect: listen on this address (host:port) and wait for the server to connect")
 	pf.StringVar(&connCfg.ReverseServerURI, "reverse-server-uri", "", "Reverse connect: only accept the server announcing this ApplicationUri")
+	pf.StringVar(&connCfg.TLSCAFile, "tls-ca", "", "opc.wss/opc.https: PEM file with the roots for the server's TLS certificate (default: system roots)")
+	pf.StringVar(&connCfg.TLSCertFile, "tls-cert", "", "opc.wss/opc.https: client TLS certificate (PEM) for mutual TLS")
+	pf.StringVar(&connCfg.TLSKeyFile, "tls-key", "", "opc.wss/opc.https: private key (PEM) of --tls-cert")
+	pf.BoolVar(&connCfg.TLSInsecureSkipVerify, "tls-insecure-skip-verify", false, "opc.wss/opc.https: do not verify the server's TLS certificate (INSECURE, development only)")
 	pf.DurationVar(&connCfg.Timeout, "timeout", 10*time.Second, "Connection/operation timeout")
 	pf.StringVarP(&outputFormat, "format", "f", "table", "Output format (table|json|yaml)")
 	pf.BoolVar(&prettyOutput, "pretty", false, "Pretty-print structured output")
@@ -127,12 +139,25 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 	setString("server-cert", "OPCUACTL_SERVER_CERT", &connCfg.ServerCertFile)
 	setString("reverse-listen", "OPCUACTL_REVERSE_LISTEN", &connCfg.ReverseListen)
 	setString("reverse-server-uri", "OPCUACTL_REVERSE_SERVER_URI", &connCfg.ReverseServerURI)
+	setString("tls-ca", "OPCUACTL_TLS_CA", &connCfg.TLSCAFile)
+	setString("tls-cert", "OPCUACTL_TLS_CERT", &connCfg.TLSCertFile)
+	setString("tls-key", "OPCUACTL_TLS_KEY", &connCfg.TLSKeyFile)
 	setString("format", "OPCUACTL_FORMAT", &outputFormat)
 	setString("namespace", "OPCUACTL_NAMESPACE", &namespace)
 
 	if !flags.Changed("trusted-cert") {
 		if v := os.Getenv("OPCUACTL_TRUSTED_CERT"); v != "" {
 			connCfg.TrustedCertFiles = splitCSV(v)
+		}
+	}
+
+	if !flags.Changed("tls-insecure-skip-verify") {
+		if v := os.Getenv("OPCUACTL_TLS_INSECURE_SKIP_VERIFY"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid OPCUACTL_TLS_INSECURE_SKIP_VERIFY %q: %w", v, err)
+			}
+			connCfg.TLSInsecureSkipVerify = b
 		}
 	}
 
@@ -144,6 +169,19 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 			}
 			connCfg.Timeout = d
 		}
+	}
+	return nil
+}
+
+// validateGlobalFlags checks the global flags that every command shares:
+// the TLS files, so that a typo fails before anything is sent.
+func validateGlobalFlags() error {
+	_, err := connCfg.TLSConfig()
+	if err != nil {
+		return exitCode(1, err)
+	}
+	if connCfg.TLSInsecureSkipVerify {
+		fmt.Fprintln(os.Stderr, "Warning: --tls-insecure-skip-verify: the TLS certificate of the server is not verified (INSECURE, development only)")
 	}
 	return nil
 }

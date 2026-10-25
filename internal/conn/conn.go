@@ -43,6 +43,20 @@ type Config struct {
 	// ReverseServerURI restricts reverse connections to the server that
 	// announces this ApplicationUri.
 	ReverseServerURI string
+
+	// TLS of opc.wss and opc.https endpoints. TLSCAFile holds the PEM roots
+	// the TLS certificate of the server is verified against (the system
+	// roots without it); TLSCertFile and TLSKeyFile the client TLS
+	// certificate for mutual TLS. The application instance certificate
+	// (CertFile, KeyFile) is separate.
+	TLSCAFile             string
+	TLSCertFile           string
+	TLSKeyFile            string
+	TLSInsecureSkipVerify bool
+
+	// ReturnDiagnostics is the ReturnDiagnostics mask of every request
+	// (Part 4 §7.33); 0 asks for none.
+	ReturnDiagnostics uint32
 }
 
 // Reverse reports whether the server connects to the client (reverse connect).
@@ -63,6 +77,12 @@ func (cfg *Config) RequireEndpoint() error {
 // and how long to wait for it.
 func (cfg *Config) DiscoveryOptions() []opcua.Option {
 	var opts []opcua.Option
+	if cfg.HasTLS() {
+		opts = append(opts, cfg.tlsOption())
+	}
+	if cfg.ReturnDiagnostics != 0 {
+		opts = append(opts, opcua.ReturnDiagnostics(cfg.ReturnDiagnostics))
+	}
 	if cfg.Reverse() {
 		var ropts []opcua.ReverseConnectOption
 		if cfg.ReverseServerURI != "" {
@@ -80,7 +100,15 @@ func (cfg *Config) DiscoveryOptions() []opcua.Option {
 // (either may be empty / invalid to match anything). When a client
 // certificate is configured, only endpoints usable with its key type are
 // considered, so an RSA certificate is not paired with an ECC endpoint.
+// Only endpoints of the transport of the endpoint URL are considered: an
+// opc.wss URL selects among the opc.wss endpoints.
 func (cfg *Config) SelectEndpoint(endpoints []*ua.EndpointDescription, policy string, mode ua.MessageSecurityMode) (*ua.EndpointDescription, error) {
+	if t := cfg.Transport(); t != "" && len(endpoints) > 0 {
+		endpoints = EndpointsForTransport(endpoints, t)
+		if len(endpoints) == 0 {
+			return nil, fmt.Errorf("the server offers no %s endpoint", TransportName(t))
+		}
+	}
 	if cfg.CertFile == "" {
 		return ua.SelectEndpoint(endpoints, policy, mode)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/otfabric/go-opcua/ua"
 )
 
 func TestConfig_NewClient_emptyEndpoint(t *testing.T) {
@@ -228,5 +231,137 @@ func TestConfig_DiscoveryOptions(t *testing.T) {
 	}
 	if n := len((&Config{ReverseListen: "127.0.0.1:0", Timeout: time.Second}).DiscoveryOptions()); n != 3 {
 		t.Errorf("reverse + timeout: %d options, want 3", n)
+	}
+}
+
+func TestTransport(t *testing.T) {
+	t.Parallel()
+	for url, want := range map[string]string{
+		"opc.tcp://h:4840":   ua.TransportProfileUATCP,
+		"opc.wss://h:4843":   ua.TransportProfileWSS,
+		"opc.https://h:4443": ua.TransportProfileHTTPS,
+		"https://h":          ua.TransportProfileHTTPS,
+		"":                   "",
+		"carrier-pigeon://x": "",
+	} {
+		if got := (&Config{Endpoint: url}).Transport(); got != want {
+			t.Errorf("Transport(%q) = %q, want %q", url, got, want)
+		}
+	}
+
+	tcp := &ua.EndpointDescription{EndpointURL: "opc.tcp://h:4840"}
+	tcpProfile := &ua.EndpointDescription{EndpointURL: "opc.tcp://h:4840", TransportProfileURI: ua.TransportProfileUATCP}
+	wss := &ua.EndpointDescription{EndpointURL: "opc.wss://h:4843", TransportProfileURI: ua.TransportProfileWSS}
+	https := &ua.EndpointDescription{EndpointURL: "opc.https://h:4443"}
+	odd := &ua.EndpointDescription{EndpointURL: "x://h"}
+	all := []*ua.EndpointDescription{tcp, tcpProfile, wss, nil, https, odd}
+	if got := EndpointsForTransport(all, ua.TransportProfileUATCP); len(got) != 3 || got[0] != tcp || got[1] != tcpProfile || got[2] != odd {
+		t.Errorf("tcp endpoints = %v", got)
+	}
+	if got := EndpointsForTransport(all, ua.TransportProfileHTTPS); len(got) != 1 || got[0] != https {
+		t.Errorf("https endpoints = %v", got)
+	}
+	if got := EndpointsForTransport(all, ""); len(got) != len(all) {
+		t.Errorf("all endpoints = %v", got)
+	}
+
+	for uri, want := range map[string]string{
+		ua.TransportProfileUATCP: "opc.tcp", "": "opc.tcp", ua.TransportProfileWSS: "opc.wss",
+		ua.TransportProfileHTTPS: "opc.https", "urn:x": "urn:x",
+	} {
+		if got := TransportName(uri); got != want {
+			t.Errorf("TransportName(%q) = %q, want %q", uri, got, want)
+		}
+	}
+
+	for in, want := range map[string]string{
+		"": "", "tcp": ua.TransportProfileUATCP, "opc.tcp": ua.TransportProfileUATCP, "uatcp": ua.TransportProfileUATCP,
+		"WSS": ua.TransportProfileWSS, "websocket": ua.TransportProfileWSS, "opc.wss": ua.TransportProfileWSS,
+		"https": ua.TransportProfileHTTPS, ua.TransportProfileHTTPS: ua.TransportProfileHTTPS,
+		"urn:other://profile": "urn:other://profile",
+	} {
+		got, err := ParseTransport(in)
+		if err != nil || got != want {
+			t.Errorf("ParseTransport(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := ParseTransport("pigeon"); err == nil {
+		t.Error("ParseTransport(pigeon) succeeded")
+	}
+}
+
+func TestSelectEndpoint_transport(t *testing.T) {
+	t.Parallel()
+	tcp := &ua.EndpointDescription{EndpointURL: "opc.tcp://h:4840", SecurityPolicyURI: ua.SecurityPolicyURINone, SecurityMode: ua.MessageSecurityModeNone, SecurityLevel: 1}
+	wss := &ua.EndpointDescription{EndpointURL: "opc.wss://h:4843", TransportProfileURI: ua.TransportProfileWSS, SecurityPolicyURI: ua.SecurityPolicyURINone, SecurityMode: ua.MessageSecurityModeNone, SecurityLevel: 2}
+	eps := []*ua.EndpointDescription{tcp, wss}
+
+	ep, err := (&Config{Endpoint: "opc.tcp://h:4840"}).SelectEndpoint(eps, "", ua.MessageSecurityModeInvalid)
+	if err != nil || ep != tcp {
+		t.Errorf("tcp: %v, %v", ep, err)
+	}
+	ep, err = (&Config{Endpoint: "opc.wss://h:4843"}).SelectEndpoint(eps, "", ua.MessageSecurityModeInvalid)
+	if err != nil || ep != wss {
+		t.Errorf("wss: %v, %v", ep, err)
+	}
+	if _, err := (&Config{Endpoint: "opc.https://h:4443"}).SelectEndpoint(eps, "", ua.MessageSecurityModeInvalid); err == nil || !strings.Contains(err.Error(), "no opc.https endpoint") {
+		t.Errorf("https: %v", err)
+	}
+}
+
+func TestTLSConfig(t *testing.T) {
+	t.Parallel()
+	if tc, err := (&Config{}).TLSConfig(); tc != nil || err != nil {
+		t.Errorf("no TLS settings: %v, %v", tc, err)
+	}
+	if opts := (&Config{}).DiscoveryOptions(); len(opts) != 0 {
+		t.Errorf("DiscoveryOptions without settings = %d options", len(opts))
+	}
+
+	dir := t.TempDir()
+	certFile, keyFile := writeTestCertKey(t, dir)
+
+	tc, err := (&Config{TLSCAFile: certFile, TLSCertFile: certFile, TLSKeyFile: keyFile}).TLSConfig()
+	if err != nil {
+		t.Fatalf("TLSConfig: %v", err)
+	}
+	if tc.RootCAs == nil || len(tc.Certificates) != 1 || tc.InsecureSkipVerify || tc.MinVersion != tls.VersionTLS12 {
+		t.Errorf("tls config = %+v", tc)
+	}
+
+	// A DER CA file.
+	b, _ := os.ReadFile(certFile)
+	block, _ := pem.Decode(b)
+	der := filepath.Join(dir, "ca.der")
+	if err := os.WriteFile(der, block.Bytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if tc, err := (&Config{TLSCAFile: der}).TLSConfig(); err != nil || tc.RootCAs == nil {
+		t.Errorf("DER CA: %v", err)
+	}
+
+	if tc, err := (&Config{TLSInsecureSkipVerify: true}).TLSConfig(); err != nil || !tc.InsecureSkipVerify {
+		t.Errorf("insecure: %+v, %v", tc, err)
+	}
+
+	for _, cfg := range []Config{
+		{TLSCAFile: filepath.Join(dir, "missing.pem")},
+		{TLSCAFile: keyFile},
+		{TLSCertFile: certFile},
+		{TLSKeyFile: keyFile},
+		{TLSCertFile: keyFile, TLSKeyFile: keyFile},
+	} {
+		if _, err := cfg.TLSConfig(); err == nil {
+			t.Errorf("%+v: no error", cfg)
+		}
+	}
+
+	// A TLS setting that does not load fails the client.
+	bad := Config{Endpoint: "opc.wss://127.0.0.1:1", TLSCAFile: filepath.Join(dir, "missing.pem"), Timeout: time.Second, ReturnDiagnostics: ua.ReturnDiagnosticsAll}
+	if opts := bad.DiscoveryOptions(); len(opts) != 4 {
+		t.Errorf("DiscoveryOptions = %d options, want TLS, diagnostics and the two timeouts", len(opts))
+	}
+	if _, err := bad.NewClient(context.Background()); err == nil || !strings.Contains(err.Error(), "--tls-ca") {
+		t.Errorf("NewClient with a missing --tls-ca: %v", err)
 	}
 }

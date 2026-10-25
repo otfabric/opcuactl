@@ -5,6 +5,8 @@ package opcuactl
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"time"
 
 	"github.com/otfabric/go-opcua/id"
@@ -22,8 +24,10 @@ func newPingCmd() *cobra.Command {
 		Long: `Test connectivity to an OPC UA server in stages.
 
 Each stage is tested and reported individually:
-  1. TCP    — raw TCP connection to the endpoint
-  2. Secure — SecureChannel + Session creation
+  1. TCP    — raw TCP connection to the endpoint (also for opc.wss and
+              opc.https: the TLS handshake is part of the next stage)
+  2. Secure — SecureChannel (TLS and WebSocket upgrade for opc.wss) +
+              Session creation
   3. Browse — read the Root/Objects folder to confirm operability
 
 With --reverse-listen the TCP stage is skipped: the server connects to opcuactl.
@@ -44,7 +48,7 @@ Examples:
 			// Stage 1: TCP dial (not with reverse connect: the server dials us)
 			if !connCfg.Reverse() {
 				tcpStart := time.Now()
-				conn, err := uacp.DialTCP(ctx, connCfg.Endpoint)
+				conn, err := dialTCP(ctx, connCfg.Endpoint)
 				tcpDur := time.Since(tcpStart)
 				if err != nil {
 					steps = append(steps, model.PingStep{
@@ -108,6 +112,30 @@ Examples:
 			return outputPing(steps)
 		},
 	}
+}
+
+// dialTCP opens a raw TCP connection to the host and port of an opc.tcp,
+// opc.wss or opc.https endpoint URL (port 4840 for opc.tcp, 443 for the
+// others when the URL has none).
+func dialTCP(ctx context.Context, endpoint string) (net.Conn, error) {
+	switch ua.TransportProfileForURL(endpoint) {
+	case ua.TransportProfileUATCP:
+		return uacp.DialTCP(ctx, endpoint)
+	case "":
+		return nil, fmt.Errorf("invalid endpoint %q: unsupported scheme (opc.tcp, opc.wss or opc.https)", endpoint)
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("invalid endpoint %q: missing host", endpoint)
+	}
+	port := u.Port()
+	if port == "" {
+		port = "443"
+	}
+	return (&net.Dialer{Timeout: uacp.DefaultDialTimeout}).DialContext(ctx, "tcp", net.JoinHostPort(u.Hostname(), port))
 }
 
 func outputPing(steps []model.PingStep) error {
