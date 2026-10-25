@@ -1,5 +1,30 @@
 # opcuactl Releases
 
+## v0.7.0
+
+**Date:** 2026-10-25  
+**Previous release:** v0.6.0
+
+### Summary
+
+PubSub Actions on a server, on **[go-opcua v1.11.0](https://github.com/otfabric/go-opcua/releases/tag/v1.11.0)**. `pubsub config add-action` adds a PublishedAction through the server's PubSubConfiguration file. `pubsub config export` and `pubsub config reserve-ids` read that file, and Action requests and responses go in chunks when they are large.
+
+### Added
+
+- **`pubsub config add-action`.** Adds a PublishedAction to a server with CloseAndUpdate on its PubSubConfiguration file (Part 14 §9.1.3.7). You give the request fields (`--request Name:Type`), the response fields (`--response`) and the targets (`--target ID:NAME`). With `--method ID=OBJECT@METHOD` for every target, it is a PublishedActionMethod whose targets call those Methods of the server. A DataSetWriter of the data set (`config add-writer`) makes the server the Responder.
+- **`pubsub config export`.** Reads the server's whole PubSub configuration from the file (a PubSubConfiguration2DataType) and prints it in the OPC UA JSON or XML encoding (`--ua-encoding`), or writes it to `--out`.
+- **`pubsub config reserve-ids`.** Reserves WriterGroupIds and DataSetWriterIds (`--writer-groups`, `--writers`) and shows the server's default PublisherId for the transport of `--url` / `--encoding`.
+
+### Changed
+
+- **`pubsub call` and `pubsub respond`: chunked Actions.** A UADP request or response larger than the NetworkMessage limit of the transport goes in chunks (Part 14 §7.2.4.4.4) and is reassembled on the other side. Before, such a call failed.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.10.0 → **[v1.11.0](https://github.com/otfabric/go-opcua/releases/tag/v1.11.0)**
+
+---
+
 ## v0.6.0
 
 **Date:** 2026-10-25  

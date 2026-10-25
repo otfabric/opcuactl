@@ -43,7 +43,12 @@ Examples:
   opcuactl pubsub config add-writer-group -e opc.tcp://localhost:4840 --connection "ns=1;i=50000" --name G --writer-group-id 100 --interval 500ms
   opcuactl pubsub config add-writer -e opc.tcp://localhost:4840 --group "ns=1;i=50010" --name W --writer-id 1 --dataset Plant
   opcuactl pubsub config disable -e opc.tcp://localhost:4840 --node "ns=1;i=50010"
-  opcuactl pubsub config remove connection -e opc.tcp://localhost:4840 --node "ns=1;i=50000"`,
+  opcuactl pubsub config remove connection -e opc.tcp://localhost:4840 --node "ns=1;i=50000"
+  opcuactl pubsub config add-action -e opc.tcp://localhost:4840 --name Calc --request A:Int32 --response R:Int32 --target 1:Run
+  opcuactl pubsub config export -e opc.tcp://localhost:4840
+
+export, reserve-ids and add-action use the PubSubConfiguration file of the
+server (Part 14 §9.1.3.7; go-opcua v1.11.0 and later).`,
 	}
 	cmd.AddCommand(
 		newPubSubConfigShowCmd(),
@@ -57,6 +62,9 @@ Examples:
 		newPubSubEnableCmd(true),
 		newPubSubEnableCmd(false),
 		newPubSubConfigDiagnosticsCmd(),
+		newPubSubExportCmd(),
+		newPubSubReserveIDsCmd(),
+		newPubSubAddActionCmd(),
 	)
 	return cmd
 }

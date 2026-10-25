@@ -696,6 +696,9 @@ opcuactl pubsub config disable -e opc.tcp://localhost:4840 --node "ns=2;i=179"
 opcuactl pubsub config remove connection -e opc.tcp://localhost:4840 --node "ns=2;i=166"
 opcuactl pubsub config add-connection -e opc.tcp://localhost:4840 --name Broker --url mqtt://broker:1883 --mqtt-version 5.0 --encoding json
 opcuactl pubsub config diagnostics -e opc.tcp://localhost:4840 --node "ns=2;i=179"
+opcuactl pubsub config add-action -e opc.tcp://localhost:4840 --name Calc --request A:Int32 --request B:Int32 --response Sum:Int32 --target 1:Add
+opcuactl pubsub config reserve-ids -e opc.tcp://localhost:4840 --url mqtt://broker:1883 --writer-groups 1 --writers 1
+opcuactl pubsub config export -e opc.tcp://localhost:4840 --out pubsub.json
 ```
 
 See [PubSub](#pubsub) for the flags and how security works.
@@ -868,7 +871,7 @@ Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BR
 
 **Message security.** Secured UADP messages (Sign or SignAndEncrypt with PubSub-Aes128-CTR or PubSub-Aes256-CTR) need the keys of their SecurityGroup. `--security-group` pulls them with GetSecurityKeys from the Security Key Service at `--endpoint` and keeps them fresh; the SKS only hands out keys over a SignAndEncrypt session, usually not to anonymous users. `--keys-file` reads keys saved with `pubsub sks get-keys --show-keys --format json` instead — treat that file like a password. A subscriber's `--message-security` is the minimum it accepts; weaker messages are reported on stderr. JSON messages have no message security.
 
-**Configuration.** `pubsub config` calls the methods of the server's PublishSubscribe object (AddConnection, AddPublishedDataItems, AddWriterGroup, AddDataSetWriter, AddReaderGroup, AddDataSetReader, the Remove methods, Enable / Disable); components are addressed by the NodeIds `config show` and the add commands print (`-q` prints only the NodeId). It works with go-opcua (`server.WithPubSub`) and open62541 servers.
+**Configuration.** `pubsub config` calls the methods of the server's PublishSubscribe object (AddConnection, AddPublishedDataItems, AddWriterGroup, AddDataSetWriter, AddReaderGroup, AddDataSetReader, the Remove methods, Enable / Disable); components are addressed by the NodeIds `config show` and the add commands print (`-q` prints only the NodeId). It works with go-opcua (`server.WithPubSub`) and open62541 servers. `config export` reads the server's PubSubConfiguration file (the whole configuration in the OPC UA JSON or XML encoding), `config reserve-ids` reserves WriterGroupIds and DataSetWriterIds and shows the default PublisherId, and `config add-action` adds a PublishedAction with CloseAndUpdate (Part 14 §9.1.3.7; go-opcua servers v1.11.0 and later).
 
 **Broker messages.** `subscribe` shows the topic, content type, UAMessageType (`ua-data`, `ua-metadata`, …) and the user properties (MQTT 5.0, AMQP application properties) of each broker message, and picks the decoder by content type (`application/opcua+uadp`, `application/json`), falling back to detecting it. `publish` sends the UAMessageType of its data and metadata messages; the content type comes from the transport.
 
@@ -914,7 +917,9 @@ The defaults of `--topic-prefix` (`opcua`), `--publisher-id` (`1`), `--writer-gr
 
 `call` exits with 0 for a Good result, 3 for a Bad result of the Action (the result is printed too) and 2 when no response arrives within `--timeout`. A Responder answers nothing to a request it cannot address, that is for another writer or target, or that lacks the security of its writer group (§6.2.11.2.2), so such calls time out. On a broker a request sent before the Responder subscribed is lost. `subscribe` and `decode` show action messages as `action-request` and `action-response` DataSetMessages with their ActionTargetId, RequestId, ActionState, RequestorId, TimeoutHint and the status of the response.
 
-Not supported: PublishedActionMethod targets bound to server Methods, Actions discovery announcements and ActionMetaData messages, chunked action messages, and adding a PublishedAction to a server with `pubsub config` (Part 14 has no method for it; `config show` lists a server's PublishedActions as data sets).
+A request or response larger than the transport's NetworkMessage limit goes in chunks (UADP, Part 14 §7.2.4.4.4). `pubsub config add-action` adds a PublishedAction to a server through its PubSubConfiguration file (CloseAndUpdate, §9.1.3.7), with `--method ID=OBJECT@METHOD` a PublishedActionMethod whose targets call Methods of the server; a DataSetWriter of it (`config add-writer`) makes the server the Responder. `config show` lists a server's PublishedActions as data sets.
+
+Not supported: discovering the ActionMetaData of a Responder in `call` (give `--target-id`, `--input` and `--output`).
 
 ## NodeID Formats
 

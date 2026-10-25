@@ -429,6 +429,14 @@ type PubSubAdded struct {
 	Results []PubSubResult `json:"results,omitempty"`
 }
 
+// PubSubReservedIDs is the result of ReserveIds (Part 14 §9.1.3.7.5).
+type PubSubReservedIDs struct {
+	TransportProfileURI string   `json:"transportProfileUri"`
+	DefaultPublisherID  string   `json:"defaultPublisherId"`
+	WriterGroupIDs      []uint16 `json:"writerGroupIds"`
+	DataSetWriterIDs    []uint16 `json:"dataSetWriterIds"`
+}
+
 // PubSubDiagnostics are the diagnostics counters of a PubSub component
 // (Part 14 §9.1.11): of a server's component, or of what a pubsub command
 // sent and received.
