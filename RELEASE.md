@@ -19,6 +19,10 @@
   - **Output.** The server and its endpoints (the table of `discover endpoints`) on start; `--format json|yaml` as one document, `-q` the endpoint URLs. `--log-level` shows the server log on stderr.
 - **Shell completion** of the `serve` values of `--security-policy`, `--security-mode` and `--log-level`.
 
+### Fixed
+
+- **`write value` exits 3 on a Bad write status.** The result is still printed, but a Bad StatusCode from the server (for example `BadUserAccessDenied` or `BadTypeMismatch`) now exits 3, the README's status-code failure, instead of 0.
+
 ### Dependency
 
 - **`github.com/otfabric/go-opcua`**: v1.25.0 (unchanged)

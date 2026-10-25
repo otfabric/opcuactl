@@ -154,7 +154,12 @@ func TestE2E_Serve(t *testing.T) {
 			"--arg", "2", "--arg", "40", "--types", "int32,int32"), "42")
 
 		// Read-only and writable.
-		wantContains(t, mustRun(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "--value", "1", "--type", "int32", "--yes"), "BadUserAccessDenied")
+		// A Bad write status is printed and exits 3.
+		roOut, _, err := runCLI(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "--value", "1", "--type", "int32", "--yes")
+		if ExitCode(err) != 3 {
+			t.Errorf("write to a read-only node: %v (exit %d)", err, ExitCode(err))
+		}
+		wantContains(t, roOut, "BadUserAccessDenied")
 		wantContains(t, mustRun(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "--value", "90", "--type", "double", "--yes"), "Good")
 		wantContains(t, mustRun(t, "get", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "-q"), "90")
 

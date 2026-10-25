@@ -192,12 +192,22 @@ Examples:
 
 			w := newWriter()
 			f := format.ParseFormat(outputFormat)
+			var werr error
 			if f == format.Table {
 				headers := []string{"NODE ID", "STATUS", "STATUS CODE"}
 				rows := [][]string{{result.NodeID, result.Status, fmt.Sprintf("%d", result.StatusCode)}}
-				return w.WriteTable(headers, rows)
+				werr = w.WriteTable(headers, rows)
+			} else {
+				werr = w.Write(result)
 			}
-			return w.Write(result)
+			if werr != nil {
+				return werr
+			}
+			// A Bad status of the write is a status-code failure (exit 3).
+			if isBadStatus(sc) {
+				return exitCodef(3, "writing value to %s: %s", nodeID, sc.Symbol())
+			}
+			return nil
 		},
 	}
 
