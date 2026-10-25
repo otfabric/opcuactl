@@ -60,7 +60,11 @@ Examples:
   opcuactl gds csr -e opc.tcp://plc:4840 $SEC --type rsa --regenerate --out plc.csr
   opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.pem --issuer ca.pem
   opcuactl gds rejected -e opc.tcp://plc:4840 $SEC
-  opcuactl gds certs -e opc.tcp://plc:4840 $SEC --group https`,
+  opcuactl gds certs -e opc.tcp://plc:4840 $SEC --group https
+  opcuactl gds pull enroll -e opc.tcp://gds:4840 $SEC --uri urn:plant:line4 --cert-out line4.pem --trust-out ./pki
+
+gds pull talks to a Global Discovery Server instead (the pull model, Part 12
+§7.9): it registers applications and issues their certificates.`,
 	}
 	trustlist := &cobra.Command{
 		Use:     "trustlist",
@@ -91,6 +95,7 @@ NodeId of a group the server defines (gds groups lists them).`,
 		newGDSResetCmd(),
 		newGDSTransactionDiagnosticsCmd(),
 		newGDSGroupsCmd(),
+		newGDSPullCmd(),
 	)
 	return cmd
 }
