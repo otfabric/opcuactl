@@ -12,7 +12,6 @@ import (
 
 	"github.com/otfabric/go-opcua"
 	"github.com/otfabric/go-opcua/gds"
-	"github.com/otfabric/go-opcua/id"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
@@ -190,22 +189,6 @@ func typeOrDefault(t *ua.NodeID) string {
 
 // --- delete-cert ---
 
-// deleteCertificate calls DeleteCertificate (Part 12 1.05 §7.10.9).
-func deleteCertificate(ctx context.Context, c *opcua.Client, group, certType *ua.NodeID) error {
-	res, err := c.Call(ctx, &ua.CallMethodRequest{
-		ObjectID:       gds.ServerConfiguration,
-		MethodID:       ua.NewNumericNodeID(0, id.ServerConfigurationDeleteCertificate),
-		InputArguments: []*ua.Variant{ua.MustVariant(group), ua.MustVariant(certType)},
-	})
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != ua.StatusOK {
-		return &gds.Error{Method: "DeleteCertificate", Status: res.StatusCode}
-	}
-	return nil
-}
-
 func newGDSDeleteCertCmd() *cobra.Command {
 	var (
 		group, certType string
@@ -240,12 +223,12 @@ Examples:
 			if !confirmed(yes, os.Stdin, fmt.Sprintf("Delete the %s certificate%s of %s?", parse.CertificateTypeName(typ), groupSuffix(grp), connCfg.Endpoint)) {
 				return nil
 			}
-			return withClient(func(ctx context.Context, c *opcua.Client) error {
-				if err := deleteCertificate(ctx, c, grp, typ); err != nil {
+			return withGDS(func(ctx context.Context, g *gds.Client) error {
+				if err := g.DeleteCertificate(ctx, grp, typ); err != nil {
 					return gdsFailed("DeleteCertificate", err)
 				}
 				res := model.GDSResult{Action: "delete-cert", ApplyChangesRequired: true}
-				return finishChange(ctx, gds.New(c), res, noApply, fmt.Sprintf("Deleted the %s certificate%s", parse.CertificateTypeName(typ), groupSuffix(grp)))
+				return finishChange(ctx, g, res, noApply, fmt.Sprintf("Deleted the %s certificate%s", parse.CertificateTypeName(typ), groupSuffix(grp)))
 			})
 		},
 	}
@@ -403,23 +386,17 @@ Examples:
 // ServerConfiguration: the default groups and those of the application,
 // with their trust lists and certificate types.
 func certificateGroups(ctx context.Context, c *opcua.Client) ([]model.GDSCertificateGroup, error) {
-	folder := ua.NewNumericNodeID(0, id.ServerConfigurationCertificateGroups)
-	refs, err := c.Node(folder).References(ctx, id.HierarchicalReferences, ua.BrowseDirectionForward, ua.NodeClassObject, true)
+	groups, err := gds.New(c).CertificateGroups(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var out []model.GDSCertificateGroup
-	for _, ref := range refs {
-		if ref.NodeID == nil || ref.BrowseName == nil {
-			continue
+	out := make([]model.GDSCertificateGroup, 0, len(groups))
+	for _, cg := range groups {
+		g := model.GDSCertificateGroup{Name: cg.Name, NodeID: cg.Group.String(), CertificateTypes: []string{}}
+		if cg.TrustList != nil {
+			g.TrustList = cg.TrustList.String()
 		}
-		group := ref.NodeID.NodeID
-		tl, err := groupTrustList(ctx, c, group)
-		if err != nil {
-			continue
-		}
-		g := model.GDSCertificateGroup{Name: ref.BrowseName.Name, NodeID: group.String(), TrustList: tl.String(), CertificateTypes: []string{}}
-		if n, err := c.Node(group).TranslateBrowsePathInNamespaceToNodeID(ctx, 0, "CertificateTypes"); err == nil {
+		if n, err := c.Node(cg.Group).TranslateBrowsePathInNamespaceToNodeID(ctx, 0, "CertificateTypes"); err == nil {
 			if v, err := c.Node(n).Value(ctx); err == nil && v != nil {
 				if types, ok := v.Value().([]*ua.NodeID); ok {
 					for _, t := range types {
@@ -429,9 +406,6 @@ func certificateGroups(ctx context.Context, c *opcua.Client) ([]model.GDSCertifi
 			}
 		}
 		out = append(out, g)
-	}
-	if len(out) == 0 {
-		return nil, &gds.Error{Method: "CertificateGroups", Status: ua.StatusBadNodeIDUnknown}
 	}
 	return out, nil
 }

@@ -238,7 +238,15 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 		fail(t, 1, "invalid --type", "gds", "delete-cert", "--type", "dsa", "--yes")
 		fail(t, 1, "invalid --group", "gds", "delete-cert", "--group", "bad group", "--type", "rsa", "--yes")
 		// The server refuses to delete the certificate its endpoints use.
-		fail(t, 3, "DeleteCertificate", "gds", "delete-cert", "--type", "rsa", "--yes")
+		fail(t, 3, "endpoints still use", "gds", "delete-cert", "--type", "rsa", "--yes")
+		// The HTTPS certificate of a server without opc.https endpoints goes.
+		run(t, "gds", "self-signed", "--group", "https", "--type", "https", "--yes")
+		wantContains(t, run(t, "gds", "certs", "--group", "https"), "https")
+		wantContains(t, run(t, "gds", "delete-cert", "--group", "https", "--type", "https", "--yes"), "Deleted the https certificate", "changes applied")
+		if out := run(t, "gds", "certs", "--group", "https", "-q"); strings.TrimSpace(out) != "" {
+			t.Errorf("certs of the https group after the delete = %q", out)
+		}
+		fail(t, 3, "DeleteCertificate", "gds", "delete-cert", "--group", "https", "--type", "https", "--yes")
 	})
 
 	t.Run("reset", func(t *testing.T) {

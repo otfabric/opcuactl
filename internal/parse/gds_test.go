@@ -93,6 +93,7 @@ func TestCertificateGroup(t *testing.T) {
 		{"https", "i=14088", true},
 		{"user-token", "i=14122", true},
 		{"i=14088", "i=14088", true},
+		{"DefaultHttpsGroup", "i=14088", true},
 		{"ns=2;s=Groups.Mqtt", "ns=2;s=Groups.Mqtt", false},
 	} {
 		g, tl, err := CertificateGroup(tt.in)
