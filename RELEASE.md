@@ -1,5 +1,22 @@
 # opcuactl Releases
 
+## v0.8.1
+
+**Date:** 2026-10-25  
+**Previous release:** v0.8.0
+
+### Summary
+
+Built on **[go-opcua v1.24.0](https://github.com/otfabric/go-opcua/releases/tag/v1.24.0)**: secure connections to servers that send their certificate with its issuer chain (UA-.NETStandard by default) sign over the leaf certificate, as Part 4 §6.1.8 specifies.
+
+### Changed
+
+- **`github.com/otfabric/go-opcua`**: v1.23.1 → **[v1.24.0](https://github.com/otfabric/go-opcua/releases/tag/v1.24.0)**
+  - The session signatures (ClientSignature, the X.509 user token signature) cover the leaf of a server certificate chain.
+  - An X.509 user certificate may be given as a chain.
+
+---
+
 ## v0.8.0
 
 **Date:** 2026-10-25  
