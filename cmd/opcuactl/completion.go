@@ -25,6 +25,7 @@ var (
 	deadbandTypeValues   = []string{"none", "absolute", "percent"}
 	uaEncodingValues     = []string{"json", "json-verbose", "json-reversible", "json-nonreversible", "xml"}
 	transportValues      = []string{"tcp", "wss", "https"}
+	alarmStateValues     = []string{"active", "unacked", "unconfirmed", "shelved"}
 	attrValues           = []string{"NodeID", "NodeClass", "BrowseName", "DisplayName", "Description", "DataType", "Value", "AccessLevel", "UserAccessLevel", "WriteMask", "ValueRank", "Historizing", "MinimumSamplingInterval", "ArrayDimensions"}
 )
 

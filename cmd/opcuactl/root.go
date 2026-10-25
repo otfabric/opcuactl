@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 	Long: `opcuactl is a production-grade CLI for interacting with OPC UA servers.
 
 It provides discovery, browsing, reading, writing, method invocation,
-monitoring, and history retrieval capabilities, and works with OPC UA
+monitoring, history retrieval and alarms and conditions, and works with OPC UA
 PubSub: subscribe to and publish UADP / JSON messages over UDP and MQTT,
 decode captures, get keys from a Security Key Service and configure the
 PubSub of a server.
@@ -43,6 +43,7 @@ Examples:
   opcuactl get value --endpoint opc.tcp://localhost:4840 --node i=2258
   opcuactl browse children --endpoint opc.tcp://localhost:4840 --node ns=0;i=85
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840
+  opcuactl alarms list --endpoint opc.tcp://localhost:4840
 
 Besides opc.tcp, endpoints can be opc.wss:// (OPC UA over a TLS
 WebSocket) and opc.https:// (UA Binary over HTTPS); --tls-ca, --tls-cert and
@@ -105,6 +106,7 @@ func init() {
 		newCallCmd(),
 		newMonitorCmd(),
 		newHistoryCmd(),
+		newAlarmsCmd(),
 		newExportCmd(),
 		newPubSubCmd(),
 		newPingCmd(),

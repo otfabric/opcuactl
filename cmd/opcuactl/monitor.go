@@ -493,6 +493,10 @@ AckedState, ConfirmedState, Retain.
 
 Fields that are not resolvable on a given server will appear as null values.
 
+For the state of the conditions (a ConditionRefresh first, the states by
+their Id, the EventId to acknowledge with) use opcuactl alarms watch and
+opcuactl alarms list.
+
 Examples:
   opcuactl monitor alarm -e opc.tcp://localhost:4840 --node i=2253
   opcuactl monitor alarm -e opc.tcp://localhost:4840 --node i=2253 --jsonl
@@ -512,7 +516,7 @@ Examples:
 				fields = selectStr
 			}
 
-			// Alarm monitoring uses event subscriptions; full A&C is deferred upstream.
+			// Plain event fields; alarms watch uses the Part 9 condition fields.
 			filter := buildEventFilter(fields, nil, nil, nil)
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
