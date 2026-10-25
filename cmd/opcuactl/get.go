@@ -71,9 +71,9 @@ Examples:
 				return exitCode(1, err)
 			}
 
-			tsReturn := ua.TimestampsToReturnBoth
-			if timestampsToReturn != "" {
-				tsReturn = ua.TimestampsToReturnFromString(timestampsToReturn)
+			tsReturn, err := parse.TimestampsToReturn(timestampsToReturn)
+			if err != nil {
+				return exitCode(1, err)
 			}
 
 			var encoding *parse.UAEncoding

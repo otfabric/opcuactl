@@ -95,9 +95,9 @@ Examples:
 				return exitCode(1, err)
 			}
 
-			ts := ua.TimestampsToReturnBoth
-			if timestamps != "" {
-				ts = ua.TimestampsToReturnFromString(timestamps)
+			ts, err := parse.TimestampsToReturn(timestamps)
+			if err != nil {
+				return exitCode(1, err)
 			}
 
 			// DataChangeFilter: only sent when asked for, so servers without
