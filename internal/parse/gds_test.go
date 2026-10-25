@@ -82,3 +82,55 @@ func TestCertificateTypeName(t *testing.T) {
 		}
 	}
 }
+
+func TestCertificateGroup(t *testing.T) {
+	for _, tt := range []struct {
+		in, group string
+		trust     bool
+	}{
+		{"", "i=14156", true},
+		{"App", "i=14156", true},
+		{"https", "i=14088", true},
+		{"user-token", "i=14122", true},
+		{"i=14088", "i=14088", true},
+		{"ns=2;s=Groups.Mqtt", "ns=2;s=Groups.Mqtt", false},
+	} {
+		g, tl, err := CertificateGroup(tt.in)
+		if err != nil || g.String() != tt.group || (tl != nil) != tt.trust {
+			t.Errorf("CertificateGroup(%q) = %v, %v, %v", tt.in, g, tl, err)
+		}
+	}
+	if _, _, err := CertificateGroup("nope nope"); err == nil {
+		t.Error("an invalid group parsed")
+	}
+	for in, want := range map[string]string{"i=14156": "default", "i=14088": "https", "i=14122": "usertoken", "ns=2;s=G": "ns=2;s=G"} {
+		n, _ := NodeID(in)
+		if got := CertificateGroupName(n); got != want {
+			t.Errorf("CertificateGroupName(%s) = %q, want %q", in, got, want)
+		}
+	}
+	if CertificateGroupName(nil) != "" {
+		t.Error("CertificateGroupName(nil)")
+	}
+}
+
+func TestApplicationType(t *testing.T) {
+	for in, want := range map[string]ua.ApplicationType{
+		"": ua.ApplicationTypeServer, "Client": ua.ApplicationTypeClient, "both": ua.ApplicationTypeClientAndServer,
+		"discovery": ua.ApplicationTypeDiscoveryServer,
+	} {
+		got, err := ApplicationType(in)
+		if err != nil || got != want {
+			t.Errorf("ApplicationType(%q) = %v, %v", in, got, err)
+		}
+		if back, _ := ApplicationType(ApplicationTypeName(got)); back != got {
+			t.Errorf("ApplicationTypeName(%v) = %q", got, ApplicationTypeName(got))
+		}
+	}
+	if _, err := ApplicationType("plc"); err == nil {
+		t.Error("plc parsed")
+	}
+	if ApplicationTypeName(7) != "7" {
+		t.Error("ApplicationTypeName(7)")
+	}
+}

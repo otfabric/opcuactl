@@ -3,6 +3,7 @@
 package opcuactl
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -22,6 +23,7 @@ import (
 	"github.com/otfabric/go-opcua/gds"
 	"github.com/otfabric/go-opcua/id"
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/go-opcua/uapolicy"
 	"github.com/otfabric/opcuactl/internal/model"
 )
 
@@ -228,18 +230,62 @@ func TestCertificateTypeOf(t *testing.T) {
 	}
 }
 
-func TestReadPrivateKeyPEM(t *testing.T) {
+func TestReadPrivateKey(t *testing.T) {
 	cli := newIdentity(t, "p256", clientURI)
-	b, err := readPrivateKeyPEM(cli.keyFile, cli.der)
-	if err != nil || !strings.Contains(string(b), "PRIVATE KEY") {
-		t.Fatalf("PEM key: %v", err)
+	b, f, err := readPrivateKey(cli.keyFile, cli.der, "", "")
+	if err != nil || f != "PEM" || !strings.Contains(string(b), "PRIVATE KEY") {
+		t.Fatalf("PEM key: %s %v", f, err)
+	}
+	// A key converted to PFX with the password, and read back.
+	pfx, f, err := readPrivateKey(cli.keyFile, cli.der, "pfx", "pw")
+	if err != nil || f != "PFX" {
+		t.Fatalf("pfx: %s %v", f, err)
+	}
+	if k, _, err := uapolicy.ParsePFX(pfx, "pw"); err != nil || !uapolicy.KeyMatchesCertificate(k, cli.der) {
+		t.Fatalf("the PFX does not hold the key: %v", err)
+	}
+	pfxFile := filepath.Join(t.TempDir(), "key.p12")
+	if err := os.WriteFile(pfxFile, pfx, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A PKCS #12 file goes as it is, by default and with --key-format pfx.
+	for _, kf := range []string{"", "pfx"} {
+		if b, f, err := readPrivateKey(pfxFile, cli.der, kf, "pw"); err != nil || f != "PFX" || !bytes.Equal(b, pfx) {
+			t.Errorf("PFX file, --key-format %q: %s %v", kf, f, err)
+		}
+	}
+	// --key-format pem converts it.
+	if b, f, err := readPrivateKey(pfxFile, cli.der, "pem", "pw"); err != nil || f != "PEM" || !strings.Contains(string(b), "PRIVATE KEY") {
+		t.Errorf("PFX file as PEM: %s %v", f, err)
+	}
+	if _, _, err := readPrivateKey(pfxFile, cli.der, "", "wrong"); err == nil || !strings.Contains(err.Error(), "--pfx-password") {
+		t.Errorf("wrong password: %v", err)
+	}
+	// A DER key is sent as PEM.
+	der, _ := x509.MarshalPKCS8PrivateKey(cli.key)
+	derFile := filepath.Join(t.TempDir(), "key.der")
+	if err := os.WriteFile(derFile, der, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, f, err := readPrivateKey(derFile, cli.der, "PEM", ""); err != nil || f != "PEM" || !strings.Contains(string(b), "PRIVATE KEY") {
+		t.Errorf("DER key: %s %v", f, err)
+	}
+	if _, _, err := readPrivateKey(cli.keyFile, cli.der, "jks", ""); err == nil {
+		t.Error("an unknown format was accepted")
+	}
+	other := newIdentity(t, "p256", clientURI)
+	if _, _, err := readPrivateKey(cli.keyFile, other.der, "", ""); err == nil {
+		t.Error("a key of another certificate was accepted")
 	}
 	junk := filepath.Join(t.TempDir(), "junk.key")
 	if err := os.WriteFile(junk, []byte("junk"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readPrivateKeyPEM(junk, cli.der); err == nil {
+	if _, _, err := readPrivateKey(junk, cli.der, "", ""); err == nil {
 		t.Error("a junk key was accepted")
+	}
+	if _, _, err := readPrivateKey(filepath.Join(t.TempDir(), "missing"), cli.der, "", ""); err == nil {
+		t.Error("a missing key was accepted")
 	}
 }
 

@@ -5,6 +5,7 @@ package opcuactl
 import (
 	"bufio"
 	"context"
+	"crypto"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
@@ -58,12 +59,17 @@ Examples:
   opcuactl gds trustlist add -e opc.tcp://plc:4840 $SEC client.der
   opcuactl gds csr -e opc.tcp://plc:4840 $SEC --type rsa --regenerate --out plc.csr
   opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.pem --issuer ca.pem
-  opcuactl gds rejected -e opc.tcp://plc:4840 $SEC`,
+  opcuactl gds rejected -e opc.tcp://plc:4840 $SEC
+  opcuactl gds certs -e opc.tcp://plc:4840 $SEC --group https`,
 	}
 	trustlist := &cobra.Command{
 		Use:     "trustlist",
 		Aliases: []string{"trust"},
-		Short:   "Read and change the trust list of the DefaultApplicationGroup",
+		Short:   "Read and change the trust list of a certificate group",
+		Long: `Read and change the trust list of a certificate group: the
+DefaultApplicationGroup by default, --group https (the TLS certificates of
+opc.https and opc.wss clients), --group usertoken (X.509 user tokens) or the
+NodeId of a group the server defines (gds groups lists them).`,
 	}
 	trustlist.AddCommand(
 		newGDSTrustListGetCmd(),
@@ -79,6 +85,12 @@ Examples:
 		newGDSRejectedCmd(),
 		newGDSTransactionCmd(true),
 		newGDSTransactionCmd(false),
+		newGDSCertsCmd(),
+		newGDSSelfSignedCmd(),
+		newGDSDeleteCertCmd(),
+		newGDSResetCmd(),
+		newGDSTransactionDiagnosticsCmd(),
+		newGDSGroupsCmd(),
 	)
 	return cmd
 }
@@ -106,6 +118,8 @@ func gdsHint(err error) string {
 		return "the server does not support this request (key type, PFX key or certificate type)"
 	case errors.Is(err, ua.StatusBadEncodingLimitsExceeded):
 		return "the trust list exceeds MaxTrustListSize of the server"
+	case errors.Is(err, ua.StatusBadInvalidState):
+		return "the server refuses this in its current state (no certificate of the type, or one its endpoints still use)"
 	}
 	return ""
 }
@@ -124,6 +138,70 @@ func withGDS(fn func(ctx context.Context, g *gds.Client) error) error {
 	return withClient(func(ctx context.Context, c *opcua.Client) error {
 		return fn(ctx, gds.New(c))
 	})
+}
+
+// groupFlag is the --group flag of the commands that take a certificate
+// group.
+func groupFlag(cmd *cobra.Command, group *string, what string) {
+	cmd.Flags().StringVar(group, "group", "", "Certificate group "+what+": default|https|usertoken or a NodeId (default: the DefaultApplicationGroup)")
+	_ = cmd.RegisterFlagCompletionFunc("group", fixedCompletion(certificateGroupValues()))
+}
+
+func certificateGroupValues() []string {
+	out := make([]string, len(parse.CertificateGroups))
+	for i, g := range parse.CertificateGroups {
+		out[i] = g.Name
+	}
+	return out
+}
+
+// parseGroup parses --group (exit code 1 when invalid).
+func parseGroup(s string) (group, trustList *ua.NodeID, err error) {
+	if group, trustList, err = parse.CertificateGroup(s); err != nil {
+		return nil, nil, exitCodef(1, "invalid --group: %v", err)
+	}
+	return group, trustList, nil
+}
+
+// groupTrustList finds the TrustList object of a certificate group.
+func groupTrustList(ctx context.Context, c *opcua.Client, group *ua.NodeID) (*ua.NodeID, error) {
+	refs, err := c.Node(group).References(ctx, id.HasComponent, ua.BrowseDirectionForward, ua.NodeClassObject, true)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range refs {
+		if r.NodeID != nil && r.BrowseName != nil && r.BrowseName.Name == "TrustList" {
+			return r.NodeID.NodeID, nil
+		}
+	}
+	return nil, fmt.Errorf("%s is not a certificate group (it has no TrustList)", group)
+}
+
+// withGDSGroup runs fn with a gds client on the trust list of the group
+// --group names.
+func withGDSGroup(groupName string, fn func(ctx context.Context, g *gds.Client, group *ua.NodeID) error) error {
+	group, tl, err := parseGroup(groupName)
+	if err != nil {
+		return err
+	}
+	return withClient(func(ctx context.Context, c *opcua.Client) error {
+		if tl == nil {
+			if tl, err = groupTrustList(ctx, c, group); err != nil {
+				return gdsFailed("certificate group "+group.String(), err)
+			}
+		}
+		return fn(ctx, gds.New(c).WithTrustList(tl), group)
+	})
+}
+
+// groupSuffix names a certificate group other than the default one in a
+// summary.
+func groupSuffix(group *ua.NodeID) string {
+	name := parse.CertificateGroupName(group)
+	if name == "" || name == "default" {
+		return ""
+	}
+	return " of the " + name + " group"
 }
 
 // --- files ---
@@ -414,11 +492,12 @@ func newGDSTrustListGetCmd() *cobra.Command {
 	var (
 		masks []string
 		out   string
+		group string
 	)
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Read the trust list (certificates, issuers, CRLs)",
-		Long: `Read the trust list of the DefaultApplicationGroup (OpenWithMasks, Read,
+		Long: `Read the trust list of the DefaultApplicationGroup, or of --group (OpenWithMasks, Read,
 Close) and list its entries: the list (trusted, trusted-crl, issuer,
 issuer-crl), the thumbprint, the subject (or for a CRL the issuer and the
 number of revoked certificates) and the end of the validity. -v adds the
@@ -433,6 +512,7 @@ gds trustlist set reads back.
 Examples:
   opcuactl gds trustlist get -e opc.tcp://localhost:4840 $SEC
   opcuactl gds trustlist get -e opc.tcp://localhost:4840 $SEC --masks issuers,issuer-crls
+  opcuactl gds trustlist get -e opc.tcp://localhost:4840 $SEC --group https
   opcuactl gds trustlist get -e opc.tcp://localhost:4840 $SEC --out ./pki --format json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -440,7 +520,7 @@ Examples:
 			if err != nil {
 				return exitCodef(1, "invalid --masks: %v", err)
 			}
-			return withGDS(func(ctx context.Context, g *gds.Client) error {
+			return withGDSGroup(group, func(ctx context.Context, g *gds.Client, _ *ua.NodeID) error {
 				tl, err := g.ReadTrustList(ctx, m)
 				if err != nil {
 					return gdsFailed("reading the trust list", err)
@@ -464,11 +544,15 @@ Examples:
 	cmd.Flags().StringSliceVar(&masks, "masks", nil, "Lists to read: trusted, trusted-crls, issuers, issuer-crls, all (default all)")
 	cmd.Flags().StringVar(&out, "out", "", "Write the entries as DER files into this directory (trusted/certs, trusted/crl, issuer/certs, issuer/crl)")
 	_ = cmd.RegisterFlagCompletionFunc("masks", fixedCompletion(trustListMaskValues))
+	groupFlag(cmd, &group, "whose trust list to read")
 	return cmd
 }
 
 func newGDSTrustListAddCmd() *cobra.Command {
-	var issuer, noApply bool
+	var (
+		issuer, noApply bool
+		group           string
+	)
 	cmd := &cobra.Command{
 		Use:   "add <cert>...",
 		Short: "Add certificates to the trusted (or issuer) certificates",
@@ -481,7 +565,8 @@ AddCertificate cannot add CRLs: use gds trustlist set for them.
 
 Examples:
   opcuactl gds trustlist add -e opc.tcp://localhost:4840 $SEC client.der
-  opcuactl gds trustlist add -e opc.tcp://localhost:4840 $SEC --issuer ca.pem`,
+  opcuactl gds trustlist add -e opc.tcp://localhost:4840 $SEC --issuer ca.pem
+  opcuactl gds trustlist add -e opc.tcp://localhost:4840 $SEC --group usertoken user-ca.pem --issuer`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var certs [][]byte
@@ -493,7 +578,8 @@ Examples:
 				certs = append(certs, cs...)
 			}
 			list := listName(issuer)
-			return withGDS(func(ctx context.Context, g *gds.Client) error {
+			return withGDSGroup(group, func(ctx context.Context, g *gds.Client, grp *ua.NodeID) error {
+				list += groupSuffix(grp)
 				res := model.GDSResult{Action: "add", ApplyChangesRequired: true}
 				for _, der := range certs {
 					if err := g.AddCertificate(ctx, der, !issuer); err != nil {
@@ -507,6 +593,7 @@ Examples:
 	}
 	cmd.Flags().BoolVar(&issuer, "issuer", false, "Add to the issuer certificates instead of the trusted certificates")
 	cmd.Flags().BoolVar(&noApply, "no-apply", false, "Do not call ApplyChanges")
+	groupFlag(cmd, &group, "whose trust list to change")
 	return cmd
 }
 
@@ -533,7 +620,10 @@ func thumbprintArg(s string) (string, error) {
 }
 
 func newGDSTrustListRemoveCmd() *cobra.Command {
-	var issuer, noApply bool
+	var (
+		issuer, noApply bool
+		group           string
+	)
 	cmd := &cobra.Command{
 		Use:   "remove <thumbprint|cert>...",
 		Short: "Remove certificates from the trusted (or issuer) certificates",
@@ -556,23 +646,25 @@ Examples:
 				}
 				thumbs = append(thumbs, t)
 			}
-			return withGDS(func(ctx context.Context, g *gds.Client) error {
+			return withGDSGroup(group, func(ctx context.Context, g *gds.Client, grp *ua.NodeID) error {
+				list := listName(issuer) + groupSuffix(grp)
 				res := model.GDSResult{Action: "remove", ApplyChangesRequired: true, Thumbprints: thumbs}
 				for _, t := range thumbs {
 					if err := g.RemoveCertificate(ctx, t, !issuer); err != nil {
 						msg := "removing " + t
 						if errors.Is(err, ua.StatusBadInvalidArgument) {
-							msg += " (not in the " + listName(issuer) + ")"
+							msg += " (not in the " + list + ")"
 						}
 						return gdsFailed(msg, err)
 					}
 				}
-				return finishChange(ctx, g, res, noApply, fmt.Sprintf("Removed %d certificate(s) from the %s: %s", len(thumbs), listName(issuer), strings.Join(thumbs, ", ")))
+				return finishChange(ctx, g, res, noApply, fmt.Sprintf("Removed %d certificate(s) from the %s: %s", len(thumbs), list, strings.Join(thumbs, ", ")))
 			})
 		},
 	}
 	cmd.Flags().BoolVar(&issuer, "issuer", false, "Remove from the issuer certificates instead of the trusted certificates")
 	cmd.Flags().BoolVar(&noApply, "no-apply", false, "Do not call ApplyChanges")
+	groupFlag(cmd, &group, "whose trust list to change")
 	return cmd
 }
 
@@ -620,6 +712,7 @@ func newGDSTrustListSetCmd() *cobra.Command {
 		masks   []string
 		noApply bool
 		yes     bool
+		group   string
 	)
 	cmd := &cobra.Command{
 		Use:   "set <file|dir>...",
@@ -694,10 +787,13 @@ Examples:
 			if lists&ua.TrustListMasksTrustedCertificates != 0 && len(tl.TrustedCertificates) == 0 {
 				format.Errf("warning: the trusted certificates will be empty")
 			}
+			if _, _, err := parseGroup(group); err != nil {
+				return err
+			}
 			if !confirmed(yes, os.Stdin, fmt.Sprintf("Replace the trust list of %s (%s)?", connCfg.Endpoint, counts)) {
 				return nil
 			}
-			return withGDS(func(ctx context.Context, g *gds.Client) error {
+			return withGDSGroup(group, func(ctx context.Context, g *gds.Client, _ *ua.NodeID) error {
 				required, err := g.WriteTrustList(ctx, tl)
 				if err != nil {
 					return gdsFailed("writing the trust list", err)
@@ -712,6 +808,7 @@ Examples:
 	cmd.Flags().BoolVar(&noApply, "no-apply", false, "Do not call ApplyChanges")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip the confirmation prompt")
 	_ = cmd.RegisterFlagCompletionFunc("masks", fixedCompletion(trustListMaskValues))
+	groupFlag(cmd, &group, "whose trust list to replace")
 	return cmd
 }
 
@@ -723,6 +820,7 @@ func newGDSCSRCmd() *cobra.Command {
 		regenerate bool
 		subject    string
 		out        string
+		group      string
 	)
 	cmd := &cobra.Command{
 		Use:   "csr",
@@ -735,7 +833,9 @@ ApplicationUri and host names of the current certificate.
 
 --regenerate makes the server create a new private key (opcuactl sends 32
 random bytes of entropy); without it the request is for the current key.
---subject replaces the subject ("CN=App/O=Company/C=BE").
+--subject replaces the subject ("CN=App/O=Company/C=BE"). --group asks
+for the certificate of another certificate group (https: the TLS
+certificate of opc.https and opc.wss).
 
 The request is printed as PEM, or written to --out (DER when the name ends
 in .der). Have a CA issue the certificate and install it with
@@ -750,8 +850,13 @@ Examples:
 			if err != nil {
 				return exitCodef(1, "invalid --type: %v", err)
 			}
+			grp, _, err := parseGroup(group)
+			if err != nil {
+				return err
+			}
 			return withGDS(func(ctx context.Context, g *gds.Client) error {
 				der, err := g.CreateSigningRequest(ctx, &gds.SigningRequest{
+					CertificateGroup:     grp,
 					CertificateType:      typ,
 					SubjectName:          subject,
 					RegeneratePrivateKey: regenerate,
@@ -811,6 +916,7 @@ Examples:
 	cmd.Flags().StringVar(&subject, "subject", "", "Subject of the request (CN=App/O=Company); default the current subject")
 	cmd.Flags().StringVar(&out, "out", "", "Write the request to this file (PEM; DER for .der)")
 	_ = cmd.RegisterFlagCompletionFunc("type", fixedCompletion(certificateTypeValues()))
+	groupFlag(cmd, &group, "of the certificate")
 	return cmd
 }
 
@@ -859,37 +965,74 @@ func certificateTypeOf(der []byte) *ua.NodeID {
 	return nil
 }
 
-// readPrivateKeyPEM reads a private key file and returns it as PEM for
-// UpdateCertificate, after checking that it belongs to the certificate.
-func readPrivateKeyPEM(file string, cert []byte) ([]byte, error) {
+// readPrivateKey reads a private key file (PEM or DER, or a PKCS #12 file
+// opened with password) and returns it in keyFormat for UpdateCertificate
+// (PEM, PFX, or "" for the format of the file), after checking that it
+// belongs to the certificate. A PFX made here is protected with password.
+func readPrivateKey(file string, cert []byte, keyFormat, password string) ([]byte, string, error) {
 	b, err := os.ReadFile(file)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	key, err := uapolicy.ParsePrivateKey(b)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", file, err)
+	var (
+		key   crypto.Signer
+		isPFX bool
+	)
+	if block, _ := pem.Decode(b); block == nil {
+		k, _, perr := uapolicy.ParsePFX(b, password)
+		switch {
+		case perr == nil:
+			key, isPFX = k, true
+		case errors.Is(perr, uapolicy.ErrPFXPassword):
+			return nil, "", fmt.Errorf("%s: %w (check --pfx-password)", file, perr)
+		}
+	}
+	if key == nil {
+		if key, err = uapolicy.ParsePrivateKey(b); err != nil {
+			return nil, "", fmt.Errorf("%s: %w", file, err)
+		}
 	}
 	if !uapolicy.KeyMatchesCertificate(key, cert) {
-		return nil, fmt.Errorf("private key %s does not match the certificate", file)
+		return nil, "", fmt.Errorf("private key %s does not match the certificate", file)
+	}
+	switch strings.ToUpper(keyFormat) {
+	case "":
+		if isPFX {
+			return b, gds.PrivateKeyFormatPFX, nil
+		}
+	case gds.PrivateKeyFormatPFX:
+		if isPFX {
+			return b, gds.PrivateKeyFormatPFX, nil
+		}
+		pfx, err := uapolicy.EncodePFX(key, [][]byte{cert}, password)
+		if err != nil {
+			return nil, "", fmt.Errorf("%s: %w", file, err)
+		}
+		return pfx, gds.PrivateKeyFormatPFX, nil
+	case gds.PrivateKeyFormatPEM:
+	default:
+		return nil, "", fmt.Errorf("unknown --key-format %q (pem|pfx)", keyFormat)
 	}
 	if block, _ := pem.Decode(b); block != nil {
-		return b, nil
+		return b, gds.PrivateKeyFormatPEM, nil
 	}
 	pkcs8, err := uapolicy.MarshalPrivateKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", file, err)
+		return nil, "", fmt.Errorf("%s: %w", file, err)
 	}
-	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), nil
+	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), gds.PrivateKeyFormatPEM, nil
 }
 
 func newGDSUpdateCertCmd() *cobra.Command {
 	var (
-		issuers  []string
-		keyFile  string
-		certType string
-		noApply  bool
-		yes      bool
+		issuers     []string
+		keyFile     string
+		keyFormat   string
+		pfxPassword string
+		certType    string
+		group       string
+		noApply     bool
+		yes         bool
 	)
 	cmd := &cobra.Command{
 		Use:   "update-cert <cert>",
@@ -904,10 +1047,17 @@ certificate must carry the ApplicationUri of the server and, with issuers,
 be issued by one of them.
 
 For a certificate issued for a request of gds csr the server has the key.
-For one made elsewhere, --private-key gives its private key (PEM or DER;
-sent as PEM over the encrypted channel; --key remains the key of opcuactl's
-own --cert). --type selects the certificate to replace;
-by default the type of the certificate's key.
+For one made elsewhere, --private-key gives its private key (PEM, DER, or a
+PKCS #12 file; --key remains the key of opcuactl's own --cert). It is sent
+over the encrypted channel in --key-format: pem, or pfx (PKCS #12). A key
+file is converted to PFX protected with --pfx-password, the password the
+server expects for PFX keys (Part 12 sends none; servers keep it in their
+configuration); a PKCS #12 file is sent as it is and --pfx-password opens it
+to check the key. By default the key goes as PEM, a PKCS #12 file as PFX.
+
+--type selects the certificate to replace, by default the type of the
+certificate's key; --group the certificate group (https: the TLS
+certificate of opc.https and opc.wss).
 
 Clients that pinned the old server certificate must trust the new one or
 its CA (--trusted-cert). Asks for confirmation on a terminal (--yes skips
@@ -917,7 +1067,9 @@ Examples:
   opcuactl gds csr -e opc.tcp://plc:4840 $SEC --regenerate --out plc.csr
   # ... the CA issues plc.pem for plc.csr ...
   opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.pem --issuer ca.pem
-  opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.der --private-key plc.key --yes`,
+  opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.der --private-key plc.key --yes
+  opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.der --private-key plc.p12 --pfx-password secret
+  opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC https.pem --private-key https.key --group https --type https`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			certs, err := readCerts(args[0])
@@ -935,17 +1087,25 @@ Examples:
 			if u.CertificateType, err = parse.CertificateType(certType); err != nil {
 				return exitCodef(1, "invalid --type: %v", err)
 			}
+			if u.CertificateGroup, _, err = parseGroup(group); err != nil {
+				return err
+			}
 			if u.CertificateType == nil {
 				u.CertificateType = certificateTypeOf(u.Certificate)
+				if parse.CertificateGroupName(u.CertificateGroup) == "https" {
+					u.CertificateType = gds.HTTPSCertificateType
+				}
 			}
-			if keyFile != "" {
-				if u.PrivateKey, err = readPrivateKeyPEM(keyFile, u.Certificate); err != nil {
+			switch {
+			case keyFile != "":
+				if u.PrivateKey, u.PrivateKeyFormat, err = readPrivateKey(keyFile, u.Certificate, keyFormat, pfxPassword); err != nil {
 					return exitCode(1, err)
 				}
-				u.PrivateKeyFormat = "PEM"
+			case keyFormat != "" || pfxPassword != "":
+				return exitCodef(1, "--key-format and --pfx-password need --private-key")
 			}
 			e := describe("certificate", u.Certificate)
-			if !confirmed(yes, os.Stdin, fmt.Sprintf("Replace the %s certificate of %s with %s (%s)?", parse.CertificateTypeName(u.CertificateType), connCfg.Endpoint, e.Subject, e.Thumbprint)) {
+			if !confirmed(yes, os.Stdin, fmt.Sprintf("Replace the %s certificate%s of %s with %s (%s)?", parse.CertificateTypeName(u.CertificateType), groupSuffix(u.CertificateGroup), connCfg.Endpoint, e.Subject, e.Thumbprint)) {
 				return nil
 			}
 			return withGDS(func(ctx context.Context, g *gds.Client) error {
@@ -959,11 +1119,15 @@ Examples:
 		},
 	}
 	cmd.Flags().StringArrayVar(&issuers, "issuer", nil, "Issuer (CA) certificate file (repeatable)")
-	cmd.Flags().StringVar(&keyFile, "private-key", "", "Private key of the certificate, if the server did not make it (PEM or DER)")
+	cmd.Flags().StringVar(&keyFile, "private-key", "", "Private key of the certificate, if the server did not make it (PEM, DER or PKCS #12)")
+	cmd.Flags().StringVar(&keyFormat, "key-format", "", "Format to send the private key in: pem|pfx (default: pem, pfx for a PKCS #12 file)")
+	cmd.Flags().StringVar(&pfxPassword, "pfx-password", "", "Password of the PFX key (the one the server expects; opens a PKCS #12 --private-key)")
 	cmd.Flags().StringVar(&certType, "type", "", "Certificate type to replace (default: the type of the certificate's key)")
 	cmd.Flags().BoolVar(&noApply, "no-apply", false, "Do not call ApplyChanges")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip the confirmation prompt")
 	_ = cmd.RegisterFlagCompletionFunc("type", fixedCompletion(certificateTypeValues()))
+	_ = cmd.RegisterFlagCompletionFunc("key-format", fixedCompletion([]string{"pem", "pfx"}))
+	groupFlag(cmd, &group, "of the certificate")
 	return cmd
 }
 

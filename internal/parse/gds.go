@@ -55,6 +55,7 @@ var CertificateTypes = []struct {
 	{"ecc-brainpool-p384", id.EccBrainpoolP384r1ApplicationCertificateType},
 	{"ed25519", id.EccCurve25519ApplicationCertificateType},
 	{"ed448", id.EccCurve448ApplicationCertificateType},
+	{"https", id.HTTPSCertificateType},
 }
 
 // CertificateType parses --type: one of the names of CertificateTypes
@@ -106,4 +107,98 @@ func CertificateTypeName(n *ua.NodeID) string {
 		}
 	}
 	return n.String()
+}
+
+// CertificateGroups are the names of the default certificate groups of
+// ServerConfiguration (Part 12 §7.8.3) for --group, with the NodeIds of the
+// group and of its TrustList in namespace 0.
+var CertificateGroups = []struct {
+	Name      string
+	Group     uint32
+	TrustList uint32
+}{
+	{"default", id.ServerConfigurationCertificateGroupsDefaultApplicationGroup, id.ServerConfigurationCertificateGroupsDefaultApplicationGroupTrustList},
+	{"https", id.ServerConfigurationCertificateGroupsDefaultHTTPSGroup, id.ServerConfigurationCertificateGroupsDefaultHTTPSGroupTrustList},
+	{"usertoken", id.ServerConfigurationCertificateGroupsDefaultUserTokenGroup, id.ServerConfigurationCertificateGroupsDefaultUserTokenGroupTrustList},
+}
+
+// CertificateGroup parses --group: default (also app, application), https,
+// usertoken (also user-token), or the NodeId of a group the application
+// defined. It returns the group and, for the default groups, the NodeId of
+// its TrustList (nil for other groups: browse the group for it). An empty
+// string is the DefaultApplicationGroup.
+func CertificateGroup(s string) (group, trustList *ua.NodeID, err error) {
+	s = strings.TrimSpace(s)
+	switch strings.ToLower(s) {
+	case "", "app", "application", "defaultapplicationgroup":
+		s = "default"
+	case "user-token", "defaultusertokengroup":
+		s = "usertoken"
+	case "defaulthttpsgroup":
+		s = "https"
+	}
+	for _, g := range CertificateGroups {
+		if strings.EqualFold(s, g.Name) {
+			return ua.NewNumericNodeID(0, g.Group), ua.NewNumericNodeID(0, g.TrustList), nil
+		}
+	}
+	n, err := NodeID(s)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unknown certificate group %q (default|https|usertoken or a NodeId)", s)
+	}
+	for _, g := range CertificateGroups {
+		if n.Namespace() == 0 && n.Type() <= ua.NodeIDTypeNumeric && n.IntID() == g.Group {
+			return n, ua.NewNumericNodeID(0, g.TrustList), nil
+		}
+	}
+	return n, nil, nil
+}
+
+// CertificateGroupName returns the --group name of a default certificate
+// group, the NodeId of other groups.
+func CertificateGroupName(n *ua.NodeID) string {
+	if n == nil {
+		return ""
+	}
+	if n.Namespace() == 0 && n.Type() <= ua.NodeIDTypeNumeric {
+		for _, g := range CertificateGroups {
+			if g.Group == n.IntID() {
+				return g.Name
+			}
+		}
+	}
+	return n.String()
+}
+
+// ApplicationType parses the type of an application record: server,
+// client, clientandserver (also client-and-server, both) or
+// discoveryserver (also discovery). An empty string is server.
+func ApplicationType(s string) (ua.ApplicationType, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "server":
+		return ua.ApplicationTypeServer, nil
+	case "client":
+		return ua.ApplicationTypeClient, nil
+	case "clientandserver", "client-and-server", "both":
+		return ua.ApplicationTypeClientAndServer, nil
+	case "discoveryserver", "discovery-server", "discovery":
+		return ua.ApplicationTypeDiscoveryServer, nil
+	}
+	return 0, fmt.Errorf("unknown application type %q (server|client|clientandserver|discoveryserver)", s)
+}
+
+// ApplicationTypeName names an application type as ApplicationType parses
+// it.
+func ApplicationTypeName(t ua.ApplicationType) string {
+	switch t {
+	case ua.ApplicationTypeServer:
+		return "server"
+	case ua.ApplicationTypeClient:
+		return "client"
+	case ua.ApplicationTypeClientAndServer:
+		return "clientandserver"
+	case ua.ApplicationTypeDiscoveryServer:
+		return "discoveryserver"
+	}
+	return strconv.Itoa(int(t))
 }

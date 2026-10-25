@@ -497,6 +497,12 @@ func derefInt16(p *int16) int16 {
 // withClient connects and runs fn with a context bounded by --timeout; the
 // requests carry the AuditEntryId of --audit-entry-id.
 func withClient(fn func(ctx context.Context, c *opcua.Client) error) error {
+	return withClientTimeout(connCfg.Timeout, fn)
+}
+
+// withClientTimeout is withClient with the operations bounded by timeout
+// instead of --timeout (0: unbounded).
+func withClientTimeout(timeout time.Duration, fn func(ctx context.Context, c *opcua.Client) error) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	c, err := connCfg.NewClient(ctx)
@@ -505,7 +511,10 @@ func withClient(fn func(ctx context.Context, c *opcua.Client) error) error {
 		return exitCode(2, err)
 	}
 	defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
-	opCtx, cancel := connCfg.TimeoutContext(ctx)
+	opCtx, cancel := ctx, context.CancelFunc(func() {})
+	if timeout > 0 {
+		opCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
 	defer cancel()
 	if alarmAuditEntryID != "" {
 		opCtx = opcua.WithAuditEntryID(opCtx, alarmAuditEntryID)
