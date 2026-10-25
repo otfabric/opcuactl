@@ -33,6 +33,8 @@ Aligned with **v0.8.0**: Alarms & Conditions (list, acknowledge, confirm, shelve
 - [24. Who Is Connected? Server Diagnostics](#24-who-is-connected-server-diagnostics)
 - [25. Connect over HTTPS or a WebSocket](#25-connect-over-https-or-a-websocket)
 - [26. Manage a Server's Certificates (GDS Push)](#26-manage-a-servers-certificates-gds-push)
+- [27. Alarm Maintenance: Out of Service, Suppression, Latched Alarms, Dialogs, Audit](#27-alarm-maintenance-out-of-service-suppression-latched-alarms-dialogs-audit)
+- [28. Get a Certificate from a GDS (Pull)](#28-get-a-certificate-from-a-gds-pull)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -977,3 +979,117 @@ opcuactl get server -e opc.tcp://plc:4840 --security-policy Basic256Sha256 --sec
 A certificate made elsewhere comes with its key: `gds update-cert "${SEC[@]}" plc.der --private-key plc.key` (sent as PEM over the encrypted channel). `--type` (rsa, ecc-p256, ecc-p384, ed25519, …) picks which certificate of a server with several to replace; `update-cert` takes the type of the certificate's key.
 
 The changes are a transaction of the session that ApplyChanges completes; since every opcuactl command opens its own session, the changing commands apply themselves. `--no-apply` leaves the change pending, and `gds apply` / `gds cancel` complete it on servers that keep a transaction across sessions. A refusal says what is missing: `Bad_UserAccessDenied` is the SecurityAdmin role, `Bad_SecurityModeInsufficient` the encrypted channel, `Bad_CertificateUriInvalid` the server's ApplicationUri in the certificate, `Bad_TransactionPending` another administrator's open changes.
+
+**Certificate groups, HTTPS and user tokens.** Besides the application certificate a server may keep an HTTPS certificate (for `opc.https` / `opc.wss`) and a trust list for X.509 user tokens. `--group https|usertoken` (or the NodeId of a group the application defines) selects them on `trustlist`, `csr`, `update-cert`, `certs`, `self-signed` and `delete-cert`:
+
+```sh
+opcuactl gds groups "${SEC[@]}"                                    # groups, trust lists, certificate types
+opcuactl gds certs "${SEC[@]}" --group https --out ./plc-https     # what the server uses now
+opcuactl gds csr "${SEC[@]}" --group https --type https --regenerate --out plc-https.csr
+opcuactl gds update-cert "${SEC[@]}" --group https plc-https.pem --issuer ca.pem --yes
+opcuactl gds trustlist add "${SEC[@]}" --group usertoken idp-ca.pem   # trust X.509 users of a CA
+```
+
+**A key as PKCS #12, a self-signed certificate, starting over:**
+
+```sh
+opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.pfx --pfx-password "$PFX" --yes   # sent as PFX
+opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.key --key-format pfx --yes        # PEM key, sent as PFX
+opcuactl gds self-signed "${SEC[@]}" --type ecc-p256 --subject "CN=plc/O=Plant" --dns plc --days 365 --out plc.pem --yes
+opcuactl gds delete-cert "${SEC[@]}" --type ecc-p256 --yes     # refused while an endpoint uses it
+opcuactl gds reset "${SEC[@]}" --yes                           # trust lists and certificates back to the defaults
+opcuactl gds transaction "${SEC[@]}"                           # what the last ApplyChanges did, and what failed
+```
+
+---
+
+## 27. Alarm Maintenance: Out of Service, Suppression, Latched Alarms, Dialogs, Audit
+
+Part 9 1.05 gives operators more than acknowledge and shelve: alarms can be taken out of service for a repair, suppressed, silenced, reset once the cause of a latched alarm is gone, and dialogs ask the operator a question. A comment (`-m`, also `--comment`) goes with all of them (the `…2` method variants), and an audit trail records who did what.
+
+```sh
+# Pump 3 is repaired: its alarms are out of service until it is back
+opcuactl alarms remove-from-service "${CONN[@]}" "ns=2;s=Pump3.Overload" -m "WO-1182: motor replacement"
+opcuactl alarms list "${CONN[@]}" --state out-of-service -v
+opcuactl alarms place-in-service "${CONN[@]}" "ns=2;s=Pump3.Overload" -m "WO-1182 done"
+
+# Suppress / unsuppress, silence a horn, reset a latched alarm after the fix
+opcuactl alarms suppress "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" -m "tank drained"
+opcuactl alarms unsuppress "${CONN[@]}" "ns=2;s=Tank.LevelAlarm"
+opcuactl alarms silence "${CONN[@]}" "ns=2;s=Hall2.Horn"
+opcuactl alarms reset "${CONN[@]}" "ns=2;s=Press.GuardOpen" -m "guard closed and checked"
+
+# Shelve with a reason
+opcuactl alarms shelve "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" --for 8h -m "sensor on order"
+opcuactl alarms shelve "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" --one-shot -m "known during cleaning"
+
+# A dialog: the prompt and the options are in alarms list --format json / alarms watch
+opcuactl alarms list "${CONN[@]}" --state dialog -v
+opcuactl alarms respond "${CONN[@]}" "ns=2;s=Line1.StartDialog" Yes -m "area clear"
+
+# Branches: previous states that still need an acknowledgement
+opcuactl alarms list "${CONN[@]}" --state branch
+opcuactl alarms ack "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" --branch "ns=1;g=6a0f..." -m "seen"
+
+# Alarm groups an alarm belongs to; alarm metrics (AlarmMetricsType) and their reset
+opcuactl alarms groups "${CONN[@]}" "ns=2;s=Tank.LevelAlarm"
+opcuactl alarms metrics get "${CONN[@]}" "ns=2;s=Plant.AlarmMetrics" --format json
+opcuactl alarms metrics reset "${CONN[@]}" "ns=2;s=Plant.AlarmMetrics"
+```
+
+**Audit trail.** `--audit-entry-id` puts an id (a ticket, a shift) on every request of an `alarms` command; the server reports it as ClientAuditEntryId in its audit events. `alarms audit` streams the audit events of the condition methods: who, what, with which comment, accepted or refused.
+
+```sh
+opcuactl alarms audit "${CONN[@]}" --jsonl >> alarm-audit.jsonl &
+opcuactl alarms ack "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" -m "checked" --audit-entry-id ticket-4711
+opcuactl alarms audit "${CONN[@]}" --entry-id ticket-4711 --count 1
+```
+
+The server must audit (`Server/Auditing` true) and let the user receive audit events. A method the condition does not support exits with 3 (`Bad_MethodInvalid`, the alarm has no such optional state); `Bad_InvalidState` says the alarm is not in a state that allows it (not latched, not active, not out of service), `Bad_DialogNotActive` / `Bad_DialogResponseInvalid` that the dialog is over or the option unknown.
+
+---
+
+## 28. Get a Certificate from a GDS (Pull)
+
+A Global Discovery Server (Part 12 §7.9; go-opcua `gdsserver`, UA-.NETStandard GDS) keeps a directory of applications and issues their certificates. Registering needs the **DiscoveryAdmin** role, issuing **CertificateAuthorityAdmin** (or a session of the application itself, with its current certificate), always over **SignAndEncrypt**.
+
+```sh
+GDS=(-e opc.tcp://gds:58810 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
+     --cert ./pki/opcuactl.pem --key ./pki/opcuactl.key --trusted-cert ./pki/gds.pem
+     --auth username --username gdsadmin --password "$GDS_PASSWORD")
+```
+
+**One step for a new device**: register it (or find it by its ApplicationUri), make a key here, request the certificate, wait for an administrator's approval, and write certificate, key and the trust list in the PKI layout:
+
+```sh
+opcuactl gds pull enroll "${GDS[@]}" --uri urn:plant:hmi7 --name "HMI 7" --type client \
+  --new-key ecc-p256 --cert-type ecc-p256 --cert-out ./hmi7/own/hmi7.pem --trust-out ./hmi7 --wait-timeout 1h
+# hmi7.key next to the certificate (mode 0600); ./hmi7/trusted/certs, ./hmi7/trusted/crl, ...
+```
+
+Without `--new-key` or `--private-key` the GDS generates the key pair and returns it once: `--key-out` names the file (default next to `--cert-out` with `.key`).
+
+**Step by step** (an existing CSR, a script that collects later):
+
+```sh
+APP=$(opcuactl gds pull register "${GDS[@]}" --uri urn:plant:line4 --name "Line 4" \
+        --discovery-url opc.tcp://line4:4840 --capability DA -q)
+REQ=$(opcuactl gds pull request "${GDS[@]}" "$APP" --csr line4.csr -q)
+opcuactl gds pull finish "${GDS[@]}" "$APP" "$REQ" --cert-out line4.pem --issuers-out ca.pem \
+  || echo "still waiting for approval"            # exit 3 (Bad_NothingToDo) while pending
+opcuactl gds pull wait "${GDS[@]}" "$APP" "$REQ" --cert-out line4.pem --poll 30s
+```
+
+**Directory and lifecycle:**
+
+```sh
+opcuactl gds pull find "${GDS[@]}" urn:plant:line4              # ApplicationId(s) of a URI
+opcuactl gds pull query "${GDS[@]}" --type server --uri "urn:plant:%"
+opcuactl gds pull query-servers "${GDS[@]}" --capability DA
+opcuactl gds pull update "${GDS[@]}" "$APP" --discovery-url opc.tcp://line4.plant:4840
+opcuactl gds pull status "${GDS[@]}" "$APP" --type rsa          # time to renew? (exit 0 either way)
+opcuactl gds pull trustlist "${GDS[@]}" "$APP" --out ./line4-pki
+opcuactl gds pull revoke "${GDS[@]}" "$APP" line4.pem --yes
+opcuactl gds pull check-revocation "${GDS[@]}" line4.pem || echo "revoked or unknown"   # exit 4
+opcuactl gds pull unregister "${GDS[@]}" "$APP" --yes           # also revokes its certificates
+```

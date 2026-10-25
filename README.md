@@ -24,9 +24,9 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **Read anything** — values (with timestamps and array index ranges), full node summaries, any attribute, server status, or every variable under an object in one batch.
 - **Write and call, carefully** — typed writes with a confirmation prompt and `--dry-run`; method calls with argument introspection.
 - **Watch a server live** — `monitor value`, `monitor event` and `monitor alarm` stay subscribed and print every change as it arrives, with queue size, sampling interval, deadband and trigger filters and event filters under your control.
-- **Alarms and conditions** — `alarms list` shows the retained conditions of a server (ConditionRefresh) with their states and EventIds; `alarms ack`, `confirm`, `comment`, `enable`, `disable`, `shelve` and `unshelve` call the Part 9 methods, and `alarms watch` streams the condition events.
+- **Alarms and conditions** — `alarms list` shows the retained conditions of a server (ConditionRefresh) with their states, branches and EventIds; `alarms ack`, `confirm`, `comment`, `enable`, `disable`, `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `silence`, `reset` and `respond` call the Part 9 methods (with a comment where Part 9 1.05 allows one), `alarms groups` and `alarms metrics` read alarm groups and metrics, `alarms watch` streams the condition events and `alarms audit` the audit events of who did what.
 - **Server diagnostics** — `diagnostics summary|sessions|subscriptions|sampling` read what the server counts about its sessions and subscriptions; `diagnostics enable|disable` switch it (administrators); `--return-diagnostics` prints the DiagnosticInfos the server returns for a failed request.
-- **Certificate management** — `gds trustlist get|add|remove|set` read and change the trust list of a server, `gds csr` and `gds update-cert` renew its application instance certificate through your CA, `gds rejected` shows the clients it refused: the push model of OPC UA Part 12 (GDS push), as a SecurityAdmin over an encrypted channel.
+- **Certificate management** — `gds trustlist get|add|remove|set` read and change the trust lists of a server's certificate groups, `gds csr` and `gds update-cert` renew its certificates through your CA (PEM or PKCS #12 keys), `gds self-signed`, `gds delete-cert` and `gds reset` cover the rest of the push model of OPC UA Part 12 (as a SecurityAdmin over an encrypted channel); `gds pull` registers applications with a Global Discovery Server and gets their certificates and trust lists from it, `gds pull enroll` in one step.
 - **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
@@ -134,9 +134,10 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Write** — write typed values with dry-run validation; any data type as OPC UA JSON / XML
 - **Call** — invoke OPC UA methods with argument introspection
 - **Monitor** — subscribe to live value changes, filtered events, and alarms (queue window + overflow, DataChangeFilter with absolute / percent deadband and trigger, IndexRange)
-- **Alarms & Conditions** — list the retained conditions (ConditionRefresh), acknowledge, confirm, comment, enable / disable, timed and one-shot shelving, unshelve, stream condition events (Part 9)
+- **Alarms & Conditions** — list the retained conditions (ConditionRefresh) with their branches and optional states, acknowledge, confirm, comment (per branch), enable / disable, timed and one-shot shelving and unshelve (with a comment), suppress / unsuppress, remove from / place in service, silence, reset of latched alarms, dialog responses, alarm group memberships, alarm metrics (read and reset), stream condition events and the audit events of the condition methods, an AuditEntryId on every request (Part 9 1.05)
 - **Server diagnostics** — ServerDiagnosticsSummary, session (with per-service counters), session security, subscription and sampling-interval diagnostics; switch the collection on and off; DiagnosticInfos of failed requests (`--return-diagnostics`)
-- **Certificate management (GDS push, Part 12 §7)** — ServerConfiguration properties, read / add / remove / replace the trust list (certificates, issuers, CRLs; DER files in the `trusted/certs`, `issuer/crl`, … layout), certificate signing requests with a new or the current key, install a CA-issued certificate (with its chain or a private key), the rejected certificates, ApplyChanges / CancelChanges
+- **Certificate management (GDS push, Part 12 §7)** — ServerConfiguration properties, read / add / remove / replace the trust list (certificates, issuers, CRLs; DER files in the `trusted/certs`, `issuer/crl`, … layout), certificate signing requests with a new or the current key, install a CA-issued certificate (with its chain or a private key, PEM or PKCS #12), the rejected certificates, ApplyChanges / CancelChanges; certificate groups (DefaultApplicationGroup, DefaultHttpsGroup, DefaultUserTokenGroup and the groups of the application), the certificates in use, self-signed certificates, DeleteCertificate, ResetToServerDefaults and the transaction diagnostics
+- **Certificates from a GDS (pull, Part 12 §7.9)** — register, find, query, update and unregister applications at a Global Discovery Server; certificate requests from a CSR, a private key or a key pair the GDS generates; collect them (waiting for an approval), read the trust list, revoke, check the revocation status; `gds pull enroll` writes certificate, key and trust list in one step
 - **History** — raw, modified, processed (aggregates), and at-time historical reads
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
@@ -337,9 +338,17 @@ opcuactl
 │   ├── confirm        Confirm a condition
 │   ├── comment        Add a comment to a condition
 │   ├── enable / disable
-│   ├── shelve         Shelve an alarm (--for <duration> or --one-shot)
+│   ├── shelve         Shelve an alarm (--for <duration> or --one-shot; -m: with a comment)
 │   ├── unshelve       Unshelve an alarm
-│   └── watch          Stream condition events (refresh, then live)
+│   ├── suppress / unsuppress
+│   ├── remove-from-service / place-in-service
+│   ├── silence        Silence an alarm
+│   ├── reset          Reset a latched alarm
+│   ├── respond        Respond to a dialog (option index or text)
+│   ├── groups         Alarm groups an alarm is a member of
+│   ├── metrics        Read or reset alarm metrics (get / reset)
+│   ├── watch          Stream condition events (refresh, then live)
+│   └── audit          Stream the audit events of the condition methods
 ├── diagnostics
 │   ├── summary        ServerDiagnosticsSummary and EnabledFlag
 │   ├── sessions       Sessions (--session <id>|self: details, --security: security diagnostics)
@@ -353,10 +362,24 @@ opcuactl
 │   │   ├── add        Add trusted (or --issuer) certificates
 │   │   ├── remove     Remove certificates by thumbprint or file
 │   │   └── set        Replace the trust list from files or a PKI directory
-│   ├── csr            Certificate signing request (--type, --regenerate, --subject, --out)
-│   ├── update-cert    Install a new application instance certificate (--issuer, --private-key)
+│   ├── groups         Certificate groups with their trust lists and certificate types
+│   ├── certs          Certificates of a group (GetCertificates)
+│   ├── csr            Certificate signing request (--group, --type, --regenerate, --subject, --out)
+│   ├── update-cert    Install a new certificate (--group, --issuer, --private-key, --key-format pem|pfx)
+│   ├── self-signed    Have the server create a new key and self-signed certificate
+│   ├── delete-cert    Delete a certificate of a group (DeleteCertificate)
+│   ├── reset          ResetToServerDefaults
+│   ├── transaction    Diagnostics of the last certificate transaction
 │   ├── rejected       Certificates the server rejected (--out)
-│   └── apply / cancel ApplyChanges / CancelChanges
+│   ├── apply / cancel ApplyChanges / CancelChanges
+│   └── pull           A Global Discovery Server (pull model, Part 12 §7.9)
+│       ├── find / get / query / query-servers
+│       ├── register / update / unregister
+│       ├── request    Certificate request (--csr, --private-key, or a key pair the GDS generates)
+│       ├── finish / wait  Collect the certificate (wait polls until approved)
+│       ├── trustlist / groups / certs / status
+│       ├── revoke / check-revocation
+│       └── enroll     Register, request, wait; write certificate, key and trust list
 ├── history
 │   ├── value          Read historical data values
 │   └── event          Read historical events
@@ -603,9 +626,33 @@ opcuactl alarms disable -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm"
 
 # Stream the condition events: the refresh first, then every change (JSON Lines)
 opcuactl alarms watch -e opc.tcp://localhost:4840 --jsonl
+
+# Shelve with a comment (TimedShelve2); the -m of unshelve calls Unshelve2
+opcuactl alarms shelve -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --for 8h -m "sensor on order"
+
+# Maintenance: take an alarm out of service and back; suppress, silence, reset a latched alarm
+opcuactl alarms remove-from-service -e opc.tcp://localhost:4840 "ns=2;s=Pump3.Overload" -m "pump 3 in repair"
+opcuactl alarms place-in-service -e opc.tcp://localhost:4840 "ns=2;s=Pump3.Overload" -m "repaired"
+opcuactl alarms suppress -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm"
+opcuactl alarms silence -e opc.tcp://localhost:4840 "ns=2;s=Tank.HornAlarm"
+opcuactl alarms reset -e opc.tcp://localhost:4840 "ns=2;s=Press.GuardOpen" -m "guard closed"
+
+# Branches (previous states that still need an acknowledgement) and the optional states
+opcuactl alarms list -e opc.tcp://localhost:4840 --state branch -v
+opcuactl alarms ack -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --branch "ns=1;g=..." -m "seen"
+
+# Answer a dialog by option text or index; alarm groups; alarm metrics
+opcuactl alarms respond -e opc.tcp://localhost:4840 "ns=2;s=Line1.StartDialog" Yes -m "guard checked"
+opcuactl alarms groups -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm"
+opcuactl alarms metrics get -e opc.tcp://localhost:4840 "ns=2;s=Plant.AlarmMetrics"
+opcuactl alarms metrics reset -e opc.tcp://localhost:4840 "ns=2;s=Plant.AlarmMetrics"
+
+# Tag the requests with an AuditEntryId; follow the audit events of the condition methods
+opcuactl alarms ack -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --audit-entry-id ticket-4711
+opcuactl alarms audit -e opc.tcp://localhost:4840 --entry-id ticket-4711 --jsonl
 ```
 
-`--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A refused method exits with code 3 and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
+`--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A BRANCH column appears when the server reports branches; `-v` adds the optional states (suppressed, out of service, silenced, latched, dialog). `-m` (also `--comment`) on `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `reset` and `respond` calls the Part 9 1.05 method variant that takes a comment. A refused method exits with code 3 and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
 
 ### Server Diagnostics
 
@@ -673,9 +720,64 @@ opcuactl gds trustlist set "${SEC[@]}" ./plc-pki --yes
 # Renew the server certificate: request with a new key, the CA signs, install
 opcuactl gds csr "${SEC[@]}" --type rsa --regenerate --out plc.csr
 opcuactl gds update-cert "${SEC[@]}" plc.pem --issuer ca.pem --yes
+
+# Certificate groups; the certificates the server uses
+opcuactl gds groups "${SEC[@]}"
+opcuactl gds certs "${SEC[@]}" --group https --out ./plc-certs
+
+# The HTTPS certificate and the user-token trust list: --group https|usertoken|<NodeId>
+opcuactl gds csr "${SEC[@]}" --group https --type https --regenerate --out plc-https.csr
+opcuactl gds update-cert "${SEC[@]}" --group https plc-https.pem --issuer ca.pem --yes
+opcuactl gds trustlist add "${SEC[@]}" --group usertoken idp-ca.pem
+
+# A certificate made elsewhere, with its key as PKCS #12
+opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.pfx --key-format pfx --pfx-password "$PFX" --yes
+
+# A self-signed certificate made by the server; delete one; back to the defaults
+opcuactl gds self-signed "${SEC[@]}" --type ecc-p256 --subject "CN=plc" --dns plc --yes
+opcuactl gds delete-cert "${SEC[@]}" --type ecc-p256 --yes
+opcuactl gds reset "${SEC[@]}" --yes
+
+# What the last ApplyChanges did (TransactionDiagnostics)
+opcuactl gds transaction "${SEC[@]}"
 ```
 
-The commands that change something call ApplyChanges in their own session (a server keeps the transaction per session); `--no-apply` leaves the change pending. A refusal names what is missing: the SecurityAdmin role (`Bad_UserAccessDenied`), a SignAndEncrypt channel (`Bad_SecurityModeInsufficient`), the server's ApplicationUri in the certificate. Thumbprints are SHA-1 in hexadecimal; case, colons and spaces do not matter.
+The commands that change something call ApplyChanges in their own session (a server keeps the transaction per session); `--no-apply` leaves the change pending. A refusal names what is missing: the SecurityAdmin role (`Bad_UserAccessDenied`), a SignAndEncrypt channel (`Bad_SecurityModeInsufficient`), the server's ApplicationUri in the certificate. Thumbprints are SHA-1 in hexadecimal; case, colons and spaces do not matter. A server refuses to delete a certificate its endpoints use (`Bad_InvalidState`).
+
+### Certificates from a GDS (Pull)
+
+```sh
+# A session at the GDS over an encrypted channel: DiscoveryAdmin registers, CertificateAuthorityAdmin
+# issues; an application may also manage its own record and certificates in its own session
+GDS=(-e opc.tcp://gds:58810 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
+     --cert client.pem --key client.key --trusted-cert gds.pem
+     --auth username --username gdsadmin --password "$P")
+
+# One step: register (or find) the application, request a certificate, wait for the approval,
+# write certificate, private key and trust list
+opcuactl gds pull enroll "${GDS[@]}" --uri urn:plant:line4 --name "Line 4" --type client \
+    --new-key ecc-p256 --cert-type ecc-p256 --cert-out line4.pem --trust-out ./pki
+
+# The application directory
+opcuactl gds pull register "${GDS[@]}" --uri urn:plant:line4 --name "en:Line 4" --discovery-url opc.tcp://line4:4840 --capability DA
+opcuactl gds pull find "${GDS[@]}" urn:plant:line4
+opcuactl gds pull query "${GDS[@]}" --type server
+opcuactl gds pull query-servers "${GDS[@]}" --capability DA
+opcuactl gds pull update "${GDS[@]}" "ns=2;g=5f0c..." --discovery-url opc.tcp://line4.plant:4840
+
+# Step by step: a request (from a CSR, a private key, or a key pair the GDS generates), then collect it
+ID=$(opcuactl gds pull request "${GDS[@]}" "ns=2;g=5f0c..." --csr line4.csr -q)
+opcuactl gds pull finish "${GDS[@]}" "ns=2;g=5f0c..." "$ID" --cert-out line4.pem   # exit 3 while it waits
+opcuactl gds pull wait "${GDS[@]}" "ns=2;g=5f0c..." "$ID" --cert-out line4.pem --wait-timeout 1h
+
+# Trust list, renewal, revocation
+opcuactl gds pull trustlist "${GDS[@]}" "ns=2;g=5f0c..." --out ./pki
+opcuactl gds pull status "${GDS[@]}" "ns=2;g=5f0c..." --type rsa
+opcuactl gds pull revoke "${GDS[@]}" "ns=2;g=5f0c..." line4.pem --yes
+opcuactl gds pull check-revocation "${GDS[@]}" line4.pem   # exit 4 when not Good
+```
+
+The GDS returns a private key it generated only once: `finish`, `wait` and `enroll` write it next to `--cert-out` with the extension `.key` (mode 0600) unless `--key-out` names the file. A GDS may hold a request for an administrator; `finish` then exits with 3 (`Bad_NothingToDo`, waits for approval), `wait` and `enroll` poll (`--poll`, `--wait-timeout`).
 
 ### Historical Data
 
@@ -893,7 +995,7 @@ All data goes to stdout, all errors go to stderr.
 | `1` | Usage or validation error |
 | `2` | Connection or transport failure |
 | `3` | OPC UA service or status-code failure |
-| `4` | Partial success (batch/export operations) |
+| `4` | Partial success (batch/export operations); `gds pull check-revocation`: the certificate is not valid |
 
 ## Security
 

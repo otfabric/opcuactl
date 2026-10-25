@@ -36,7 +36,7 @@ var rootCmd = &cobra.Command{
 
 It provides discovery, browsing, reading, writing, method invocation,
 monitoring, history retrieval, alarms and conditions, server
-diagnostics and certificate management (GDS push), and works with OPC UA
+diagnostics and certificate management (GDS push and pull), and works with OPC UA
 PubSub: subscribe to and publish UADP / JSON messages over UDP and MQTT,
 decode captures, get keys from a Security Key Service and configure the
 PubSub of a server.
