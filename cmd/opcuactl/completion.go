@@ -27,6 +27,7 @@ var (
 	returnDiagnosticsValues = []string{"none", "service", "operation", "all"}
 	transportValues         = []string{"tcp", "wss", "https"}
 	alarmStateValues        = []string{"active", "unacked", "unconfirmed", "shelved"}
+	trustListMaskValues     = []string{"trusted", "trusted-crls", "issuers", "issuer-crls", "all"}
 	attrValues              = []string{"NodeID", "NodeClass", "BrowseName", "DisplayName", "Description", "DataType", "Value", "AccessLevel", "UserAccessLevel", "WriteMask", "ValueRank", "Historizing", "MinimumSamplingInterval", "ArrayDimensions"}
 )
 

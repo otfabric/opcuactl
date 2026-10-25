@@ -114,6 +114,7 @@ func init() {
 		newHistoryCmd(),
 		newAlarmsCmd(),
 		newDiagnosticsCmd(),
+		newGDSCmd(),
 		newExportCmd(),
 		newPubSubCmd(),
 		newPingCmd(),
