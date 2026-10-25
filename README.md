@@ -1,4 +1,4 @@
-# opcuactl — OPC UA Command-Line Client: Discover, Browse, Read, Write, Call Methods, Monitor, History, Export & PubSub
+# opcuactl — OPC UA Command-Line Client: Discover, Browse, Read, Write, Call Methods, Monitor, Alarms, History, Export & PubSub
 
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/opcuactl.svg)](https://pkg.go.dev/github.com/otfabric/opcuactl)
@@ -7,7 +7,7 @@
 [![Codecov](https://codecov.io/gh/otfabric/opcuactl/graph/badge.svg)](https://codecov.io/gh/otfabric/opcuactl)
 [![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?label=release)](https://github.com/otfabric/opcuactl/releases)
 
-**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, reads historical data, exports whole subtrees, and listens to, publishes and configures OPC UA PubSub — from a terminal, over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
+**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, acknowledges and shelves alarms, reads the server diagnostics, reads historical data, exports whole subtrees, and listens to, publishes and configures OPC UA PubSub — from a terminal, over `opc.tcp`, `opc.wss` or `opc.https`, and over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
 
 It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is interop-tested against open62541, Eclipse Milo, async-opcua, the OPC Foundation UA-.NETStandard stack, node-opcua and opcua-asyncio.
 
@@ -24,10 +24,13 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **Read anything** — values (with timestamps and array index ranges), full node summaries, any attribute, server status, or every variable under an object in one batch.
 - **Write and call, carefully** — typed writes with a confirmation prompt and `--dry-run`; method calls with argument introspection.
 - **Watch a server live** — `monitor value`, `monitor event` and `monitor alarm` stay subscribed and print every change as it arrives, with queue size, sampling interval, deadband and trigger filters and event filters under your control.
+- **Alarms and conditions** — `alarms list` shows the retained conditions of a server (ConditionRefresh) with their states and EventIds; `alarms ack`, `confirm`, `comment`, `enable`, `disable`, `shelve` and `unshelve` call the Part 9 methods, and `alarms watch` streams the condition events.
+- **Server diagnostics** — `diagnostics summary|sessions|subscriptions|sampling` read what the server counts about its sessions and subscriptions; `diagnostics enable|disable` switch it (administrators); `--return-diagnostics` prints the DiagnosticInfos the server returns for a failed request.
 - **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
+- **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
@@ -105,6 +108,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - [Exit Codes](#exit-codes)
 - [Security](#security)
   - [Security policies](#security-policies)
+  - [HTTPS and WebSocket](#https-and-websocket)
   - [Reverse connect](#reverse-connect)
 - [PubSub](#pubsub)
   - [PubSub Actions](#pubsub-actions)
@@ -128,9 +132,12 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Write** — write typed values with dry-run validation; any data type as OPC UA JSON / XML
 - **Call** — invoke OPC UA methods with argument introspection
 - **Monitor** — subscribe to live value changes, filtered events, and alarms (queue window + overflow, DataChangeFilter with absolute / percent deadband and trigger, IndexRange)
+- **Alarms & Conditions** — list the retained conditions (ConditionRefresh), acknowledge, confirm, comment, enable / disable, timed and one-shot shelving, unshelve, stream condition events (Part 9)
+- **Server diagnostics** — ServerDiagnosticsSummary, session (with per-service counters), session security, subscription and sampling-interval diagnostics; switch the collection on and off; DiagnosticInfos of failed requests (`--return-diagnostics`)
 - **History** — raw, modified, processed (aggregates), and at-time historical reads
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
+- **Transports** — `opc.tcp`, `opc.wss` (WebSocket over TLS) and `opc.https` (HTTPS), with TLS server verification against `--tls-ca` and client certificates for mutual TLS
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
 - **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), PubSub Actions (request / response: `pubsub call` and a test Responder, `pubsub respond`), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
 
@@ -321,6 +328,21 @@ opcuactl
 │   ├── value          Subscribe to live data changes
 │   ├── event          Subscribe to event notifications
 │   └── alarm          Subscribe to alarm/condition events
+├── alarms
+│   ├── list           List the retained conditions (ConditionRefresh)
+│   ├── ack            Acknowledge a condition (EventId of its latest event by default)
+│   ├── confirm        Confirm a condition
+│   ├── comment        Add a comment to a condition
+│   ├── enable / disable
+│   ├── shelve         Shelve an alarm (--for <duration> or --one-shot)
+│   ├── unshelve       Unshelve an alarm
+│   └── watch          Stream condition events (refresh, then live)
+├── diagnostics
+│   ├── summary        ServerDiagnosticsSummary and EnabledFlag
+│   ├── sessions       Sessions (--session <id>|self: details, --security: security diagnostics)
+│   ├── subscriptions  Subscriptions (--session: of one session)
+│   ├── sampling       Sampling intervals in use
+│   └── enable / disable  Switch the collection of server diagnostics (administrators)
 ├── history
 │   ├── value          Read historical data values
 │   └── event          Read historical events
@@ -540,6 +562,74 @@ opcuactl monitor event -e opc.tcp://localhost:4840 -n i=2253 \
 opcuactl monitor alarm -e opc.tcp://localhost:4840 -n i=2253
 ```
 
+### Alarms and Conditions
+
+```sh
+# The retained conditions: active, unacknowledged or unconfirmed (ConditionRefresh on the Server object)
+opcuactl alarms list -e opc.tcp://localhost:4840
+# CONDITION ID            NAME        SOURCE  SEVERITY  ACTIVE  ACKED  CONFIRMED  ENABLED  SHELVED  EVENT ID
+# ns=2;s=Tank.LevelAlarm  LevelAlarm  Tank    700       yes     no     no         yes      no       +LbyRwxcuik8Tz1iutx3ug==
+# ns=2;s=Tank.Info        Info        Tank    100       -       -      -          yes      -        LSnbjZ5FjcZQZujIajWaPw==
+
+# Only what still needs an operator, with time and message
+opcuactl alarms list -e opc.tcp://localhost:4840 --state unacked --severity-min 500 -v
+
+# Acknowledge (the EventId of the latest event is looked up), then confirm, with comments
+opcuactl alarms ack -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" -m "checking the level sensor"
+opcuactl alarms confirm -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" -m "sensor replaced"
+
+# Refer to a specific event by its EventId (base64 as printed, or 0x hex)
+opcuactl alarms ack -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --event-id +LbyRwxcuik8Tz1iutx3ug==
+
+# Shelve for an hour or until the alarm goes inactive; unshelve; disable and enable
+opcuactl alarms shelve -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --for 1h
+opcuactl alarms shelve -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --one-shot
+opcuactl alarms unshelve -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm"
+opcuactl alarms disable -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm"
+
+# Stream the condition events: the refresh first, then every change (JSON Lines)
+opcuactl alarms watch -e opc.tcp://localhost:4840 --jsonl
+```
+
+`--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A refused method exits with code 3 and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
+
+### Server Diagnostics
+
+```sh
+# Summary counters and whether the server collects diagnostics
+opcuactl diagnostics summary -e opc.tcp://localhost:4840
+
+# Who is connected: sessions, clients, subscriptions, requests
+opcuactl diagnostics sessions -e opc.tcp://localhost:4840
+
+# One session in detail with the request counts per service (self: the session of opcuactl)
+opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --session self
+opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --session "ns=3;g=5f1c..." --auth username --username admin --password "$P"
+
+# User, authentication, transport and security of a session
+opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --security --session self
+
+# Subscriptions (all counters with --format json) and sampling intervals
+opcuactl diagnostics subscriptions -e opc.tcp://localhost:4840
+opcuactl diagnostics sampling -e opc.tcp://localhost:4840
+
+# Switch the collection off and on (resets the counters); needs an administrator
+opcuactl diagnostics disable -e opc.tcp://localhost:4840 --auth username --username admin --password "$P"
+opcuactl diagnostics enable -e opc.tcp://localhost:4840 --auth username --username admin --password "$P"
+
+# DiagnosticInfos of a failed request: the server explains a Bad status
+opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Missing" --return-diagnostics all
+# stderr:
+# Diagnostic (read ns=2;s=Missing):
+#   SymbolicId:      BadNodeIdUnknown
+#   Text:            The node id refers to a node that does not exist in the server address space. [en]
+#   AdditionalInfo:  ns=2;s=Missing, attribute Value
+```
+
+What a client may read is up to the server: usually everyone reads the summary, the session and subscription arrays and their own session; another session's details, the session security array and `enable` / `disable` need an administrator (SecurityAdmin or ConfigureAdmin), the security array also an encrypted channel. A refusal says so. An empty array with diagnostics switched off prints a hint on stderr.
+
+`--return-diagnostics none|service|operation|all` (or a raw mask) asks the server for DiagnosticInfos with every request: a request the server rejects as a whole prints its service diagnostics; `get value`, `write value` and `call method` print the DiagnosticInfo of every failed operation (and failed method input argument). They go to stderr, so table and JSON output stay unchanged.
+
 ### Historical Data
 
 ```sh
@@ -709,7 +799,7 @@ Every networked command supports these connection and output flags:
 
 | Flag | Env Variable | Description |
 |------|-------------|-------------|
-| `-e, --endpoint` | `OPCUACTL_ENDPOINT` | OPC UA server endpoint (e.g. `opc.tcp://host:4840`) |
+| `-e, --endpoint` | `OPCUACTL_ENDPOINT` | OPC UA server endpoint: `opc.tcp://host:4840`, `opc.wss://host:port` or `opc.https://host:port` (see [HTTPS and WebSocket](#https-and-websocket)) |
 | `--security-policy` | `OPCUACTL_SECURITY_POLICY` | Security policy (`None`, `Basic256Sha256`, `ECC_nistP256`, …, or `auto`; see [Security](#security)) |
 | `--security-mode` | `OPCUACTL_SECURITY_MODE` | Security mode (`None`, `Sign`, `SignAndEncrypt`, or `auto`) |
 | `--auth` | `OPCUACTL_AUTH` | Auth mode (`anonymous`, `username`, `certificate`, `issued`) |
@@ -723,6 +813,10 @@ Every networked command supports these connection and output flags:
 | `--server-cert` | `OPCUACTL_SERVER_CERT` | Server certificate file (overrides endpoint cert; skips the endpoint lookup for an explicit policy) |
 | `--trusted-cert` | `OPCUACTL_TRUSTED_CERT` | Trusted CA / self-signed cert (repeatable; env is CSV) |
 | `--insecure-skip-verify` | — | Skip server certificate verification (INSECURE) |
+| `--tls-ca` | `OPCUACTL_TLS_CA` | `opc.wss` / `opc.https`: PEM file with the roots the server's TLS certificate is verified against (default: the system roots) |
+| `--tls-cert` / `--tls-key` | `OPCUACTL_TLS_CERT` / `OPCUACTL_TLS_KEY` | `opc.wss` / `opc.https`: client TLS certificate and key (PEM) for mutual TLS |
+| `--tls-insecure-skip-verify` | `OPCUACTL_TLS_INSECURE_SKIP_VERIFY` | `opc.wss` / `opc.https`: do not verify the server's TLS certificate (INSECURE, development only; warns on stderr) |
+| `--return-diagnostics` | `OPCUACTL_RETURN_DIAGNOSTICS` | Ask for DiagnosticInfos (`none`, `service`, `operation`, `all` or a mask) and print them on failures (see [Server Diagnostics](#server-diagnostics)) |
 | `--reverse-listen` | `OPCUACTL_REVERSE_LISTEN` | Reverse connect: listen on `host:port` and wait for the server to connect |
 | `--reverse-server-uri` | `OPCUACTL_REVERSE_SERVER_URI` | Reverse connect: only accept the server announcing this ApplicationUri |
 | `--timeout` | `OPCUACTL_TIMEOUT` | Dial / request / connect timeout, and how long to wait for a reverse connection (default: `10s`) |
@@ -763,6 +857,8 @@ All data goes to stdout, all errors go to stderr.
 | User identity | `--auth anonymous\|username\|certificate\|issued` |
 | Channel crypto | `--security-policy` / `--security-mode` (`None` … or `auto`) |
 | Who opens the connection | the client by default; the server with `--reverse-listen` ([reverse connect](#reverse-connect)) |
+| Transport | the scheme of `--endpoint`: `opc.tcp`, `opc.wss` or `opc.https` ([HTTPS and WebSocket](#https-and-websocket)) |
+| TLS (`opc.wss` / `opc.https`) | `--tls-ca`, `--tls-cert` + `--tls-key` (mutual TLS), or `--tls-insecure-skip-verify` (dev only) |
 | Client application cert | `--cert` + `--key` (required for Sign / SignAndEncrypt) |
 | Trust the server | `--trusted-cert` (repeatable), `--server-cert`, or `--insecure-skip-verify` (dev only) |
 | User token PolicyId | usually filled by `auto`; override with `--auth-policy-id` if needed |
@@ -820,6 +916,31 @@ opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
 ```
 
 Store secrets in the environment when scripting (`OPCUACTL_PASSWORD`, `OPCUACTL_TOKEN`, …). Env vars apply when the matching flag is not set on the CLI. See [RECIPES.md](RECIPES.md) for copy-paste `CONN=(...)` blocks.
+
+### HTTPS and WebSocket
+
+Besides `opc.tcp`, opcuactl connects to `opc.wss://` endpoints (OPC UA Secure Conversation over a TLS WebSocket, Part 6 §7.5, transport profile wss-uasc-uabinary) and `opc.https://` endpoints (UA Binary requests as HTTPS POSTs, Part 6 §7.4, https-uabinary). The scheme of `--endpoint` picks the transport; every command works over it, subscriptions included (over HTTPS a Publish is a long poll).
+
+TLS is separate from the OPC UA security: the server's TLS certificate is verified against `--tls-ca` (or the system roots) and the host name of the URL, while `--cert`, `--key` and `--trusted-cert` remain the application instance certificates of the secure channel and session. `--tls-cert` / `--tls-key` present a client TLS certificate to servers that require mutual TLS.
+
+```sh
+# Endpoints of a WebSocket listener; the TRANSPORT column shows opc.tcp, opc.wss or opc.https
+opcuactl discover endpoints -e opc.wss://plc.example:4843 --tls-ca ./pki/tls-ca.pem
+
+# Read over HTTPS: TLS protects the connection, the None endpoint is usual there
+opcuactl get value -e opc.https://plc.example:4443 -n i=2258 --tls-ca ./pki/tls-ca.pem \
+  --auth username --username operator --password "$OPCUACTL_PASSWORD"
+
+# Secure channel over a WebSocket; auto selects among the opc.wss endpoints
+opcuactl get value -e opc.wss://plc.example:4843 -n i=2258 --tls-ca ./pki/tls-ca.pem \
+  --security-policy auto --security-mode auto --cert client.pem --key client.key --trusted-cert server-ca.pem
+
+# Mutual TLS
+opcuactl browse children -e opc.wss://plc.example:4843 --tls-ca ./pki/tls-ca.pem \
+  --tls-cert ./pki/tls-client.pem --tls-key ./pki/tls-client.key
+```
+
+`--security-policy auto` and `discover endpoints --best` select among the endpoints of the transport of `--endpoint` (`--transport-profile tcp|wss|https` names another). Over HTTPS there is no secure channel: the policy only signs the session, and the AEAD ECC policies are not offered. `ping` checks the TCP connection first; the TLS handshake is part of its secure stage.
 
 ### Reverse connect
 

@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.4.1** (go-opcua v1.8.1): OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
+Aligned with **v0.8.0**: Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
 
 ## Table of Contents
 
@@ -29,6 +29,9 @@ Aligned with **v0.4.1** (go-opcua v1.8.1): OPC UA PubSub (UADP / JSON over UDP a
 - [20. Find Publishers with UADP Discovery](#20-find-publishers-with-uadp-discovery)
 - [21. Watch PubSub Diagnostics Counters](#21-watch-pubsub-diagnostics-counters)
 - [22. Call PubSub Actions (Request / Response)](#22-call-pubsub-actions-request--response)
+- [23. Handle Alarms: List, Acknowledge, Confirm, Shelve](#23-handle-alarms-list-acknowledge-confirm-shelve)
+- [24. Who Is Connected? Server Diagnostics](#24-who-is-connected-server-diagnostics)
+- [25. Connect over HTTPS or a WebSocket](#25-connect-over-https-or-a-websocket)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -68,6 +71,11 @@ CONN=(-e opc.tcp://your-server:4840 \
   --security-policy auto --security-mode auto \
   --cert client-ecc.pem --key client-ecc.key --trusted-cert server-ca.pem)
 
+# WebSocket (opc.wss) or HTTPS (opc.https): TLS verified against the CA of the server's TLS certificate
+CONN=(-e opc.wss://your-server:4843 --tls-ca ./pki/tls-ca.pem)
+CONN=(-e opc.https://your-server:4443 --tls-ca ./pki/tls-ca.pem \
+  --auth username --username operator --password "$OPCUACTL_PASSWORD")
+
 # Reverse connect: the server dials opcuactl (server behind a firewall / NAT).
 # No --endpoint needed; --timeout is how long to wait for the server.
 CONN=(--reverse-listen 0.0.0.0:4841 --reverse-server-uri urn:plant1:plc7 --timeout 60s)
@@ -93,6 +101,10 @@ Useful when you do not want secrets on the command line:
 | `OPCUACTL_SERVER_CERT` | `--server-cert` |
 | `OPCUACTL_TRUSTED_CERT` | `--trusted-cert` (comma-separated paths) |
 | `OPCUACTL_SECURITY_POLICY` / `OPCUACTL_SECURITY_MODE` | `--security-policy` / `--security-mode` |
+| `OPCUACTL_TLS_CA` | `--tls-ca` (`opc.wss` / `opc.https`) |
+| `OPCUACTL_TLS_CERT` / `OPCUACTL_TLS_KEY` | `--tls-cert` / `--tls-key` (mutual TLS) |
+| `OPCUACTL_TLS_INSECURE_SKIP_VERIFY` | `--tls-insecure-skip-verify` (`true` / `false`; development only) |
+| `OPCUACTL_RETURN_DIAGNOSTICS` | `--return-diagnostics` (`none`, `service`, `operation`, `all`) |
 | `OPCUACTL_BROKER_PASSWORD` (or the older `OPCUACTL_MQTT_PASSWORD`) | `pubsub --broker-password` (MQTT and AMQP brokers) |
 
 ```sh
@@ -237,6 +249,9 @@ opcuactl monitor event "${CONN[@]}" -n i=2253 \
 
 # Alarms (alarm-oriented select defaults)
 opcuactl monitor alarm "${CONN[@]}" -n i=2253 --duration 30s --jsonl
+
+# Condition state with ConditionRefresh and EventIds (see recipe 23)
+opcuactl alarms watch "${CONN[@]}" --duration 30s --jsonl
 ```
 
 ---
@@ -350,6 +365,15 @@ opcuactl get server -e opc.tcp://your-server:4840 \
 A `BadSecurityPolicyRejected` or "no endpoint" error with an ECC policy usually means the key type of `--cert` does not fit: the `ECC_nistP256*` policies need an ECDSA P-256 certificate, `ECC_nistP384` P-384 (or P-256), `ECC_curve25519` Ed25519, `ECC_brainpoolP256r1` / `ECC_brainpoolP384r1` an ECDSA key on that Brainpool curve, `ECC_curve448` Ed448, and the RSA policies an RSA certificate. `discover endpoints --best --cert … --key …` shows the best endpoint your certificate can use.
 
 With reverse connect (`--reverse-listen`), a timeout means the server never dialled in: check the client URL configured on the server, the firewall towards the listening port, and raise `--timeout` above the server's retry interval.
+
+When the server answers with a Bad status and nothing more, ask it why with `--return-diagnostics all`: the DiagnosticInfos it returns (symbolic id, text, and as additional info the operation, e.g. the node and attribute) are printed on stderr.
+
+```sh
+opcuactl get value "${CONN[@]}" -n "ns=2;s=Tank.Level" --return-diagnostics all
+opcuactl write value "${CONN[@]}" -n "ns=2;s=Setpoint" --value 42 --type double --yes --return-diagnostics operation
+```
+
+For `opc.wss` / `opc.https` endpoints, `x509: certificate signed by unknown authority` concerns the TLS certificate: pass its CA with `--tls-ca` (not `--trusted-cert`, which is for the application instance certificate); a handshake failure against a server that wants mutual TLS needs `--tls-cert` / `--tls-key`.
 
 If username/certificate auth fails with an opaque BadIdentityToken error, retry with `--security-policy auto --security-mode auto` so the correct user-token PolicyId is taken from the endpoint.
 
@@ -760,3 +784,127 @@ opcuactl pubsub respond --url opc.udp://10.0.0.9:4840 --max-concurrent 4 --rate 
 ```
 
 In scripts, branch on the exit code of `call`: 0 for a Good result, 3 for a Bad result (printed as well), 2 when no response came within `--timeout`. `--quiet` prints only the output values, one per line.
+
+---
+
+## 23. Handle Alarms: List, Acknowledge, Confirm, Shelve
+
+The Part 9 workflow from a terminal: see what is pending, acknowledge it with a comment, confirm it once the cause is fixed, shelve a nuisance alarm for a while.
+
+```sh
+# What is pending: the retained conditions, highest severity first
+opcuactl alarms list "${CONN[@]}"
+opcuactl alarms list "${CONN[@]}" --state unacked --severity-min 500 -v
+
+# Of one area or source only (the notifier the events come from)
+opcuactl alarms list "${CONN[@]}" --node "ns=2;s=Area1"
+
+# Acknowledge with a comment; the EventId of the latest event is looked up with a ConditionRefresh
+opcuactl alarms ack "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" -m "operator on site"
+
+# Confirm after the fix (alarms with ConfirmedState only), and leave a note
+opcuactl alarms confirm "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" -m "level sensor replaced"
+opcuactl alarms comment "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" -m "spare part ordered"
+
+# Shelve a chattering alarm during maintenance, then unshelve it
+opcuactl alarms shelve "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" --for 2h
+opcuactl alarms unshelve "${CONN[@]}" "ns=2;s=Tank.LevelAlarm"
+
+# Take a condition out of service and back
+opcuactl alarms disable "${CONN[@]}" "ns=2;s=Tank.LevelAlarm"
+opcuactl alarms enable "${CONN[@]}" "ns=2;s=Tank.LevelAlarm"
+```
+
+Script it: acknowledge every unacknowledged alarm of an area with one comment.
+
+```sh
+opcuactl alarms list "${CONN[@]}" --node "ns=2;s=Area1" --state unacked -q |
+while read -r cond; do
+  opcuactl alarms ack "${CONN[@]}" "$cond" -m "acknowledged by shift handover" || echo "failed: $cond" >&2
+done
+```
+
+Log the condition events as JSON Lines (the refresh first, marked `"refresh": "start"` / `"end"`, then every change):
+
+```sh
+opcuactl alarms watch "${CONN[@]}" --jsonl >> alarms.jsonl
+jq -r 'select(.conditionId) | [.ts, .conditionName, .severity, .active, .acked] | @tsv' alarms.jsonl
+```
+
+To acknowledge exactly the event an operator saw (not a newer one), pass its EventId from `alarms list` or `alarms watch`: `--event-id +LbyRwxcuik8Tz1iutx3ug==`. A server that refused the method exits with code 3 and the reason: `already acknowledged`, `the EventId is not one of the recent events of the condition`, `the condition is disabled`, `the user may not call this method` (connect with an identity that may).
+
+---
+
+## 24. Who Is Connected? Server Diagnostics
+
+When a server runs out of sessions or a client misbehaves, its diagnostics tell who is connected, from where and how busy they are.
+
+```sh
+# Counters: current and cumulated sessions and subscriptions, rejected sessions and requests, timeouts
+opcuactl diagnostics summary "${CONN[@]}"
+
+# The sessions: client application, endpoint, connect and last contact time, subscriptions, requests
+opcuactl diagnostics sessions "${CONN[@]}"
+
+# One session with its request counts per service (an administrator for other sessions)
+opcuactl diagnostics sessions "${CONN[@]}" --session "ns=3;g=5F1C..."
+opcuactl diagnostics sessions "${CONN[@]}" --session self
+
+# The user, authentication and security of a session
+opcuactl diagnostics sessions "${CONN[@]}" --security --session self
+
+# Subscriptions: publishing interval, items, notifications, republish requests (a lagging client)
+opcuactl diagnostics subscriptions "${CONN[@]}"
+opcuactl diagnostics subscriptions "${CONN[@]}" --format json | jq 'sort_by(-.republishRequestCount) | .[0:5]'
+
+# Sampling intervals in use: what the server samples how often
+opcuactl diagnostics sampling "${CONN[@]}"
+```
+
+Find sessions that have been quiet for long (a client that died without closing its session):
+
+```sh
+opcuactl diagnostics sessions "${CONN[@]}" --format json |
+  jq -r '.[] | [.clientLastContactTime, .sessionName, .clientName, .endpointUrl] | @tsv' | sort
+```
+
+Diagnostics collection can be switched off on servers that care about the overhead; switching it on resets the counters. Both need an administrator (SecurityAdmin or ConfigureAdmin); a refusal says so:
+
+```sh
+ADMIN=(--auth username --username admin --password "$ADMIN_PASSWORD")
+opcuactl diagnostics enable "${CONN[@]}" "${ADMIN[@]}"
+opcuactl diagnostics disable "${CONN[@]}" "${ADMIN[@]}"
+```
+
+---
+
+## 25. Connect over HTTPS or a WebSocket
+
+Some servers (and gateways in front of them) offer `opc.wss://` (OPC UA over a TLS WebSocket) or `opc.https://` (UA Binary over HTTPS) next to, or instead of, `opc.tcp`, often because only port 443 gets through a firewall.
+
+```sh
+# Which endpoints does it offer? Each one shows its transport (some servers list
+# only those of the transport you ask on, others all; --transport-profile filters)
+opcuactl discover endpoints -e opc.wss://gateway.example:443 --tls-ca ./pki/tls-ca.pem
+opcuactl discover endpoints -e opc.tcp://gateway.example:4840 --transport-profile wss
+
+# Is the TLS listener reachable? (TCP, then TLS + session, then browse)
+opcuactl ping -e opc.https://gateway.example:443 --tls-ca ./pki/tls-ca.pem
+
+# Read, monitor, acknowledge: every command works over either transport
+opcuactl get value -e opc.wss://gateway.example:443 --tls-ca ./pki/tls-ca.pem -n i=2258
+opcuactl monitor value -e opc.https://gateway.example:443 --tls-ca ./pki/tls-ca.pem -n "ns=2;s=Temp" --duration 1m
+
+# A secure channel inside the WebSocket: auto picks among the opc.wss endpoints
+opcuactl get server -e opc.wss://gateway.example:443 --tls-ca ./pki/tls-ca.pem \
+  --security-policy auto --security-mode auto --cert client.pem --key client.key --trusted-cert server-ca.pem
+
+# Mutual TLS: the gateway wants a client TLS certificate
+opcuactl browse children -e opc.wss://gateway.example:443 --tls-ca ./pki/tls-ca.pem \
+  --tls-cert ./pki/tls-client.pem --tls-key ./pki/tls-client.key
+
+# Lab only: skip the TLS verification (prints a warning)
+opcuactl get value -e opc.wss://localhost:4843 --tls-insecure-skip-verify -n i=2258
+```
+
+Two certificates are in play: the TLS certificate of the listener (`--tls-ca`, `--tls-cert` / `--tls-key`) and the application instance certificates of OPC UA (`--cert`, `--key`, `--trusted-cert`). Over HTTPS there is no secure channel; servers usually offer the None endpoint there and accept user names because TLS protects them.
