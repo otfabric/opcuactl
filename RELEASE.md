@@ -1,5 +1,61 @@
 # opcuactl Releases
 
+## v0.8.0
+
+**Date:** 2026-10-25  
+**Previous release:** v0.7.0
+
+### Summary
+
+Alarms and conditions, server diagnostics, certificate management by the push and the pull model of Part 12, OPC UA over HTTPS and WebSockets, and Brainpool and Ed448 certificates, on **[go-opcua v1.21.0](https://github.com/otfabric/go-opcua/releases/tag/v1.21.0)**. It also fixes `--timestamps-to-return`, which ignored most of its documented values.
+
+### Added
+
+- **`opc.wss://` and `opc.https://` endpoints.** Every command takes them in `-e`. `--tls-ca` gives the roots for the server's TLS certificate, `--tls-cert` / `--tls-key` set up mutual TLS, and `--tls-insecure-skip-verify` skips the check with a warning; all of them can also come from `OPCUACTL_TLS_*`. `discover endpoints` shows a TRANSPORT column and filters with `--transport-profile tcp|wss|https`. `--best` and `--security-policy auto` choose among the endpoints of the transport you dialed, and `ping` dials the TCP port of these URLs.
+- **Brainpool and Ed448 certificates.** `--cert`, `--key` and `--trusted-cert` take ECDSA keys on brainpoolP256r1 / brainpoolP384r1 and Ed448 keys, which crypto/tls cannot load. That opens the ECC_brainpoolP256r1, ECC_brainpoolP384r1 and ECC_curve448 security policies.
+- **`alarms` (Part 9).**
+  - `alarms list` calls ConditionRefresh and shows the retained conditions with their states, branches (BranchId) and the EventId of their latest event (`--state`, `--severity-min`, `--node`). `-v` adds the optional states: suppressed, out of service, silenced, latched, dialog.
+  - `alarms ack`, `confirm` and `comment` take the latest EventId by default; `--event-id` names another event and `--branch` names a branch.
+  - `enable`, `disable`, `shelve --for|--one-shot` and `unshelve` call the condition methods.
+  - The Part 9 1.05 methods are commands too: `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `silence`, `reset` (latched alarms) and `respond` (dialogs, by option index or text). With `-m` / `--comment`, the commands that have a `…2` variant (Suppress2, TimedShelve2, Respond2, …) call it.
+  - `alarms groups` lists the alarm groups of an alarm, and `alarms metrics get|reset` reads and resets AlarmMetricsType objects.
+  - `alarms watch` streams the condition events. `alarms audit` streams the audit events of the condition methods; `--entry-id` filters it, and `--audit-entry-id` sets the AuditEntryId of the requests of every `alarms` command.
+  - A refused method exits with 3 and gives the reason.
+- **`diagnostics`.** Reads Server.ServerDiagnostics:
+  - `summary` (with EnabledFlag);
+  - `sessions`: `--session <id>|self` shows the details with the counters per service, and `--security` the security diagnostics;
+  - `subscriptions` and `sampling`.
+  
+  `enable` and `disable` switch the collection on and off. The global `--return-diagnostics none|service|operation|all` asks the server for DiagnosticInfos and prints them on stderr for a failed request or operation.
+- **`gds`: push certificate management (Part 12 §7).**
+  - `props` shows the ServerConfiguration properties.
+  - `trustlist get|add|remove|set` reads and changes the trust list. `--out` and the PKI directory layout come with it, and `--group https|usertoken|<NodeId>` selects the trust list of another certificate group.
+  - `csr` and `update-cert` renew a certificate of a group. update-cert sends the private key as PEM or PKCS #12 (`--key-format pfx`, `--pfx-password`).
+  - `groups` lists the certificate groups, and `certs` shows the certificates in use (GetCertificates).
+  - `self-signed` has the server create a certificate (CreateSelfSignedCertificate), and `delete-cert` deletes one (DeleteCertificate).
+  - `reset` calls ResetToServerDefaults, and `transaction` shows the TransactionDiagnostics.
+  - `rejected` lists the rejected certificates, and `apply` and `cancel` call ApplyChanges and CancelChanges.
+  - The changing commands apply in their own session unless you pass `--no-apply`.
+- **`gds pull`: certificates from a Global Discovery Server (Part 12 §7.9).**
+  - `find`, `get`, `query`, `query-servers`, `register`, `update` and `unregister` manage the application directory.
+  - `request` starts a certificate request from a CSR, from a private key (`--private-key`), or for a key pair the GDS generates. `finish` collects the certificate; while the request waits for approval it exits with 3. `wait` polls until the certificate is issued.
+  - `trustlist`, `groups`, `certs`, `status` (renewal due?), `revoke` and `check-revocation` (exit 4 when the certificate is not Good) cover the rest.
+  - `enroll` registers or finds the application, requests the certificate with a key made here (`--new-key rsa|ecc-p256|ecc-p384|ed25519`), from `--private-key`, or by the GDS, waits, and writes the certificate, the private key (mode 0600) and the trust list.
+
+### Changed
+
+- **Exit code 4** also means that `gds pull check-revocation` found the certificate revoked or not valid.
+
+### Fixed
+
+- **`--timestamps-to-return` / `--timestamps`** (`get value`, `monitor value`). Only the capitalized names were recognized, so the documented lowercase values became Source without any warning, including the default `both`. Any case works now, and an unknown value is an error.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.11.0 → **[v1.21.0](https://github.com/otfabric/go-opcua/releases/tag/v1.21.0)**
+
+---
+
 ## v0.7.0
 
 **Date:** 2026-10-25  
