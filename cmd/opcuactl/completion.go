@@ -26,7 +26,7 @@ var (
 	uaEncodingValues        = []string{"json", "json-verbose", "json-reversible", "json-nonreversible", "xml"}
 	returnDiagnosticsValues = []string{"none", "service", "operation", "all"}
 	transportValues         = []string{"tcp", "wss", "https"}
-	alarmStateValues        = []string{"active", "unacked", "unconfirmed", "shelved"}
+	alarmStateValues        = []string{"active", "inactive", "unacked", "acked", "unconfirmed", "confirmed", "shelved", "suppressed", "out-of-service", "silenced", "latched", "dialog", "branch"}
 	trustListMaskValues     = []string{"trusted", "trusted-crls", "issuers", "issuer-crls", "all"}
 	attrValues              = []string{"NodeID", "NodeClass", "BrowseName", "DisplayName", "Description", "DataType", "Value", "AccessLevel", "UserAccessLevel", "WriteMask", "ValueRank", "Historizing", "MinimumSamplingInterval", "ArrayDimensions"}
 )
