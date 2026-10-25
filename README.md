@@ -7,7 +7,7 @@
 [![Codecov](https://codecov.io/gh/otfabric/opcuactl/graph/badge.svg)](https://codecov.io/gh/otfabric/opcuactl)
 [![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?label=release)](https://github.com/otfabric/opcuactl/releases)
 
-**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, acknowledges and shelves alarms, reads the server diagnostics, reads historical data, exports whole subtrees, and listens to, publishes and configures OPC UA PubSub — from a terminal, over `opc.tcp`, `opc.wss` or `opc.https`, and over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
+**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, acknowledges and shelves alarms, reads the server diagnostics, manages the trust list and certificates of a server (GDS push), reads historical data, exports whole subtrees, and listens to, publishes and configures OPC UA PubSub — from a terminal, over `opc.tcp`, `opc.wss` or `opc.https`, and over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
 
 It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is interop-tested against open62541, Eclipse Milo, async-opcua, the OPC Foundation UA-.NETStandard stack, node-opcua and opcua-asyncio.
 
@@ -26,6 +26,7 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **Watch a server live** — `monitor value`, `monitor event` and `monitor alarm` stay subscribed and print every change as it arrives, with queue size, sampling interval, deadband and trigger filters and event filters under your control.
 - **Alarms and conditions** — `alarms list` shows the retained conditions of a server (ConditionRefresh) with their states and EventIds; `alarms ack`, `confirm`, `comment`, `enable`, `disable`, `shelve` and `unshelve` call the Part 9 methods, and `alarms watch` streams the condition events.
 - **Server diagnostics** — `diagnostics summary|sessions|subscriptions|sampling` read what the server counts about its sessions and subscriptions; `diagnostics enable|disable` switch it (administrators); `--return-diagnostics` prints the DiagnosticInfos the server returns for a failed request.
+- **Certificate management** — `gds trustlist get|add|remove|set` read and change the trust list of a server, `gds csr` and `gds update-cert` renew its application instance certificate through your CA, `gds rejected` shows the clients it refused: the push model of OPC UA Part 12 (GDS push), as a SecurityAdmin over an encrypted channel.
 - **History** — raw, modified, processed (aggregate) and at-time reads, plus historical events.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
@@ -81,6 +82,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Troubleshooting** — is the server up, which endpoints and security policies does it offer, does this user get in, does this node update? `ping`, `discover endpoints` and `monitor value` answer in seconds.
 - **Integration work** — find NodeIds by browse path or name, read a method's signature before wiring it into an application, capture values as JSON for a test fixture.
 - **Data collection** — log live values as JSON Lines, pull historical data as CSV, snapshot a subtree before and after a change.
+- **Certificate rollover** — renew a server's application certificate through your own CA (the server makes the key), trust a new client or CA, back up and restore the trust list, without the vendor's configuration tool.
 - **Automation and CI** — smoke-test an OPC UA server in a pipeline using exit codes and JSON output.
 - **PubSub commissioning** — see what is on the wire (publisher ids, writer ids, sequence numbers, security), check that a secured group decrypts with the SKS keys, feed a subscriber with test data, or reconfigure a publisher without its engineering tool.
 
@@ -134,6 +136,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Monitor** — subscribe to live value changes, filtered events, and alarms (queue window + overflow, DataChangeFilter with absolute / percent deadband and trigger, IndexRange)
 - **Alarms & Conditions** — list the retained conditions (ConditionRefresh), acknowledge, confirm, comment, enable / disable, timed and one-shot shelving, unshelve, stream condition events (Part 9)
 - **Server diagnostics** — ServerDiagnosticsSummary, session (with per-service counters), session security, subscription and sampling-interval diagnostics; switch the collection on and off; DiagnosticInfos of failed requests (`--return-diagnostics`)
+- **Certificate management (GDS push, Part 12 §7)** — ServerConfiguration properties, read / add / remove / replace the trust list (certificates, issuers, CRLs; DER files in the `trusted/certs`, `issuer/crl`, … layout), certificate signing requests with a new or the current key, install a CA-issued certificate (with its chain or a private key), the rejected certificates, ApplyChanges / CancelChanges
 - **History** — raw, modified, processed (aggregates), and at-time historical reads
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
@@ -343,6 +346,17 @@ opcuactl
 │   ├── subscriptions  Subscriptions (--session: of one session)
 │   ├── sampling       Sampling intervals in use
 │   └── enable / disable  Switch the collection of server diagnostics (administrators)
+├── gds                Certificate management by the push model (Part 12 §7; SecurityAdmin, SignAndEncrypt)
+│   ├── props          ServerConfiguration properties (key formats, certificate types, MaxTrustListSize)
+│   ├── trustlist
+│   │   ├── get        List the trust list (--masks; --out writes DER files)
+│   │   ├── add        Add trusted (or --issuer) certificates
+│   │   ├── remove     Remove certificates by thumbprint or file
+│   │   └── set        Replace the trust list from files or a PKI directory
+│   ├── csr            Certificate signing request (--type, --regenerate, --subject, --out)
+│   ├── update-cert    Install a new application instance certificate (--issuer, --private-key)
+│   ├── rejected       Certificates the server rejected (--out)
+│   └── apply / cancel ApplyChanges / CancelChanges
 ├── history
 │   ├── value          Read historical data values
 │   └── event          Read historical events
@@ -629,6 +643,39 @@ opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Missing" --return-diag
 What a client may read is up to the server: usually everyone reads the summary, the session and subscription arrays and their own session; another session's details, the session security array and `enable` / `disable` need an administrator (SecurityAdmin or ConfigureAdmin), the security array also an encrypted channel. A refusal says so. An empty array with diagnostics switched off prints a hint on stderr.
 
 `--return-diagnostics none|service|operation|all` (or a raw mask) asks the server for DiagnosticInfos with every request: a request the server rejects as a whole prints its service diagnostics; `get value`, `write value` and `call method` print the DiagnosticInfo of every failed operation (and failed method input argument). They go to stderr, so table and JSON output stay unchanged.
+
+### Certificate Management (GDS Push)
+
+```sh
+# A SecurityAdmin session over an encrypted channel; opcuactl's certificate must be trusted by the server
+SEC=(-e opc.tcp://plc:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
+     --cert client.pem --key client.key --trusted-cert plc-ca.pem
+     --auth username --username secadmin --password "$P")
+
+# What the server supports: private key formats, certificate types, MaxTrustListSize
+opcuactl gds props "${SEC[@]}"
+
+# The trust list; --out saves it as trusted/certs, trusted/crl, issuer/certs, issuer/crl
+opcuactl gds trustlist get "${SEC[@]}"
+opcuactl gds trustlist get "${SEC[@]}" --out ./plc-pki
+
+# A client the server refused: find it, trust it
+opcuactl gds rejected "${SEC[@]}" --out ./rejected
+opcuactl gds trustlist add "${SEC[@]}" ./rejected/3F2A...C01B.der
+
+# Trust a CA for chain validation only, remove a certificate again
+opcuactl gds trustlist add "${SEC[@]}" --issuer ca.pem
+opcuactl gds trustlist remove "${SEC[@]}" 3F2A...C01B
+
+# Write the edited trust list back (all four lists; --masks for fewer)
+opcuactl gds trustlist set "${SEC[@]}" ./plc-pki --yes
+
+# Renew the server certificate: request with a new key, the CA signs, install
+opcuactl gds csr "${SEC[@]}" --type rsa --regenerate --out plc.csr
+opcuactl gds update-cert "${SEC[@]}" plc.pem --issuer ca.pem --yes
+```
+
+The commands that change something call ApplyChanges in their own session (a server keeps the transaction per session); `--no-apply` leaves the change pending. A refusal names what is missing: the SecurityAdmin role (`Bad_UserAccessDenied`), a SignAndEncrypt channel (`Bad_SecurityModeInsufficient`), the server's ApplicationUri in the certificate. Thumbprints are SHA-1 in hexadecimal; case, colons and spaces do not matter.
 
 ### Historical Data
 
@@ -1176,7 +1223,7 @@ Start with `opcuactl discover endpoints -e <endpoint> --best -v` to see what the
 
 ### The server rejects my certificate. What should I check?
 
-Most servers only accept application certificates an administrator has trusted: after the first attempt, move the opcuactl certificate from the server's *rejected* to its *trusted* store. Also check that the certificate's application URI and validity period are what the server expects.
+Most servers only accept application certificates an administrator has trusted: after the first attempt, move the opcuactl certificate from the server's *rejected* to its *trusted* store (on a server with push certificate management: `opcuactl gds rejected --out dir` and `opcuactl gds trustlist add`, as a SecurityAdmin over an already trusted connection). Also check that the certificate's application URI and validity period are what the server expects.
 
 ### Connection refused, timeouts, or a wrong host in the endpoint. What should I check?
 

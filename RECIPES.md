@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.8.0**: Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
+Aligned with **v0.8.0**: Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, certificate management by the GDS push model (trust list, CSR, certificate renewal, rejected certificates), `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, and history `raw|modified|processed|attime`.
 
 ## Table of Contents
 
@@ -32,6 +32,7 @@ Aligned with **v0.8.0**: Alarms & Conditions (list, acknowledge, confirm, shelve
 - [23. Handle Alarms: List, Acknowledge, Confirm, Shelve](#23-handle-alarms-list-acknowledge-confirm-shelve)
 - [24. Who Is Connected? Server Diagnostics](#24-who-is-connected-server-diagnostics)
 - [25. Connect over HTTPS or a WebSocket](#25-connect-over-https-or-a-websocket)
+- [26. Manage a Server's Certificates (GDS Push)](#26-manage-a-servers-certificates-gds-push)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -908,3 +909,71 @@ opcuactl get value -e opc.wss://localhost:4843 --tls-insecure-skip-verify -n i=2
 ```
 
 Two certificates are in play: the TLS certificate of the listener (`--tls-ca`, `--tls-cert` / `--tls-key`) and the application instance certificates of OPC UA (`--cert`, `--key`, `--trusted-cert`). Over HTTPS there is no secure channel; servers usually offer the None endpoint there and accept user names because TLS protects them.
+
+---
+
+## 26. Manage a Server's Certificates (GDS Push)
+
+Servers with push certificate management (OPC UA Part 12 §7: go-opcua with `WithPushManagement`, open62541 built with GDS push, UA-.NETStandard, node-opcua) let an administrator change their trust list and application instance certificate remotely. It needs a session with the **SecurityAdmin** role over a **SignAndEncrypt** channel, and opcuactl's own certificate in the server's trust list.
+
+```sh
+SEC=(-e opc.tcp://plc:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
+     --cert ./pki/opcuactl.pem --key ./pki/opcuactl.key --trusted-cert ./pki/ca.pem
+     --auth username --username secadmin --password "$SECADMIN_PASSWORD")
+
+# Does the server do it, and with which keys and certificate types?
+opcuactl gds props "${SEC[@]}"
+```
+
+**Onboard a new client** that the server refused on its first connection:
+
+```sh
+opcuactl gds rejected "${SEC[@]}"                      # subject, thumbprint, validity
+opcuactl gds rejected "${SEC[@]}" --out ./rejected      # <thumbprint>.der files
+opcuactl gds trustlist add "${SEC[@]}" ./rejected/<thumbprint>.der
+```
+
+**Trust a CA instead of single certificates**: CA certificates in the *trusted* list make everything they issued trusted; in the *issuer* list (`--issuer`) they only complete chains of certificates trusted otherwise. CRLs come with `trustlist set`:
+
+```sh
+opcuactl gds trustlist add "${SEC[@]}" ca.pem                       # trust everything the CA issued
+opcuactl gds trustlist add "${SEC[@]}" --issuer intermediate.pem    # chain validation only
+opcuactl gds trustlist remove "${SEC[@]}" 3F2A9C...C01B             # or: remove old-client.der
+```
+
+**Back up, edit and restore the trust list**: `--out` writes the layout OPC UA applications use for their PKI directory, and `set` reads it back (it replaces all four lists unless `--masks` names fewer):
+
+```sh
+opcuactl gds trustlist get "${SEC[@]}" --out ./plc-pki
+ls ./plc-pki/trusted/certs ./plc-pki/trusted/crl ./plc-pki/issuer/certs ./plc-pki/issuer/crl
+cp new-ca.der ./plc-pki/trusted/certs/ && cp new-ca.crl ./plc-pki/trusted/crl/
+opcuactl gds trustlist set "${SEC[@]}" ./plc-pki --yes
+
+# Or from single files: trusted certificates and CRLs as arguments, issuers with --issuer
+opcuactl gds trustlist set "${SEC[@]}" opcuactl.der scada.der ca.pem ca.crl --issuer intermediate.pem --yes
+
+# Only the issuer lists, the trusted ones stay
+opcuactl gds trustlist set "${SEC[@]}" --masks issuers,issuer-crls --issuer intermediate.pem --issuer intermediate.crl
+```
+
+**Renew the server's certificate through your CA**: the server makes the key, the CA never sees it:
+
+```sh
+# 1. A request for a new key (the server keeps the key until the certificate comes)
+opcuactl gds csr "${SEC[@]}" --type rsa --regenerate --out plc.csr
+
+# 2. Your CA signs it (keep the ApplicationUri and host names of the request)
+openssl x509 -req -in plc.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 365 \
+  -copy_extensions copyall -out plc.pem
+
+# 3. Install it; new connections use it right away, open ones keep the old one
+opcuactl gds update-cert "${SEC[@]}" plc.pem --issuer ca.pem --yes
+
+# 4. Clients now validate the new certificate against the CA
+opcuactl get server -e opc.tcp://plc:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
+  --cert ./pki/opcuactl.pem --key ./pki/opcuactl.key --trusted-cert ca.pem
+```
+
+A certificate made elsewhere comes with its key: `gds update-cert "${SEC[@]}" plc.der --private-key plc.key` (sent as PEM over the encrypted channel). `--type` (rsa, ecc-p256, ecc-p384, ed25519, …) picks which certificate of a server with several to replace; `update-cert` takes the type of the certificate's key.
+
+The changes are a transaction of the session that ApplyChanges completes; since every opcuactl command opens its own session, the changing commands apply themselves. `--no-apply` leaves the change pending, and `gds apply` / `gds cancel` complete it on servers that keep a transaction across sessions. A refusal says what is missing: `Bad_UserAccessDenied` is the SecurityAdmin role, `Bad_SecurityModeInsufficient` the encrypted channel, `Bad_CertificateUriInvalid` the server's ApplicationUri in the certificate, `Bad_TransactionPending` another administrator's open changes.
