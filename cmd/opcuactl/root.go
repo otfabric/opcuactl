@@ -35,8 +35,8 @@ var rootCmd = &cobra.Command{
 	Long: `opcuactl is a production-grade CLI for interacting with OPC UA servers.
 
 It provides discovery, browsing, reading, writing, method invocation,
-monitoring, history retrieval, alarms and conditions and server
-diagnostics, and works with OPC UA
+monitoring, history retrieval, alarms and conditions, server
+diagnostics and certificate management (GDS push), and works with OPC UA
 PubSub: subscribe to and publish UADP / JSON messages over UDP and MQTT,
 decode captures, get keys from a Security Key Service and configure the
 PubSub of a server.
@@ -48,6 +48,9 @@ Examples:
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840
   opcuactl alarms list --endpoint opc.tcp://localhost:4840
   opcuactl diagnostics sessions --endpoint opc.wss://localhost:4843 --tls-ca ca.pem
+  opcuactl gds trustlist get --endpoint opc.tcp://plc:4840 --security-policy Basic256Sha256 \
+    --security-mode SignAndEncrypt --cert client.pem --key client.key \
+    --auth username --username secadmin --password secret
 
 Besides opc.tcp, endpoints can be opc.wss:// (OPC UA over a TLS
 WebSocket) and opc.https:// (UA Binary over HTTPS); --tls-ca, --tls-cert and
