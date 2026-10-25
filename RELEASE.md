@@ -13,7 +13,6 @@ Built on **[go-opcua v1.24.0](https://github.com/otfabric/go-opcua/releases/tag/
 
 - **`github.com/otfabric/go-opcua`**: v1.23.1 → **[v1.24.0](https://github.com/otfabric/go-opcua/releases/tag/v1.24.0)**
   - The session signatures (ClientSignature, the X.509 user token signature) cover the leaf of a server certificate chain.
-  - An X.509 user certificate may be given as a chain.
 
 ---
 
