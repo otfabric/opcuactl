@@ -102,18 +102,31 @@ func (p *cliProcess) wait(t *testing.T) {
 	}
 }
 
-// waitOutput waits until the process wrote want on stderr.
+// waitStderr waits until the process wrote want on stderr.
 func (p *cliProcess) waitStderr(t *testing.T, want string) {
 	t.Helper()
+	p.waitOutput(t, p.stderr, want)
+}
+
+// waitStdout waits until the process wrote want on stdout. The two are
+// copied by separate goroutines: what the process wrote to stdout before
+// stderr may arrive after it.
+func (p *cliProcess) waitStdout(t *testing.T, want string) {
+	t.Helper()
+	p.waitOutput(t, p.stdout, want)
+}
+
+func (p *cliProcess) waitOutput(t *testing.T, out *syncBuffer, want string) {
+	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
-	for !strings.Contains(p.stderr.String(), want) {
+	for !strings.Contains(out.String(), want) {
 		select {
 		case <-p.done:
 			t.Fatalf("opcuactl exited (%v) before writing %q\nstdout: %s\nstderr: %s", p.err, want, p.stdout, p.stderr)
 		default:
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("opcuactl did not write %q\nstderr: %s", want, p.stderr)
+			t.Fatalf("opcuactl did not write %q\nstdout: %s\nstderr: %s", want, p.stdout, p.stderr)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

@@ -492,6 +492,7 @@ func TestE2E_ServeSignals(t *testing.T) {
 		t.Run(sig.String(), func(t *testing.T) {
 			p := startCLI(t, "serve", "--listen", "127.0.0.1:0", "--security-policy", "None", "-q")
 			p.waitStderr(t, "Serving")
+			p.waitStdout(t, "\n")
 			endpoint := strings.TrimSpace(p.stdout.String())
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
