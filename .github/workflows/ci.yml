@@ -1,226 +1,23 @@
 name: CI
 run-name: "CI (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
 
-# Temporary: the shared go-ci.yml inlined without concurrency, plus
-# workflow_dispatch, for a parallel stress round. Reverted afterwards.
 on:
   push:
     branches: ["**"]
   pull_request:
     branches: ["**"]
-  workflow_dispatch:
 
 permissions:
   contents: read
   id-token: write
 
-env:
-  GOPRIVATE: github.com/otfabric/*
-
 jobs:
-  lint-and-coverage:
-    name: Lint & Coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Resolve Go version for linting
-        id: goversion
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mod_go=$(
-            sed -nE 's/^go ([0-9]+\.[0-9]+)(\.[0-9]+)?$/\1/p' go.mod | head -n1
-          )
-
-          if [ -z "$mod_go" ]; then
-            echo "::error::Could not determine Go version from go.mod"
-            exit 1
-          fi
-
-          # golangci-lint v2 requires Go >= 1.23
-          min_lint_go="1.23"
-          lowest="$(printf '%s\n%s\n' "$mod_go" "$min_lint_go" | sort -V | head -n1)"
-          if [ "$lowest" = "$mod_go" ]; then
-            lint_go="$min_lint_go"
-          else
-            lint_go="$mod_go"
-          fi
-
-          echo "go_mod=$mod_go"   >> "$GITHUB_OUTPUT"
-          echo "lint_go=$lint_go" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: ${{ steps.goversion.outputs.lint_go }}
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            **/go.sum
-
-      - name: Configure private module access
-        shell: bash
-        env:
-          TOKEN: ${{ secrets.OTFABRIC_READ_TOKEN }}
-        run: |
-          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-
-      - name: Verify module tidiness
-        shell: bash
-        run: |
-          go mod tidy
-          git diff --exit-code
-
-      - name: Download dependencies
-        shell: bash
-        run: go mod download
-
-      - name: Verify dependencies
-        shell: bash
-        run: go mod verify
-
-      - name: go vet
-        shell: bash
-        run: go vet ./...
-
-      - name: golangci-lint
-        shell: bash
-        env:
-          LINT_VERSION: v2.1.6
-        run: |
-          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${LINT_VERSION}"
-          golangci-lint run --timeout=5m
-
-      - name: Resolve test packages
-        id: pkgs
-        shell: bash
-        env:
-          EXCLUDE_REGEX: "(/example(s)?($|/))"
-        run: |
-          set -euo pipefail
-          mapfile -t pkgs < <(go list ./... | grep -Ev "${EXCLUDE_REGEX}" || true)
-          if [ "${#pkgs[@]}" -eq 0 ]; then
-            echo "::error::No test packages found after exclusion filter"
-            exit 1
-          fi
-          printf 'list=%s\n' "${pkgs[*]}" >> "$GITHUB_OUTPUT"
-
-      - name: Run tests with coverage
-        shell: bash
-        env:
-          COVERPKG: ""
-        run: |
-          set -euo pipefail
-          cover_args=()
-          if [ -n "${COVERPKG}" ]; then
-            cover_args+=(-coverpkg="${COVERPKG}")
-            echo "Using -coverpkg=${COVERPKG}"
-          fi
-          # shellcheck disable=SC2086 # intentional: package list is space-separated
-          go test -count=1 -timeout=120s \
-            -coverprofile=coverage.out -covermode=set \
-            "${cover_args[@]}" \
-            ${{ steps.pkgs.outputs.list }}
-          go tool cover -func=coverage.out | tee coverage.txt
-          go tool cover -html=coverage.out -o coverage.html
-
-      - name: Coverage summary
-        shell: bash
-        run: |
-          {
-            echo "## Coverage Report"
-            echo
-            echo '```text'
-            cat coverage.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-go-mod-version
-          path: |
-            coverage.out
-            coverage.txt
-            coverage.html
-
-      - name: Upload to Codecov
-        if: false
-        uses: codecov/codecov-action@v7
-        with:
-          use_oidc: true
-          files: coverage.out
-          flags: unittests
-          name: opcuactl
-          fail_ci_if_error: false
-          verbose: true
-
-  # ---------------------------------------------------------------------------
-  # Test matrix — validates compilation and test-suite on each Go version.
-  # Lint, vet, and module verification run once in lint-and-coverage; this job
-  # focuses purely on build + test correctness across versions.
-  # ---------------------------------------------------------------------------
-  # The plain and the race-detector runs are separate jobs so they run in
-  # parallel (the race run takes about twice as long).
-  test-matrix:
-    name: ${{ matrix.race && 'Race' || 'Test' }} (Go ${{ matrix.go-version }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        go-version: ["1.26", "1.27"]
-        race: [false, true]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: ${{ matrix.go-version }}
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            **/go.sum
-
-      - name: Configure private module access
-        shell: bash
-        env:
-          TOKEN: ${{ secrets.OTFABRIC_READ_TOKEN }}
-        run: |
-          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-
-      - name: Download dependencies
-        shell: bash
-        run: go mod download
-
-      - name: Resolve test packages
-        id: pkgs
-        shell: bash
-        env:
-          EXCLUDE_REGEX: "(/example(s)?($|/))"
-        run: |
-          set -euo pipefail
-          mapfile -t pkgs < <(go list ./... | grep -Ev "${EXCLUDE_REGEX}" || true)
-          if [ "${#pkgs[@]}" -eq 0 ]; then
-            echo "::error::No test packages found after exclusion filter"
-            exit 1
-          fi
-          printf 'list=%s\n' "${pkgs[*]}" >> "$GITHUB_OUTPUT"
-
-      - name: Test
-        if: ${{ !matrix.race }}
-        shell: bash
-        run: go test -count=1 -timeout=120s ${{ steps.pkgs.outputs.list }}
-
-      - name: Race test
-        if: ${{ matrix.race }}
-        shell: bash
-        run: go test -count=1 -timeout=120s -race ${{ steps.pkgs.outputs.list }}
+  ci:
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v2
+    with:
+      codecov-name: opcuactl
+      go-versions: '["1.26", "1.27"]'
+      # The default also leaves out /cmd/, which here is the CLI itself:
+      # cmd/opcuactl holds most of the tests, the e2e suite included.
+      test-exclude-regex: "(/example(s)?($|/))"
+    secrets: inherit
