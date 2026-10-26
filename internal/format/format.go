@@ -67,6 +67,12 @@ func (w *Writer) Write(v interface{}) error {
 		return w.writeYAML(v)
 	case JSONL:
 		return w.writeJSONL(v)
+	case CSV:
+		headers, rows, err := csvRecords(v)
+		if err != nil {
+			return err
+		}
+		return w.writeCSV(headers, rows)
 	default:
 		return fmt.Errorf("use WriteTable for table format")
 	}
@@ -162,6 +168,84 @@ func (w *Writer) writeJSONLTable(headers []string, rows [][]string) error {
 		}
 	}
 	return nil
+}
+
+// csvRecords flattens v for CSV output by way of its JSON form: an object is
+// one row, an array one row per element. The columns are the object keys in
+// the order they first appear; a scalar element goes in a "value" column. A
+// string cell holds the string, null is empty, and any other value (a number,
+// a boolean, a nested object or array) holds its compact JSON.
+func csvRecords(v interface{}) ([]string, [][]string, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, nil, err
+	}
+	var elems []json.RawMessage
+	if err := json.Unmarshal(data, &elems); err != nil {
+		elems = []json.RawMessage{data}
+	}
+	var headers []string
+	col := map[string]int{}
+	cells := make([]map[int]string, len(elems))
+	for i, raw := range elems {
+		cells[i] = map[int]string{}
+		keys, vals, ok := objectFields(raw)
+		if !ok {
+			keys, vals = []string{"value"}, []json.RawMessage{raw}
+		}
+		for j, k := range keys {
+			c, seen := col[k]
+			if !seen {
+				c = len(headers)
+				col[k] = c
+				headers = append(headers, k)
+			}
+			cells[i][c] = csvCell(vals[j])
+		}
+	}
+	rows := make([][]string, len(elems))
+	for i := range rows {
+		rows[i] = make([]string, len(headers))
+		for c, s := range cells[i] {
+			rows[i][c] = s
+		}
+	}
+	return headers, rows, nil
+}
+
+// objectFields returns the keys and values of a JSON object in document
+// order, or false if raw is not an object.
+func objectFields(raw json.RawMessage) ([]string, []json.RawMessage, bool) {
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, nil, false
+	}
+	var keys []string
+	var vals []json.RawMessage
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, nil, false
+		}
+		var val json.RawMessage
+		if err := dec.Decode(&val); err != nil {
+			return nil, nil, false
+		}
+		keys = append(keys, tok.(string))
+		vals = append(vals, val)
+	}
+	return keys, vals, true
+}
+
+func csvCell(raw json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	if string(raw) == "null" {
+		return ""
+	}
+	return string(raw)
 }
 
 // SetOutput sets the writer's output destination.

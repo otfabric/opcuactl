@@ -1015,7 +1015,7 @@ Every networked command supports these connection and output flags:
 | `table` | Human-readable tabular output (default) |
 | `json` | Stable JSON for scripts and automation |
 | `yaml` | YAML output |
-| `csv` | Comma-separated values |
+| `csv` | Comma-separated values: a header row, then a row per item; a nested structure or array is a cell holding its JSON |
 | `jsonl` | Newline-delimited JSON |
 
 All data goes to stdout, all errors go to stderr.

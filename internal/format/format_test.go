@@ -485,3 +485,48 @@ func uaFormatCases() []struct {
 		{"int pointer", new(int), "0"},
 	}
 }
+
+func TestWriterCSV(t *testing.T) {
+	t.Parallel()
+	type row struct {
+		Name   string      `json:"name"`
+		Value  interface{} `json:"value"`
+		Status string      `json:"status,omitempty"`
+	}
+	cases := []struct {
+		name string
+		v    interface{}
+		want string
+	}{
+		{"struct", row{Name: "a", Value: 1.5}, "name,value\na,1.5\n"},
+		{"slice with union of columns", []row{
+			{Name: "a", Value: "x"},
+			{Name: "b", Value: []int{1, 2}, Status: "Bad"},
+			{Name: "c"},
+		}, "name,value,status\na,x,\nb,\"[1,2]\",Bad\nc,,\n"},
+		{"nested object", map[string]interface{}{"k": map[string]int{"x": 1}}, "k\n\"{\"\"x\"\":1}\"\n"},
+		{"scalars", []int{1, 2}, "value\n1\n2\n"},
+		{"single scalar", true, "value\ntrue\n"},
+		{"empty slice", []row{}, "\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			w := NewWriter(CSV, false)
+			w.SetOutput(&buf)
+			if err := w.Write(tc.v); err != nil {
+				t.Fatal(err)
+			}
+			if got := buf.String(); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	w := NewWriter(CSV, false)
+	w.SetOutput(&bytes.Buffer{})
+	if err := w.Write(badJSON{C: make(chan int)}); err == nil {
+		t.Error("CSV of an unmarshalable value: no error")
+	}
+}
