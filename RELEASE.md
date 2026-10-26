@@ -1,5 +1,27 @@
 # opcuactl Releases
 
+## v0.10.3
+
+**Date:** 2026-10-26  
+**Previous release:** v0.10.2
+
+### Summary
+
+A patch release for `call method` and the text output: JSON method arguments take the types of the method's InputArguments, `--introspect` of a node that is not a method fails, ExtensionObjects are readable in table output, and `--verbose` lines are no longer printed as errors.
+
+### Fixed
+
+- **`call method --arg-json` / `--arg-file` send the types of the InputArguments.** Every JSON number was sent as a Double, so a method of integer arguments (`Demo.Add` of `serve`, Int32 and Int32) failed with `BadTypeMismatch`. The values are converted to the DataType and ValueRank of the method's InputArguments: the integer types SByte to UInt64 (an integral number in range, or a string holding one), Float, Double, Boolean, String, DateTime (RFC 3339), ByteString (base64), Guid, NodeId, ExpandedNodeId, QualifiedName (`"ns:Name"`), LocalizedText (a string or `{"Locale": .., "Text": ..}`), StatusCode, XmlElement, their common subtypes (Duration, UtcTime, ...) and arrays of them. A value that does not fit its argument (`2.5` or `3000000000` for an Int32, a string for a Boolean, an array for a scalar) is a usage error (exit 1) and the method is not called. Without InputArguments, and for arguments of a structure type or BaseDataType, the plain JSON mapping is kept (a number is a Double).
+- **`call method --introspect` exits 3 for a node that is not a method.** A Variable or Object printed an empty signature with exit 0; it is `BadNodeClassInvalid` now, and a node that does not exist `BadNodeIdUnknown`, both exit 3.
+- **Table output prints ExtensionObjects readably**, not as Go pointers (`&{1 i=864 0x... []}`): a decoded one as its type name and its fields as JSON prints them (`ServerStatusDataType {"StartTime":"...","State":0,"BuildInfo":{...},...}`), one whose type cannot be decoded as `ExtensionObject{TypeId: ns=2;i=5001, binary, 24 bytes}`. This applies to `get value|attr|node|vars`, `--quiet`, `export values`, `history`, `call method`, `write value`, `monitor` and the PubSub field output, in arrays as well.
+- **`--verbose` and informational lines are not printed as errors.** The progress lines of `-v` (`resolved ...`, `found N node(s)`, `exported ...`, `returned ...`, `subscription N started ...`), the revised publishing interval of `monitor`, and the warnings and hints of successful commands (`gds`, `gds pull`, `diagnostics`) had an `Error:` prefix; they are plain lines on stderr now, as the PubSub commands already printed theirs. Errors keep the prefix.
+
+### Changed
+
+- **Value rendering in table, CSV and `--quiet` output** follows the JSON output: a ByteString is base64 (was a list of byte values), a DateTime RFC 3339 (`2026-10-26T10:00:00Z`, was `2026-10-26 10:00:00 +0000 UTC`), a StatusCode its name, a Variant or DataValue its value, other structures their type name and JSON. `monitor` text output prints arrays as comma-separated elements, as the other commands do.
+
+---
+
 ## v0.10.2
 
 **Date:** 2026-10-26  
