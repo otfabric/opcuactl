@@ -338,3 +338,56 @@ func TestWriteJSONL_typedSlice(t *testing.T) {
 		t.Errorf("[]byte is one value: %s", got)
 	}
 }
+
+// TestErrPrinted checks the record Execute uses to print an error only
+// once: a command that printed it with Errf before returning it.
+func TestErrPrinted(t *testing.T) {
+	old := os.Stderr
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = devNull
+	t.Cleanup(func() { os.Stderr = old; _ = devNull.Close() })
+
+	ResetPrinted()
+	if ErrPrinted("refused") {
+		t.Fatal("ErrPrinted after ResetPrinted")
+	}
+	Errf("connecting to %s: %s", "opc.tcp://plc:4840", "connection refused")
+	if !ErrPrinted("connection refused") || !ErrPrinted("opc.tcp://plc:4840: connection refused") {
+		t.Error("ErrPrinted does not find a part of the printed message")
+	}
+	if ErrPrinted("timeout") {
+		t.Error("ErrPrinted found a message that was not printed")
+	}
+	ResetPrinted()
+	if ErrPrinted("connection refused") {
+		t.Error("ResetPrinted kept the messages")
+	}
+}
+
+// TestWriterErrors checks that write errors of the output reach the
+// caller in every line-oriented format.
+func TestWriterErrors(t *testing.T) {
+	t.Parallel()
+	jsonl := NewWriter(JSONL, false)
+	jsonl.SetOutput(failingWriter{})
+	if err := jsonl.Write([]int{1, 2}); err == nil {
+		t.Error("JSONL list: no error")
+	}
+	if err := jsonl.Write(map[string]int{"a": 1}); err == nil {
+		t.Error("JSONL item: no error")
+	}
+	if err := jsonl.WriteTable([]string{"A"}, [][]string{{"b"}}); err == nil {
+		t.Error("JSONL table: no error")
+	}
+
+	// A row larger than the buffer of the CSV writer fails on its own
+	// write, before the flush.
+	csvw := NewWriter(CSV, false)
+	csvw.SetOutput(failingWriter{})
+	if err := csvw.WriteTable([]string{"A"}, [][]string{{strings.Repeat("x", 1<<16)}}); err == nil {
+		t.Error("CSV with a large row: no error")
+	}
+}
