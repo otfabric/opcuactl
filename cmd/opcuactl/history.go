@@ -121,7 +121,11 @@ Examples:
 					format.Errf("reading modified history for %s: %v", nodeID, err)
 					return exitCode(3, err)
 				}
-				results = historyResponseToValues(nodeID.String(), resp)
+				results, err = historyResponseToValues(nodeID.String(), resp)
+				if err != nil {
+					format.Errf("reading history for %s: %v", nodeID, err)
+					return exitCode(3, err)
+				}
 
 			case "processed":
 				if aggInterval == 0 {
@@ -143,7 +147,11 @@ Examples:
 					format.Errf("reading processed history for %s: %v", nodeID, err)
 					return exitCode(3, err)
 				}
-				results = historyResponseToValues(nodeID.String(), resp)
+				results, err = historyResponseToValues(nodeID.String(), resp)
+				if err != nil {
+					format.Errf("reading history for %s: %v", nodeID, err)
+					return exitCode(3, err)
+				}
 
 			case "attime":
 				if len(atTimes) == 0 {
@@ -164,7 +172,11 @@ Examples:
 					format.Errf("reading at-time history for %s: %v", nodeID, err)
 					return exitCode(3, err)
 				}
-				results = historyResponseToValues(nodeID.String(), resp)
+				results, err = historyResponseToValues(nodeID.String(), resp)
+				if err != nil {
+					format.Errf("reading history for %s: %v", nodeID, err)
+					return exitCode(3, err)
+				}
 
 			default: // "raw" or ""
 				if continuation == "single" || maxValues > 0 {
@@ -226,18 +238,29 @@ func historyDataValues(nodeID string, dvs []*ua.DataValue) []model.HistoryValue 
 	return results
 }
 
-func historyResponseToValues(nodeID string, resp *ua.HistoryReadResponse) []model.HistoryValue {
-	return historyDataValues(nodeID, historyDataValuesFromResp(resp))
+func historyResponseToValues(nodeID string, resp *ua.HistoryReadResponse) ([]model.HistoryValue, error) {
+	dvs, err := historyDataValuesFromResp(resp)
+	if err != nil {
+		return nil, err
+	}
+	return historyDataValues(nodeID, dvs), nil
 }
 
-func historyDataValuesFromResp(resp *ua.HistoryReadResponse) []*ua.DataValue {
+// historyDataValuesFromResp returns the DataValues of a HistoryRead
+// response, or the status of a result that is Bad (an unknown node, a node
+// without history, a mode the server does not support). A Good or
+// Uncertain result without data (GoodNoData) is no error.
+func historyDataValuesFromResp(resp *ua.HistoryReadResponse) ([]*ua.DataValue, error) {
 	var out []*ua.DataValue
 	if resp == nil {
-		return out
+		return out, nil
 	}
 	for _, r := range resp.Results {
-		if r.StatusCode != ua.StatusOK {
+		if r == nil {
 			continue
+		}
+		if isBadStatus(r.StatusCode) {
+			return nil, r.StatusCode
 		}
 		if r.HistoryData == nil || r.HistoryData.Value == nil {
 			continue
@@ -253,7 +276,7 @@ func historyDataValuesFromResp(resp *ua.HistoryReadResponse) []*ua.DataValue {
 			out = append(out, hd.DataValues...)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func toHistoryValue(nodeID string, dv *ua.DataValue) model.HistoryValue {

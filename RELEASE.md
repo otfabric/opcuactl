@@ -16,6 +16,9 @@ A patch release from a test-coverage pass over the commands: end-to-end tests ag
 - **`--node-class` / `--class` of `browse`, `find` and `export nodes`.** `objecttype`, `variabletype`, `referencetype` and `datatype` (offered by the shell completion) were not recognised: `browse` returned every class and `find` nothing. They are recognised in any case now, and an unknown class is a usage error (exit 1) instead of being ignored.
 - **`--depth` of `browse tree` (table) and `find node` / `find type`.** `--depth 1` went two levels down; it is now the children of the start node, as in `browse tree --format json`, `export nodes` and `get vars`.
 - **`find node --name --regex`** matches the bare BrowseName as well as `ns:Name`, so `^Temp` anchors at the name.
+- **`export nodes --node-class` exported nothing, and `export values --start-node` found no variables** ("no variable nodes found"). The class filter compared the NodeClass as a string (`NodeClassVariable`) through `ua.NodeClassFromString`, which does not know that form; it uses the NodeClass of the summary now.
+- **`history value --mode modified|processed|attime` exits 3 on a Bad status of the node** (`BadHistoryOperationUnsupported`, `BadNodeIdUnknown`, ...), as `--mode raw` and `history event` do. The result was dropped and an empty list printed with exit 0. An empty range (`GoodNoData`) is still success.
+- **`export values --history` exits 4 when the history of some nodes could not be read, 3 when of none.** A failed node (no history, unknown node, mode not supported) was reported on stderr and skipped with exit 0; the values of the others are still exported.
 
 ---
 

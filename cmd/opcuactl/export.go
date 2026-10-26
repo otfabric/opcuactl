@@ -144,9 +144,9 @@ func collectExportNodes(ctx context.Context, c *opcua.Client, n *opcua.Node, max
 
 	// Include the root node at depth 0
 	opCtx, cancel := connCfg.TimeoutContext(ctx)
-	rootEN := nodeToExportedNode(opCtx, n, 0)
+	rootEN, rootClass := nodeToExportedNode(opCtx, n, 0)
 	cancel()
-	if classMask == ua.NodeClassAll || ua.NodeClassFromString(rootEN.NodeClass)&classMask != 0 {
+	if classMask == ua.NodeClassAll || rootClass&classMask != 0 {
 		results = append(results, rootEN)
 	}
 
@@ -171,10 +171,10 @@ func collectExportNodes(ctx context.Context, c *opcua.Client, n *opcua.Node, max
 		}
 
 		opCtx, cancel := connCfg.TimeoutContext(ctx)
-		en := nodeToExportedNode(opCtx, c.Node(ref.NodeID.NodeID), wr.Depth+1)
+		en, class := nodeToExportedNode(opCtx, c.Node(ref.NodeID.NodeID), wr.Depth+1)
 		cancel()
 
-		if classMask != ua.NodeClassAll && ua.NodeClassFromString(en.NodeClass)&classMask == 0 {
+		if classMask != ua.NodeClassAll && class&classMask == 0 {
 			continue
 		}
 		results = append(results, en)
@@ -182,7 +182,10 @@ func collectExportNodes(ctx context.Context, c *opcua.Client, n *opcua.Node, max
 	return results, nil
 }
 
-func nodeToExportedNode(ctx context.Context, n *opcua.Node, depth int) model.ExportedNode {
+// nodeToExportedNode reads the summary of n. It returns the NodeClass as
+// well, for the --node-class filter: ExportedNode has it as a string
+// (NodeClassVariable) that ua.NodeClassFromString does not take.
+func nodeToExportedNode(ctx context.Context, n *opcua.Node, depth int) (model.ExportedNode, ua.NodeClass) {
 	en := model.ExportedNode{
 		NodeID: n.ID.String(),
 		Depth:  depth,
@@ -190,7 +193,7 @@ func nodeToExportedNode(ctx context.Context, n *opcua.Node, depth int) model.Exp
 
 	summary, err := n.Summary(ctx)
 	if err != nil {
-		return en
+		return en, ua.NodeClassUnspecified
 	}
 
 	en.NodeClass = summary.NodeClass.String()
@@ -211,7 +214,7 @@ func nodeToExportedNode(ctx context.Context, n *opcua.Node, depth int) model.Exp
 	if summary.TypeDefinition != nil {
 		en.TypeDefinition = ua.TypeDefinitionDisplayName(summary.TypeDefinition)
 	}
-	return en
+	return en, summary.NodeClass
 }
 
 func newExportValuesCmd() *cobra.Command {
@@ -372,26 +375,7 @@ func exportSnapshotValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.No
 	if verbose {
 		format.Errf("exported %d value(s)", len(results))
 	}
-
-	w := newWriter()
-	if output != "" {
-		f, err := os.Create(output)
-		if err != nil {
-			return exitCodef(1, "creating output file: %v", err)
-		}
-		defer func() { _ = f.Close() }()
-		w.SetOutput(f)
-	}
-	f := format.ParseFormat(outputFormat)
-	if f == format.Table || f == format.CSV || f == format.JSONL {
-		headers := []string{"NODE ID", "VALUE", "TYPE", "STATUS", "SOURCE TIMESTAMP"}
-		rows := make([][]string, len(results))
-		for i, r := range results {
-			rows[i] = []string{r.NodeID, format.FormatValue(r.Value), r.Type, r.Status, r.SourceTimestamp}
-		}
-		return w.WriteTable(headers, rows)
-	}
-	return w.Write(results)
+	return writeExportedValues(results, output)
 }
 
 func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.NodeID, opts exportHistoryOpts) error {
@@ -431,57 +415,57 @@ func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.Nod
 		}
 	}
 
+	var aggID *ua.NodeID
+	if mode == "processed" {
+		if opts.aggInterval == 0 {
+			return exitCodef(1, "--interval is required for processed mode")
+		}
+		if aggID, err = aggregateNodeID(opts.aggregate); err != nil {
+			return exitCode(1, err)
+		}
+	}
+
 	opCtx, opCancel := connCfg.TimeoutContext(ctx)
 	defer opCancel()
 
 	var results []model.ExportedValue
+	failed := 0
 	for _, nid := range nodeIDs {
 		var dvs []*ua.DataValue
+		var resp *ua.HistoryReadResponse
+		var readErr error
 		switch mode {
 		case "modified":
-			resp, err := c.HistoryReadRawModified(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadRawModifiedDetails{
+			resp, readErr = c.HistoryReadRawModified(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadRawModifiedDetails{
 				IsReadModified: true, StartTime: startTime, EndTime: endTime,
 			})
-			if err != nil {
-				format.Errf("reading modified history for %s: %v", nid, err)
-				continue
-			}
-			dvs = historyDataValuesFromResp(resp)
 		case "processed":
-			if opts.aggInterval == 0 {
-				return exitCodef(1, "--interval is required for processed mode")
-			}
-			aggID, err := aggregateNodeID(opts.aggregate)
-			if err != nil {
-				return exitCode(1, err)
-			}
-			resp, err := c.HistoryReadProcessed(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadProcessedDetails{
+			resp, readErr = c.HistoryReadProcessed(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadProcessedDetails{
 				StartTime: startTime, EndTime: endTime,
 				ProcessingInterval: float64(opts.aggInterval / time.Millisecond),
 				AggregateType:      []*ua.NodeID{aggID},
 			})
-			if err != nil {
-				format.Errf("reading processed history for %s: %v", nid, err)
-				continue
-			}
-			dvs = historyDataValuesFromResp(resp)
 		case "attime":
-			resp, err := c.HistoryReadAtTime(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadAtTimeDetails{
+			resp, readErr = c.HistoryReadAtTime(opCtx, []*ua.HistoryReadValueID{{NodeID: nid}}, &ua.ReadAtTimeDetails{
 				ReqTimes: reqTimes,
 			})
-			if err != nil {
-				format.Errf("reading at-time history for %s: %v", nid, err)
-				continue
-			}
-			dvs = historyDataValuesFromResp(resp)
 		default:
 			for dv, err := range c.ReadHistoryAll(ctx, nid, startTime, endTime) {
 				if err != nil {
-					format.Errf("reading history for %s: %v", nid, err)
+					readErr = err
 					break
 				}
 				dvs = append(dvs, dv)
 			}
+		}
+		if readErr == nil && resp != nil {
+			dvs, readErr = historyDataValuesFromResp(resp)
+		}
+		if readErr != nil {
+			// The other nodes are still exported; the exit code tells.
+			format.Errf("reading %s history for %s: %v", mode, nid, readErr)
+			failed++
+			continue
 		}
 		for _, dv := range dvs {
 			if dv == nil {
@@ -502,12 +486,24 @@ func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.Nod
 		}
 	}
 
-	output := opts.output
-
 	if verbose {
 		format.Errf("exported %d historical value(s) across %d node(s)", len(results), len(nodeIDs))
 	}
+	if err := writeExportedValues(results, opts.output); err != nil {
+		return err
+	}
+	switch {
+	case failed == len(nodeIDs):
+		return exitCodef(3, "reading history: all %d node(s) failed", failed)
+	case failed > 0:
+		return exitCodef(4, "reading history: %d of %d node(s) failed", failed, len(nodeIDs))
+	}
+	return nil
+}
 
+// writeExportedValues writes the exported values to output (stdout when
+// empty) in the output format.
+func writeExportedValues(results []model.ExportedValue, output string) error {
 	w := newWriter()
 	if output != "" {
 		f, err := os.Create(output)
