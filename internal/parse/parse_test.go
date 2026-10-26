@@ -152,14 +152,43 @@ func TestNodeClassMask(t *testing.T) {
 		{"ALL", ua.NodeClassAll},
 		{"variable", ua.NodeClassVariable},
 		{"object", ua.NodeClassObject},
+		{"method", ua.NodeClassMethod},
+		// The multi-word classes the completion offers: title-casing the
+		// first letter alone made them unknown (0, every class).
+		{"objecttype", ua.NodeClassObjectType},
+		{"ObjectType", ua.NodeClassObjectType},
+		{"variabletype", ua.NodeClassVariableType},
+		{"referencetype", ua.NodeClassReferenceType},
+		{"datatype", ua.NodeClassDataType},
+		{"view", ua.NodeClassView},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := NodeClassMask(tt.input)
-			if got != tt.want {
-				t.Errorf("NodeClassMask(%q) = %v, want %v", tt.input, got, tt.want)
+			got, err := NodeClassMask(tt.input)
+			if err != nil || got != tt.want {
+				t.Errorf("NodeClassMask(%q) = %v, %v, want %v", tt.input, got, err, tt.want)
 			}
 		})
+	}
+	if _, err := NodeClassMask("bogus"); err == nil {
+		t.Error("NodeClassMask(bogus): expected an error")
+	}
+}
+
+func TestBrowseDirection(t *testing.T) {
+	for in, want := range map[string]ua.BrowseDirection{
+		"forward": ua.BrowseDirectionForward,
+		"Inverse": ua.BrowseDirectionInverse,
+		"inverse": ua.BrowseDirectionInverse,
+		"both":    ua.BrowseDirectionBoth,
+		"":        ua.BrowseDirectionBoth,
+	} {
+		if got, err := BrowseDirection(in); err != nil || got != want {
+			t.Errorf("BrowseDirection(%q) = %v, %v, want %v", in, got, err, want)
+		}
+	}
+	if _, err := BrowseDirection("sideways"); err == nil {
+		t.Error("BrowseDirection(sideways): expected an error")
 	}
 }
 

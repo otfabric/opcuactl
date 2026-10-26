@@ -148,7 +148,10 @@ Examples:
 				}
 			}
 
-			classMask := parse.NodeClassMask(nodeClass)
+			classMask, err := parse.NodeClassMask(nodeClass)
+			if err != nil {
+				return exitCode(1, err)
+			}
 			n := c.Node(nodeID)
 			var results []model.NodeInfo
 
@@ -162,16 +165,19 @@ Examples:
 					continue
 				}
 
-				browseName := ""
+				browseName, bareName := "", ""
 				if ref.BrowseName != nil {
 					browseName = formatBrowseName(ref.BrowseName)
+					bareName = ref.BrowseName.Name
 				}
 				dispName := ""
 				if ref.DisplayName != nil {
 					dispName = ref.DisplayName.Text
 				}
 
-				if !matchesFilter(browseName, name, nameRe, useRegex) && !matchesFilter(dispName, displayName, displayRe, useRegex) {
+				// --name matches "ns:Name" and Name, so ^Name anchors at the name.
+				if !matchesFilter(browseName, name, nameRe, useRegex) && !matchesFilter(bareName, name, nameRe, useRegex) &&
+					!matchesFilter(dispName, displayName, displayRe, useRegex) {
 					continue
 				}
 
@@ -222,13 +228,14 @@ Examples:
 	return cmd
 }
 
-// walkLimitDepth converts the CLI --depth convention (0 = unlimited) to the
-// SDK WalkLimit convention (-1 = unlimited).
+// walkLimitDepth converts the CLI --depth convention (1 = the children of
+// the start node, 0 = unlimited) to the SDK WalkLimit convention (0 = the
+// children, -1 = unlimited).
 func walkLimitDepth(d int) int {
-	if d == 0 {
+	if d <= 0 {
 		return -1
 	}
-	return d
+	return d - 1
 }
 
 func matchesFilter(value, pattern string, re *regexp.Regexp, useRegex bool) bool {
@@ -330,7 +337,10 @@ Examples:
 				}
 			}
 
-			classMask := parse.NodeClassMask(nodeClass)
+			classMask, err := parse.NodeClassMask(nodeClass)
+			if err != nil {
+				return exitCode(1, err)
+			}
 			n := c.Node(nodeID)
 			var results []model.NodeInfo
 

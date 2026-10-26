@@ -79,7 +79,10 @@ Examples:
 				}
 			}
 
-			classMask := parse.NodeClassMask(nodeClass)
+			classMask, err := parse.NodeClassMask(nodeClass)
+			if err != nil {
+				return exitCode(1, err)
+			}
 			n := c.Node(nodeID)
 
 			nodes, err := collectExportNodes(ctx, c, n, maxDepth, classMask, 0)

@@ -176,14 +176,45 @@ func SecurityPolicyShortName(uri string) string {
 	return uri
 }
 
-// NodeClassMask converts a node class filter string to ua.NodeClass.
-func NodeClassMask(s string) ua.NodeClass {
-	if s == "" || strings.EqualFold(s, "all") {
-		return ua.NodeClassAll
+// NodeClassMask converts a node class filter (all, object, variable,
+// method, objecttype, variabletype, referencetype, datatype or view, in any
+// case) to a ua.NodeClass mask.
+func NodeClassMask(s string) (ua.NodeClass, error) {
+	switch strings.ToLower(s) {
+	case "", "all":
+		return ua.NodeClassAll, nil
+	case "object":
+		return ua.NodeClassObject, nil
+	case "variable":
+		return ua.NodeClassVariable, nil
+	case "method":
+		return ua.NodeClassMethod, nil
+	case "objecttype":
+		return ua.NodeClassObjectType, nil
+	case "variabletype":
+		return ua.NodeClassVariableType, nil
+	case "referencetype":
+		return ua.NodeClassReferenceType, nil
+	case "datatype":
+		return ua.NodeClassDataType, nil
+	case "view":
+		return ua.NodeClassView, nil
 	}
-	// SDK expects title-case (e.g. "Variable", "Object")
-	titled := strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
-	return ua.NodeClassFromString(titled)
+	return 0, fmt.Errorf("unknown node class %q (use all|object|variable|method|objecttype|variabletype|referencetype|datatype|view)", s)
+}
+
+// BrowseDirection converts forward, inverse or both (in any case) to a
+// ua.BrowseDirection.
+func BrowseDirection(s string) (ua.BrowseDirection, error) {
+	switch strings.ToLower(s) {
+	case "forward":
+		return ua.BrowseDirectionForward, nil
+	case "inverse":
+		return ua.BrowseDirectionInverse, nil
+	case "", "both":
+		return ua.BrowseDirectionBoth, nil
+	}
+	return ua.BrowseDirectionInvalid, fmt.Errorf("unknown direction %q (use forward|inverse|both)", s)
 }
 
 // AttributeIDFromName converts a friendly attribute name to a ua.AttributeID.

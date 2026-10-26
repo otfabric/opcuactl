@@ -68,7 +68,10 @@ Examples:
 				}
 			}
 
-			classMask := parse.NodeClassMask(nodeClass)
+			classMask, err := parse.NodeClassMask(nodeClass)
+			if err != nil {
+				return exitCode(1, err)
+			}
 			n := c.Node(nodeID)
 			children, err := n.Children(opCtx, id.HierarchicalReferences, classMask)
 			if err != nil {
@@ -159,18 +162,22 @@ Examples:
 				}
 			}
 
-			dir := ua.BrowseDirectionBoth
-			if direction != "" {
-				dir = ua.BrowseDirectionFromString(direction)
+			dir, err := parse.BrowseDirection(direction)
+			if err != nil {
+				return exitCode(1, err)
 			}
 
-			classMask := parse.NodeClassMask(nodeClass)
+			classMask, err := parse.NodeClassMask(nodeClass)
+			if err != nil {
+				return exitCode(1, err)
+			}
 			refTypeID := uint32(id.References)
 			if refType != "" {
 				rtID, err := parse.NodeID(refType)
-				if err == nil && rtID.IntID() > 0 {
-					refTypeID = rtID.IntID()
+				if err != nil || rtID.Namespace() != 0 || rtID.IntID() == 0 {
+					return exitCodef(1, "invalid --refs %q: a numeric reference type NodeId of namespace 0, e.g. i=33", refType)
 				}
+				refTypeID = rtID.IntID()
 			}
 
 			n := c.Node(nodeID)
@@ -267,7 +274,10 @@ Examples:
 				}
 			}
 
-			classMask := parse.NodeClassMask(nodeClass)
+			classMask, err := parse.NodeClassMask(nodeClass)
+			if err != nil {
+				return exitCode(1, err)
+			}
 			n := c.Node(nodeID)
 
 			w := newWriter()
@@ -294,7 +304,7 @@ Examples:
 }
 
 func browseTreeTable(ctx context.Context, n *opcua.Node, maxDepth int, classMask ua.NodeClass) error {
-	for wr, err := range n.WalkLimitDedup(ctx, maxDepth) {
+	for wr, err := range n.WalkLimitDedup(ctx, walkLimitDepth(maxDepth)) {
 		if err != nil {
 			format.Errf("walk: %v", err)
 			return exitCode(3, err)
