@@ -26,6 +26,7 @@ A patch release from a test-coverage pass over the commands: end-to-end tests ag
 
 ### Tests
 
+- **CI runs the `cmd/opcuactl` tests.** The shared Go workflow leaves out packages under `/cmd/` by default, which here is the CLI with most of the tests, the e2e suite included; `ci.yml` now passes its own `test-exclude-regex`.
 - **Coverage 79.1 % → 92.7 %** (`make coverage`; `cmd/opcuactl` 76.8 → 91.9 %, `internal/conn` 86.8 → 96.8 %, `internal/format` 86.9 → 99.0 %). New end-to-end tests run `browse`, `find`, `get node|attr|server|vars`, `history value`, `export nodes|values`, `call method`, `monitor event|alarm`, `ping`, `write value`, `version` and `completion` in-process against `opcuactl serve` and go-opcua test servers, with their output formats and the exit codes 1, 2, 3 and 4; unit tests cover certificate loading, endpoint and security selection, and the error handling of the output writers.
 - **`TestE2E_ServeSignals` no longer races** on the endpoint URL: stdout and stderr of the child are copied separately, so it waits for the URL on stdout as well as for "Serving".
 

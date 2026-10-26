@@ -17,4 +17,7 @@ jobs:
     with:
       codecov-name: opcuactl
       go-versions: '["1.26", "1.27"]'
+      # The default also leaves out /cmd/, which here is the CLI itself:
+      # cmd/opcuactl holds most of the tests, the e2e suite included.
+      test-exclude-regex: "(/example(s)?($|/))"
     secrets: inherit
