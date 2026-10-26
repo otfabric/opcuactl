@@ -15,11 +15,16 @@ A patch release for `call method` and the text output: JSON method arguments tak
 - **`call method --introspect` exits 3 for a node that is not a method.** A Variable or Object printed an empty signature with exit 0; it is `BadNodeClassInvalid` now, and a node that does not exist `BadNodeIdUnknown`, both exit 3.
 - **Table output prints ExtensionObjects readably**, not as Go pointers (`&{1 i=864 0x... []}`): a decoded one as its type name and its fields as JSON prints them (`ServerStatusDataType {"StartTime":"...","State":0,"BuildInfo":{...},...}`), one whose type cannot be decoded as `ExtensionObject{TypeId: ns=2;i=5001, binary, 24 bytes}`. This applies to `get value|attr|node|vars`, `--quiet`, `export values`, `history`, `call method`, `write value`, `monitor` and the PubSub field output, in arrays as well.
 - **`--format csv` works for every command.** Commands that print structured data (`get value|attr|node|server|vars`, `browse`, `find`, `diagnostics`, `discover`, `ping` and others) failed with `use WriteTable for table format`. Such data is now written as CSV with one row per item and a column per field, in the order of the JSON output; a nested structure or array is a cell holding its JSON.
+- **`pubsub respond` and `pubsub call` are ready only once they are subscribed.** They waited until their connection was Operational, which go-opcua reports before the subscriptions are made, so `respond` could print `responding as ...` (and `call` send its request) before it could receive: a request or response sent at once could be lost. They now wait with go-opcua's `PubSub.Ready`, still bounded by `--timeout`.
 - **`--verbose` and informational lines are not printed as errors.** The progress lines of `-v` (`resolved ...`, `found N node(s)`, `exported ...`, `returned ...`, `subscription N started ...`), the revised publishing interval of `monitor`, and the warnings and hints of successful commands (`gds`, `gds pull`, `diagnostics`) had an `Error:` prefix; they are plain lines on stderr now, as the PubSub commands already printed theirs. Errors keep the prefix.
 
 ### Changed
 
 - **Value rendering in table, CSV and `--quiet` output** follows the JSON output: a ByteString is base64 (was a list of byte values), a DateTime RFC 3339 (`2026-10-26T10:00:00Z`, was `2026-10-26 10:00:00 +0000 UTC`), a StatusCode its name, a Variant or DataValue its value, other structures their type name and JSON. `monitor` text output prints arrays as comma-separated elements, as the other commands do.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.26.1 → [v1.27.0](https://github.com/otfabric/go-opcua/releases/tag/v1.27.0)
 
 ---
 

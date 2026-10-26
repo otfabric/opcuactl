@@ -74,6 +74,13 @@ func startRuntime(t *testing.T, cfg *ua.PubSubConfigurationDataType, opts ...pub
 		t.Fatalf("pubsub start: %v", err)
 	}
 	t.Cleanup(func() { _ = ps.Close() })
+	// Start opens the transports in the background: a message sent before
+	// Ready can be lost.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := ps.Ready(ctx); err != nil {
+		t.Fatalf("pubsub ready: %v", err)
+	}
 }
 
 // startPublisher publishes Counter (UInt32 42) and Name (String "pump")

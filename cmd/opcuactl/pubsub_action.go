@@ -211,7 +211,8 @@ func (s *pubsubActionSetup) options() []pubsub.Option {
 }
 
 // startActionRuntime starts the runtime and waits up to --timeout until its
-// connection is open.
+// connection is open and subscribed: a request or response sent to it from
+// then on is received.
 func startActionRuntime(ctx context.Context, cfg *ua.PubSubConfigurationDataType, url string, opts []pubsub.Option) (*pubsub.PubSub, error) {
 	ps, err := pubsub.New(cfg, opts...)
 	if err != nil {
@@ -220,30 +221,21 @@ func startActionRuntime(ctx context.Context, cfg *ua.PubSubConfigurationDataType
 	if err := ps.Start(ctx); err != nil {
 		return nil, exitCode(2, err)
 	}
-	id, _ := ps.Lookup(pubsub.KindConnection, pubsub.Root, actionConnection)
 	wctx, cancel := connCfg.TimeoutContext(ctx)
 	defer cancel()
-	tick := time.NewTicker(10 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		st, err := ps.Status(id)
-		if err == nil && st.State == ua.PubSubStateOperational {
-			return ps, nil
+	if err := ps.Ready(wctx); err != nil {
+		reason := "it did not open in time"
+		id, _ := ps.Lookup(pubsub.KindConnection, pubsub.Root, actionConnection)
+		if st, err := ps.Status(id); err == nil && st.LastError != nil {
+			reason = transportError(url, st.LastError).Error()
 		}
-		select {
-		case <-wctx.Done():
-			_ = ps.Close()
-			reason := "it did not open in time"
-			if err == nil && st.LastError != nil {
-				reason = transportError(url, st.LastError).Error()
-			}
-			if ctx.Err() != nil {
-				return nil, exitCode(2, ctx.Err())
-			}
-			return nil, exitCodef(2, "connecting to %s: %s", url, reason)
-		case <-tick.C:
+		_ = ps.Close()
+		if ctx.Err() != nil {
+			return nil, exitCode(2, ctx.Err())
 		}
+		return nil, exitCodef(2, "connecting to %s: %s", url, reason)
 	}
+	return ps, nil
 }
 
 // newActionDiagnostics returns the diagnostics of a command that show the
