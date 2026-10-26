@@ -85,7 +85,7 @@ Examples:
 			}
 			n := c.Node(nodeID)
 
-			nodes, err := collectExportNodes(ctx, c, n, maxDepth, classMask, 0)
+			nodes, err := collectExportNodes(ctx, c, n, maxDepth, classMask)
 			if err != nil {
 				format.Errf("exporting nodes: %v", err)
 				return exitCode(3, err)
@@ -139,7 +139,7 @@ Examples:
 	return cmd
 }
 
-func collectExportNodes(ctx context.Context, c *opcua.Client, n *opcua.Node, maxDepth int, classMask ua.NodeClass, _ int) ([]model.ExportedNode, error) {
+func collectExportNodes(ctx context.Context, c *opcua.Client, n *opcua.Node, maxDepth int, classMask ua.NodeClass) ([]model.ExportedNode, error) {
 	var results []model.ExportedNode
 
 	// Include the root node at depth 0
@@ -291,7 +291,7 @@ Examples:
 					return exitCode(1, err)
 				}
 				n := c.Node(startID)
-				exported, err := collectExportNodes(ctx, c, n, maxDepth, ua.NodeClassVariable, 0)
+				exported, err := collectExportNodes(ctx, c, n, maxDepth, ua.NodeClassVariable)
 				if err != nil {
 					format.Errf("discovering variables: %v", err)
 					return exitCode(3, err)

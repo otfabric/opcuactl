@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/cloudflare/circl v1.6.5
-	github.com/otfabric/go-opcua v1.27.0
+	github.com/otfabric/go-opcua v1.28.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/term v0.47.0

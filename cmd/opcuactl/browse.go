@@ -354,15 +354,17 @@ func browseTreeJSON(ctx context.Context, n *opcua.Node, maxDepth int, classMask 
 		return tn, nil
 	}
 
+	// A browse that fails (an unknown node, Bad_NodeIdUnknown) is an error,
+	// as in the table form, which walks the same references.
 	children, err := n.Children(opCtx, id.HierarchicalReferences, classMask)
 	if err != nil {
-		return tn, nil // leaf or error, return what we have
+		return tn, fmt.Errorf("%s: %w", n.ID, err)
 	}
 
 	for _, child := range children {
 		childNode, err := browseTreeJSON(ctx, child, maxDepth, classMask, depth+1)
 		if err != nil {
-			continue
+			return tn, err
 		}
 		tn.Children = append(tn.Children, childNode)
 	}

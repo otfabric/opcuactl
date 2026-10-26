@@ -125,6 +125,9 @@ func TestE2E_Browse(t *testing.T) {
 		for _, args := range [][]string{
 			{"browse", "children", "-e", ep, "-n", "ns=1;s=NoSuchNode"},
 			{"browse", "refs", "-e", ep, "-n", "ns=1;s=NoSuchNode"},
+			{"browse", "tree", "-e", ep, "-n", "ns=1;s=NoSuchNode"},
+			{"browse", "tree", "-e", ep, "-n", "ns=1;s=NoSuchNode", "--format", "json"},
+			{"browse", "tree", "-e", ep, "-n", "ns=1;s=NoSuchNode", "--format", "yaml"},
 			{"find", "node", "-e", ep, "--name", "X", "--start-node", "ns=1;s=NoSuchNode"},
 		} {
 			_, stderr, err := runCLI(t, args...)

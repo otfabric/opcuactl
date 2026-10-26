@@ -1,5 +1,29 @@
 # opcuactl Releases
 
+## v0.10.4
+
+**Date:** 2026-10-26  
+**Previous release:** v0.10.3
+
+### Summary
+
+`browse tree --format json|yaml` reports a node that cannot be browsed, and `serve --nodeset` gets go-opcua's reference fixes.
+
+### Fixed
+
+- **`browse tree --format json` and `--format yaml` exit 3 for a node that cannot be browsed.** The table form already failed with `BadNodeIdUnknown` (exit 3) for an unknown start node, but the JSON and YAML forms ignored the browse error and printed the node alone with exit 0; a browse that fails deeper in the tree was skipped silently. Both forms now report the error, as `browse children` and `browse refs` do since v0.10.2.
+- **`serve --nodeset`: references of imported nodesets are recorded once and on both ends** (go-opcua v1.28.0): a symmetric reference is visible from its target, a reference already in the address space is not added again, and a ReferenceType of another namespace keeps its namespace. A client's AddReferences of an existing reference is answered `Bad_DuplicateReferenceNotAllowed`, and DeleteNodes honours `deleteTargetReferences`.
+
+### Changed
+
+- Internal: unused code removed (an unused parameter of the export collector).
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.27.0 → [v1.28.0](https://github.com/otfabric/go-opcua/releases/tag/v1.28.0)
+
+---
+
 ## v0.10.3
 
 **Date:** 2026-10-26  
