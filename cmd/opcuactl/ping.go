@@ -58,7 +58,7 @@ Examples:
 						Latency: tcpDur.String(),
 						Error:   err.Error(),
 					})
-					return outputPing(steps)
+					return pingFailed(steps, 2)
 				}
 				_ = conn.Close()
 				steps = append(steps, model.PingStep{
@@ -79,7 +79,7 @@ Examples:
 					Latency: secDur.String(),
 					Error:   err.Error(),
 				})
-				return outputPing(steps)
+				return pingFailed(steps, 2)
 			}
 			defer func() { _ = c.Close(ctx) }()
 			steps = append(steps, model.PingStep{
@@ -102,13 +102,13 @@ Examples:
 					Latency: browseDur.String(),
 					Error:   browseErr.Error(),
 				})
-			} else {
-				steps = append(steps, model.PingStep{
-					Stage:   "browse",
-					Status:  "ok",
-					Latency: browseDur.String(),
-				})
+				return pingFailed(steps, 3)
 			}
+			steps = append(steps, model.PingStep{
+				Stage:   "browse",
+				Status:  "ok",
+				Latency: browseDur.String(),
+			})
 
 			return outputPing(steps)
 		},
@@ -137,6 +137,16 @@ func dialTCP(ctx context.Context, endpoint string) (net.Conn, error) {
 		port = "443"
 	}
 	return (&net.Dialer{Timeout: uacp.DefaultDialTimeout}).DialContext(ctx, "tcp", net.JoinHostPort(u.Hostname(), port))
+}
+
+// pingFailed prints the stages and fails with code for the last one: 2 when
+// the server cannot be reached (tcp, secure), 3 when it cannot be browsed.
+func pingFailed(steps []model.PingStep, code int) error {
+	if err := outputPing(steps); err != nil {
+		return err
+	}
+	last := steps[len(steps)-1]
+	return exitCodef(code, "ping: %s stage failed", last.Stage)
 }
 
 func outputPing(steps []model.PingStep) error {

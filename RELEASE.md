@@ -11,6 +11,7 @@ A patch release from a test-coverage pass over the commands: end-to-end tests ag
 
 ### Fixed
 
+- **`ping` exits 2 when the server cannot be reached and 3 when it cannot be browsed.** The stages are still printed, but a failed TCP or secure stage exited 0, so `ping` could not be used as a check in scripts and CI.
 - **`call method` exits 3 on a Bad method result.** The result is still printed, but a Bad StatusCode of the call (`BadTypeMismatch`, `BadArgumentsMissing`, `BadMethodInvalid`, ...) now exits 3, as `write value` does since v0.10.0, instead of 0.
 - **`get node` exits 3 for a node that does not exist.** go-opcua's `Node.Summary` leaves out the attributes it could not read, so an unknown node printed an empty summary (`NodeClassUnspecified`) with exit 0; the status of the NodeClass read (`BadNodeIdUnknown`) is reported now.
 - **`monitor event` and `monitor alarm` exit 3 when the server rejects the notifier.** The subscription builder they used does not look at the result of the monitored item, so an unknown node (`BadNodeIdUnknown`) was waited on silently until `--duration` with exit 0. They create the item as `alarms watch` does and report its status.

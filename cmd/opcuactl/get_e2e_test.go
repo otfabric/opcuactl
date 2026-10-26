@@ -91,7 +91,9 @@ func TestE2E_GetAttr(t *testing.T) {
 			t.Errorf("--all without -v kept %+v", a)
 		}
 	}
-	if !slices.ContainsFunc(allV, func(a AttributeResult) bool { return a.Attribute == "IsAbstract" && a.Status == "BadAttributeIDInvalid" }) {
+	if !slices.ContainsFunc(allV, func(a AttributeResult) bool {
+		return a.Attribute == "IsAbstract" && a.Status == "BadAttributeIDInvalid"
+	}) {
 		t.Errorf("--all -v misses IsAbstract: %+v", allV)
 	}
 
