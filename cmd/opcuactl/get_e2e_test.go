@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/serve"
@@ -150,7 +151,9 @@ func TestE2E_GetServer(t *testing.T) {
 	_, ep := startDemo(t)
 
 	status := runJSON[model.ServerStatus](t, "get", "server", "-e", ep)
-	if status.State != "ServerStateRunning" || status.StartTime == "" || status.CurrentTime < status.StartTime ||
+	start, errStart := time.Parse(time.RFC3339Nano, status.StartTime)
+	now, errNow := time.Parse(time.RFC3339Nano, status.CurrentTime)
+	if status.State != "ServerStateRunning" || errStart != nil || errNow != nil || now.Before(start) ||
 		status.SecurityPolicy != "None" || status.SecurityMode != "MessageSecurityModeNone" ||
 		status.BuildInfo == nil || status.BuildInfo.ProductName != "opcuactl" || status.BuildInfo.ManufacturerName != "otfabric" {
 		t.Errorf("server status %+v %+v", status, status.BuildInfo)

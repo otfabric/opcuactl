@@ -42,7 +42,7 @@ func TestE2E_HistoryValue(t *testing.T) {
 		if len(values) < 5 {
 			t.Fatalf("%d values", len(values))
 		}
-		prev := ""
+		var prev time.Time
 		for _, v := range values {
 			if v.NodeID != sine || v.Status != "Good" || v.Type != "TypeIDDouble" {
 				t.Errorf("value %+v", v)
@@ -50,10 +50,16 @@ func TestE2E_HistoryValue(t *testing.T) {
 			if f, ok := v.Value.(float64); !ok || f < -1 || f > 1 {
 				t.Errorf("Demo.Sine value %v out of [-1, 1]", v.Value)
 			}
-			if v.SourceTimestamp < prev {
-				t.Errorf("not in time order: %s after %s", v.SourceTimestamp, prev)
+			// RFC 3339 with trailing zeros dropped: compared as times, not
+			// as strings ("…02.4Z" is before "…02.4231333Z").
+			ts, err := time.Parse(time.RFC3339Nano, v.SourceTimestamp)
+			if err != nil {
+				t.Fatalf("SourceTimestamp %q: %v", v.SourceTimestamp, err)
 			}
-			prev = v.SourceTimestamp
+			if ts.Before(prev) {
+				t.Errorf("not in time order: %s after %s", v.SourceTimestamp, prev.Format(time.RFC3339Nano))
+			}
+			prev = ts
 		}
 
 		for _, args := range [][]string{{"--max-values", "3"}, {"--max-values", "3", "--continuation", "single"}} {

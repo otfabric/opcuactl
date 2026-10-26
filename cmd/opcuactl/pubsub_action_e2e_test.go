@@ -209,7 +209,10 @@ func TestE2E_PubSubActionsUDP(t *testing.T) {
 
 			call := append([]string{"--url", reqURL, "--request-address", respURL, "--publisher-id", "7", "--writer-id", "100",
 				"--resend-interval", "100ms", "--input", "A:Int32=2", "--input", "B:Int32=3"}, sec...)
-			out := callUntilAnswered(t, append(call, "--output", "A:Int32", "--output", "B:Int32", "--format", "json")...)
+			// The Responder listens once it reports itself, and the
+			// resends cover a lost datagram: one call, no retries, which
+			// would be new requests that count towards --count 3.
+			out := mustRun(t, append([]string{"pubsub", "call"}, append(call, "--output", "A:Int32", "--output", "B:Int32", "--format", "json")...)...)
 			r := parseActionResult(t, out)
 			if r.Status != "Good" || r.PublisherID != "7" || r.DataSetWriterID != 100 || r.ActionTargetID != 1 || r.RequestID == 0 ||
 				len(r.Outputs) != 2 || r.Outputs[0].Name != "A" || r.Outputs[0].Value != float64(2) || r.Outputs[1].Value != float64(3) ||

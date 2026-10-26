@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	mathrand "math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,15 +29,38 @@ import (
 	"github.com/otfabric/opcuactl/internal/model"
 )
 
+// udpPorts are the ports freeUDPURL handed out in this test process.
+var (
+	udpPortsMu sync.Mutex
+	udpPorts   = map[int]bool{}
+)
+
 // freeUDPURL returns an opc.udp:// loopback address nobody listens on.
+// The port is below the ephemeral ranges (Linux 32768-60999, macOS and
+// Windows 49152-65535) and unique in the test process. A port of 127.0.0.1:0
+// is free again once closed: the kernel can hand it to another test or to
+// the ephemeral send socket of a publisher. The UDP transport binds with
+// SO_REUSEADDR, with which Linux lets a second receiver bind the same port
+// and take its datagrams, and a socket without it makes the bind fail.
 func freeUDPURL(t *testing.T) string {
 	t.Helper()
-	c, err := net.ListenPacket("udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen udp: %v", err)
+	udpPortsMu.Lock()
+	defer udpPortsMu.Unlock()
+	for range 1000 {
+		port := 20000 + mathrand.IntN(12000)
+		if udpPorts[port] {
+			continue
+		}
+		c, err := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			continue
+		}
+		_ = c.Close()
+		udpPorts[port] = true
+		return fmt.Sprintf("opc.udp://127.0.0.1:%d", port)
 	}
-	defer func() { _ = c.Close() }()
-	return fmt.Sprintf("opc.udp://%s", c.LocalAddr().String())
+	t.Fatal("no free UDP port")
+	return ""
 }
 
 // startRuntime runs a go-opcua PubSub runtime for the test.
