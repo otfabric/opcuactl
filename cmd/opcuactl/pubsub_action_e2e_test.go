@@ -329,12 +329,27 @@ func TestE2E_PubSubRespondStatus(t *testing.T) {
 		resp.waitStderr(t, "responding")
 		_, errOut, err := runCLI(t, "pubsub", "call", "--url", reqURL, "--request-address", respURL, "--timeout", "500ms",
 			"--resend-interval", "100ms", "--input", "A:Int32=1", "--diagnostics", "--format", "json")
-		if ExitCode(err) != 2 || !strings.Contains(errOut, "no response") {
+		// The TimeoutHint of 500ms ends on both sides: the Responder
+		// cancels the handler and answers Done with Bad_Timeout (Part 14
+		// §6.2.11), the Requestor stops waiting. Which comes first is a
+		// race, and both are timeouts.
+		d := diagnosticsOf(t, errOut)
+		switch ExitCode(err) {
+		case 2:
+			if !strings.Contains(errOut, "no response") || d[ctrActionTimeouts] != 1 {
+				t.Errorf("timed out: stderr %q, requestor diagnostics %v", errOut, d)
+			}
+		case 3:
+			if !strings.Contains(errOut, "answered BadTimeout") || d[ctrActionResponsesReceived] == 0 {
+				t.Errorf("answered: stderr %q, requestor diagnostics %v", errOut, d)
+			}
+		default:
 			t.Errorf("exit code %d, stderr %q", ExitCode(err), errOut)
 		}
-		if d := diagnosticsOf(t, errOut); d[ctrActionTimeouts] != 1 || d[ctrActionRequestsSent] == 0 {
+		if d[ctrActionRequestsSent] == 0 {
 			t.Errorf("requestor diagnostics: %v", d)
 		}
+		resp.waitStdout(t, "-> BadTimeout")
 	})
 }
 
