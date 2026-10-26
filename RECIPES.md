@@ -454,6 +454,8 @@ opcuactl call method "${CONN[@]}" \
   --arg-json '[42, "hello"]'
 ```
 
+The JSON values take the types of the method's InputArguments: for a method `Add(a Int32, b Int32)`, `--arg-json '[2, 40]'` sends two Int32. A value that does not fit (`2.5`, `3000000000`) is rejected with exit 1 before the call.
+
 ---
 
 ## 10. Use Standard Node Aliases

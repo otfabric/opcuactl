@@ -563,6 +563,8 @@ opcuactl call method -e opc.tcp://localhost:4840 --object "ns=2;i=1" --method "n
   --arg-file args.json
 ```
 
+The values of `--arg-json` and `--arg-file` are converted to the DataType and ValueRank of the method's InputArguments (the signature `--introspect` prints): `[2, 40]` calls a method of two Int32 arguments with two Int32, `[[1, 2]]` passes a UInt16 array to a UInt16 array argument. Integer types (SByte to UInt64) take integral numbers in their range, or a string holding one (an Int64 beyond 2^53); Float and Double take numbers and `"NaN"`, `"Infinity"`, `"-Infinity"`; DateTime an RFC 3339 string; ByteString base64; NodeId and ExpandedNodeId their text form; QualifiedName `"ns:Name"`; LocalizedText a string or `{"Locale": "en", "Text": "..."}`. A value that does not fit its argument (`2.5` or `3000000000` for an Int32, a string for a Boolean) is a usage error (exit 1) and the method is not called. When the method has no InputArguments, and for arguments of a structure type or BaseDataType, a JSON number is sent as a Double, a string as a String and `true`/`false` as a Boolean; `--arg` with `--types` sets the types explicitly.
+
 `--introspect` exits 3 when the method node does not exist (`BadNodeIdUnknown`) or is not a Method (`BadNodeClassInvalid`).
 
 ### Monitoring

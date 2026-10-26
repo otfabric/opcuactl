@@ -4,7 +4,6 @@ package opcuactl
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -52,6 +51,18 @@ Use --arg (repeatable) to pass arguments, and --types (comma-separated) for type
 Use --arg-json to pass arguments as a JSON array (e.g. '[5, "hello", true]').
 Use --arg-file to read arguments from a JSON file containing an array.
 
+The JSON values are converted to the DataType and ValueRank of the method's
+InputArguments: 5 is sent as an Int32 to an Int32 argument, [1, 2] as a
+UInt16 array to a UInt16 array argument. Integer types (SByte..UInt64) take
+integral numbers in range (or a string holding one, for Int64 beyond 2^53),
+Float and Double numbers (or "NaN", "Infinity", "-Infinity"), DateTime an
+RFC 3339 string, ByteString base64, NodeId/ExpandedNodeId their text form,
+QualifiedName "ns:Name", LocalizedText a string or {"Locale":..,"Text":..}.
+A value that does not fit its argument (2.5 or 3000000000 for an Int32) is a
+usage error (exit 1). Without InputArguments, or for an argument of a
+structure or BaseDataType, JSON numbers are sent as Double, strings as
+String and true/false as Boolean.
+
 Examples:
   opcuactl call method -e opc.tcp://localhost:4840 --object i=2253 --method "ns=0;i=11492"
   opcuactl call method -e opc.tcp://localhost:4840 --object i=2253 --method "ns=0;i=11492" --arg 5 --types int32
@@ -75,6 +86,26 @@ Examples:
 			methodID, err := parse.NodeID(methodStr)
 			if err != nil {
 				return exitCodef(1, "invalid --method: %v", err)
+			}
+
+			// --arg-json / --arg-file: the JSON is checked before
+			// connecting, its values are typed once the method signature
+			// is known.
+			var jsonArgs []byte
+			jsonFlag := "--arg-json"
+			switch {
+			case argJSON != "":
+				jsonArgs = []byte(argJSON)
+			case argFile != "":
+				jsonFlag = "--arg-file"
+				if jsonArgs, err = os.ReadFile(argFile); err != nil {
+					return exitCodef(1, "reading --arg-file: %v", err)
+				}
+			}
+			if jsonArgs != nil {
+				if _, err := parse.JSONArguments(jsonArgs, nil); err != nil {
+					return exitCodef(1, "invalid %s: %v", jsonFlag, err)
+				}
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -167,24 +198,19 @@ Examples:
 			// Parse and coerce arguments
 			var callArgs []any
 
-			switch {
-			case argJSON != "":
-				var raw []interface{}
-				if err := json.Unmarshal([]byte(argJSON), &raw); err != nil {
-					return exitCodef(1, "invalid --arg-json: %v", err)
+			if jsonArgs != nil {
+				// The InputArguments of the method give the types of the
+				// JSON values; without them (or for a method that does
+				// not exist, which the call reports) numbers are Doubles.
+				inputs, _, sigErr := c.MethodArguments(opCtx, objectID, methodID)
+				if sigErr != nil {
+					inputs = nil
 				}
-				callArgs = raw
-			case argFile != "":
-				data, err := os.ReadFile(argFile)
+				callArgs, err = parse.JSONArguments(jsonArgs, inputs)
 				if err != nil {
-					return exitCodef(1, "reading --arg-file: %v", err)
+					return exitCodef(1, "invalid %s: %v", jsonFlag, err)
 				}
-				var raw []interface{}
-				if err := json.Unmarshal(data, &raw); err != nil {
-					return exitCodef(1, "invalid JSON in --arg-file: %v", err)
-				}
-				callArgs = raw
-			default:
+			} else {
 				var types []string
 				if typesStr != "" {
 					types = strings.Split(typesStr, ",")
@@ -253,7 +279,7 @@ Examples:
 	cmd.Flags().StringVar(&methodStr, "method", "", "Method node ID (required)")
 	cmd.Flags().StringArrayVar(&argStrs, "arg", nil, "Method argument value (repeatable)")
 	cmd.Flags().StringVar(&typesStr, "types", "", "Comma-separated type names for argument coercion")
-	cmd.Flags().StringVar(&argJSON, "arg-json", "", "Arguments as a JSON array (e.g. '[5, \"hello\"]')")
+	cmd.Flags().StringVar(&argJSON, "arg-json", "", "Arguments as a JSON array (e.g. '[5, \"hello\"]'), typed by the InputArguments of the method")
 	cmd.Flags().StringVar(&argFile, "arg-file", "", "Read arguments from a JSON file containing an array")
 	cmd.Flags().BoolVar(&introspect, "introspect", false, "Show method argument signatures without calling")
 	return cmd
