@@ -137,12 +137,8 @@ func (cfg *Config) options() ([]server.Option, error) {
 	if advertised == "" {
 		advertised = host
 	}
-	tcpHost := advertised
-	if strings.Contains(tcpHost, ":") {
-		tcpHost = "[" + tcpHost + "]" // server.EndPoint does not bracket IPv6 hosts
-	}
 	opts := []server.Option{
-		server.EndPoint(tcpHost, port),
+		server.EndPoint(advertised, port), // brackets an IPv6 host
 		server.ListenOn(cfg.Listen),
 		server.ProductName("opcuactl"),
 		server.ManufacturerName("otfabric"),
