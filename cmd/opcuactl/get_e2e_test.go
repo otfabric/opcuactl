@@ -108,6 +108,43 @@ func TestE2E_GetAttr(t *testing.T) {
 	wantExit(t, 2, "get", "attr", "-e", "opc.tcp://"+freeAddr(t), "-n", level, "--attr", "Value", "--timeout", "2s")
 }
 
+// TestE2E_GetExtensionObjectTable reads ServerStatus (i=2256), an
+// ExtensionObject of ServerStatusDataType, in the text outputs: its fields
+// are printed as JSON prints them, not as Go pointers.
+func TestE2E_GetExtensionObjectTable(t *testing.T) {
+	_, ep := startDemo(t)
+	for _, args := range [][]string{
+		{"get", "value", "-e", ep, "-n", "i=2256"},
+		{"get", "value", "-e", ep, "-n", "ServerStatus", "-q"},
+		{"get", "attr", "-e", ep, "-n", "i=2256", "--attr", "Value"},
+		{"get", "attr", "-e", ep, "-n", "i=2256", "--all"},
+		{"get", "node", "-e", ep, "-n", "i=2256"},
+	} {
+		out := mustRun(t, args...)
+		wantContains(t, out, "ServerStatusDataType {", `"State":0`, `"ProductName":"opcuactl"`, `"StartTime":"`, `"ShutdownReason":{"text":""}`)
+		if strings.Contains(out, "0x") || strings.Contains(out, "&{") {
+			t.Errorf("opcuactl %s: Go pointer in the output:\n%s", strings.Join(args, " "), out)
+		}
+	}
+
+	// The fields are those of the JSON output.
+	type value struct {
+		Value struct {
+			Value map[string]any `json:"Value"`
+		} `json:"value"`
+	}
+	v := runJSON[value](t, "get", "value", "-e", ep, "-n", "i=2256")
+	if v.Value.Value["BuildInfo"].(map[string]any)["ProductName"] != "opcuactl" {
+		t.Errorf("JSON output: %+v", v)
+	}
+
+	// DateTimes are RFC 3339 in the table, as in JSON.
+	out := mustRun(t, "get", "value", "-e", ep, "-n", "i=2257", "-q")
+	if !strings.HasSuffix(strings.TrimSpace(out), "Z") || !strings.Contains(out, "T") || strings.Contains(out, "UTC") {
+		t.Errorf("StartTime: %q", out)
+	}
+}
+
 // TestE2E_GetServer reads the server status in a table and as JSON.
 func TestE2E_GetServer(t *testing.T) {
 	_, ep := startDemo(t)

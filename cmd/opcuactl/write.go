@@ -139,10 +139,10 @@ Examples:
 				if f == format.Table {
 					curVal := ""
 					if result.CurrentValue != nil {
-						curVal = fmt.Sprintf("%v", result.CurrentValue)
+						curVal = format.FormatValue(result.CurrentValue)
 					}
 					headers := []string{"NODE ID", "DISPLAY NAME", "DATA TYPE", "ACCESS", "CURRENT VALUE", "NEW VALUE", "NEW TYPE", "STATUS"}
-					rows := [][]string{{result.NodeID, result.DisplayName, result.DataType, result.AccessLevel, curVal, fmt.Sprintf("%v", result.NewValue), result.NewType, result.Status}}
+					rows := [][]string{{result.NodeID, result.DisplayName, result.DataType, result.AccessLevel, curVal, format.FormatValue(result.NewValue), result.NewType, result.Status}}
 					return w.WriteTable(headers, rows)
 				}
 				return w.Write(result)

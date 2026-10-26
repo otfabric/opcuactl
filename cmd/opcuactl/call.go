@@ -261,7 +261,7 @@ Examples:
 				if len(outArgs) > 0 {
 					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nOutput Arguments:")
 					for i, v := range outArgs {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%d] %v\n", i, v)
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%d] %s\n", i, format.FormatValue(v))
 					}
 				}
 			} else if err := w.Write(callResult); err != nil {

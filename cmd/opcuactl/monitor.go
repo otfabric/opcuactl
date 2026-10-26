@@ -259,7 +259,7 @@ Examples:
 							if overflow {
 								overflowMark = "  [OVERFLOW]"
 							}
-							fmt.Printf("%s  %s  %v  [%s]%s\n", outTS, mv.NodeID, mv.Value, mv.Status, overflowMark)
+							fmt.Printf("%s  %s  %s  [%s]%s\n", outTS, mv.NodeID, format.FormatValue(mv.Value), mv.Status, overflowMark)
 						}
 
 						received++
@@ -441,7 +441,7 @@ Examples:
 							var parts []string
 							for _, name := range fields {
 								if v, ok := me.Fields[name]; ok {
-									parts = append(parts, fmt.Sprintf("%s=%v", name, v))
+									parts = append(parts, fmt.Sprintf("%s=%s", name, format.FormatValue(v)))
 								}
 							}
 							fmt.Printf("%s  %s  %s\n", me.Timestamp, me.NodeID, strings.Join(parts, "  "))
@@ -601,7 +601,7 @@ Examples:
 							var parts []string
 							for _, name := range fields {
 								if v, ok := me.Fields[name]; ok {
-									parts = append(parts, fmt.Sprintf("%s=%v", name, v))
+									parts = append(parts, fmt.Sprintf("%s=%s", name, format.FormatValue(v)))
 								}
 							}
 							fmt.Printf("%s  %s  %s\n", me.Timestamp, me.NodeID, strings.Join(parts, "  "))

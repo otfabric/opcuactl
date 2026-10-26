@@ -1020,6 +1020,8 @@ Every networked command supports these connection and output flags:
 
 All data goes to stdout, all errors go to stderr.
 
+In `table` output (and `--quiet`), values are printed as `json` prints them: arrays as comma-separated elements, a ByteString in base64, a DateTime in RFC 3339, a StatusCode by its name, a NodeId, QualifiedName or LocalizedText by its text. An ExtensionObject is the name of its decoded type and its fields as JSON, e.g. `ServerStatusDataType {"StartTime":"2026-10-26T10:00:00Z",...,"BuildInfo":{"ProductName":"opcuactl",...}}`; one whose type opcuactl cannot decode is `ExtensionObject{TypeId: ns=2;i=5001, binary, 24 bytes}`.
+
 ## Exit Codes
 
 | Code | Meaning |

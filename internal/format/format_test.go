@@ -10,6 +10,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/otfabric/go-opcua/ua"
 )
 
 func TestParseFormat(t *testing.T) {
@@ -310,6 +313,7 @@ func TestFormatValue(t *testing.T) {
 		{"empty slice", []int{}, ""},
 		{"bool", true, "true"},
 	}
+	tests = append(tests, uaFormatCases()...)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := FormatValue(tt.val)
@@ -389,5 +393,71 @@ func TestWriterErrors(t *testing.T) {
 	csvw.SetOutput(failingWriter{})
 	if err := csvw.WriteTable([]string{"A"}, [][]string{{strings.Repeat("x", 1<<16)}}); err == nil {
 		t.Error("CSV with a large row: no error")
+	}
+}
+
+type plainStruct struct {
+	A int
+	B string
+}
+
+type badJSON struct{ C chan int }
+
+func uaFormatCases() []struct {
+	name string
+	val  interface{}
+	want string
+} {
+	ts := time.Date(2026, 10, 26, 10, 0, 0, 5, time.UTC)
+	status := &ua.ServerStatusDataType{
+		StartTime: ts,
+		State:     ua.ServerStateRunning,
+		BuildInfo: &ua.BuildInfo{ProductName: "opcuactl"},
+	}
+	statusJSON, _ := json.Marshal(status)
+	diag := &ua.DiagnosticInfo{SymbolicID: 1}
+	diagJSON, _ := json.Marshal(diag)
+	return []struct {
+		name string
+		val  interface{}
+		want string
+	}{
+		{"bytestring", []byte{1, 2, 3}, "AQID"},
+		{"nil bytestring", []byte(nil), ""},
+		{"bytestring array", [][]byte{{1}, {2}}, "AQ==, Ag=="},
+		{"datetime", ts, "2026-10-26T10:00:00.000000005Z"},
+		{"status code", ua.StatusBadNodeIDUnknown, "BadNodeIDUnknown"},
+		{"node id", ua.NewStringNodeID(1, "X"), "ns=1;s=X"},
+		{"nil node id", (*ua.NodeID)(nil), ""},
+		{"expanded node id", ua.NewNumericExpandedNodeID(0, 85), "i=85"},
+		{"qualified name", &ua.QualifiedName{NamespaceIndex: 2, Name: "Name"}, "2:Name"},
+		{"localized text", ua.NewLocalizedTextWithLocale("hi", "en"), "en: hi"},
+		{"localized text array", []*ua.LocalizedText{ua.NewLocalizedText("a"), ua.NewLocalizedText("b")}, "a, b"},
+		{"node class", ua.NodeClassVariable, "NodeClassVariable"},
+		{"xml", ua.XMLElement("<a/>"), "<a/>"},
+		{"variant", ua.MustVariant(int32(5)), "5"},
+		{"nil variant", (*ua.Variant)(nil), ""},
+		{"variant array", []*ua.Variant{ua.MustVariant("a"), ua.MustVariant(true)}, "a, true"},
+		{"data value", &ua.DataValue{EncodingMask: ua.DataValueValue, Value: ua.MustVariant(1.5)}, "1.5"},
+		{"bad data value", &ua.DataValue{Status: ua.StatusBadNoData}, "BadNoData"},
+		{"uncertain data value", &ua.DataValue{Value: ua.MustVariant(1.5), Status: ua.StatusUncertain}, "1.5 (Uncertain)"},
+		{"nil data value", (*ua.DataValue)(nil), ""},
+		{"diagnostic info", diag, "DiagnosticInfo " + string(diagJSON)},
+		{"nil diagnostic info", (*ua.DiagnosticInfo)(nil), ""},
+		{"decoded extension object", ua.NewExtensionObject(status), "ServerStatusDataType " + string(statusJSON)},
+		{"extension object array", []*ua.ExtensionObject{ua.NewExtensionObject(&ua.Range{Low: 0, High: 1}), ua.NewExtensionObject(&ua.Range{High: 2})}, `Range {"Low":0,"High":1}, Range {"Low":0,"High":2}`},
+		{"undecoded extension object", &ua.ExtensionObject{EncodingMask: ua.ExtensionObjectBinary, TypeID: ua.NewNumericExpandedNodeID(2, 5001), RawBody: []byte{1, 2, 3, 4}}, "ExtensionObject{TypeId: ns=2;i=5001, binary, 4 bytes}"},
+		{"xml extension object", &ua.ExtensionObject{EncodingMask: ua.ExtensionObjectXML, TypeID: ua.NewNumericExpandedNodeID(2, 5002)}, "ExtensionObject{TypeId: ns=2;i=5002, xml, 0 bytes}"},
+		{"empty extension object", &ua.ExtensionObject{TypeID: ua.NewNumericExpandedNodeID(0, 0)}, "ExtensionObject{TypeId: i=0, empty}"},
+		{"extension object without type", &ua.ExtensionObject{EncodingMask: ua.ExtensionObjectBinary}, "ExtensionObject{TypeId: i=0, binary, 0 bytes}"},
+		{"nil extension object", (*ua.ExtensionObject)(nil), ""},
+		{"struct", plainStruct{A: 1, B: "x"}, `plainStruct {"A":1,"B":"x"}`},
+		{"struct pointer", &plainStruct{A: 1}, `plainStruct {"A":1,"B":""}`},
+		{"anonymous struct", struct{ A int }{2}, `{"A":2}`},
+		{"map", map[string]int{"a": 1}, `{"a":1}`},
+		{"nil map", map[string]int(nil), ""},
+		{"unmarshallable", badJSON{}, "badJSON"},
+		{"error", errors.New("boom"), "boom"},
+		{"int pointer", new(int), "0"},
 	}
 }

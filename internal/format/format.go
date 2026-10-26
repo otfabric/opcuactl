@@ -3,6 +3,7 @@
 package format
 
 import (
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"sync"
 	"text/tabwriter"
+	"time"
 
+	"github.com/otfabric/go-opcua/ua"
 	"gopkg.in/yaml.v3"
 )
 
@@ -224,20 +227,123 @@ func ResetPrinted() {
 }
 
 // FormatValue converts a value to a display string suitable for table/CSV output.
+//
 // Slices and arrays are rendered as comma-separated elements instead of Go's
-// default "[a b c]" format.
+// default "[a b c]" format. OPC UA values are rendered as JSON output renders
+// them, never as Go pointers: a ByteString in base64, a DateTime in RFC 3339,
+// a StatusCode by its name, a NodeId, QualifiedName or LocalizedText by its
+// text, a Variant or DataValue by its value. An ExtensionObject with a
+// decoded body is the name of its type and the JSON of the body
+// (ServerStatusDataType {"StartTime":...}); one with a body that could not be
+// decoded is its TypeId, encoding and length. Other structures are their
+// type name and JSON.
 func FormatValue(v interface{}) string {
-	if v == nil {
+	switch x := v.(type) {
+	case nil:
 		return ""
+	case string:
+		return x
+	case []byte:
+		if x == nil {
+			return ""
+		}
+		return base64.StdEncoding.EncodeToString(x)
+	case time.Time:
+		return x.Format(time.RFC3339Nano)
+	case ua.StatusCode:
+		return x.Symbol()
+	case *ua.ExtensionObject:
+		return formatExtensionObject(x)
+	case *ua.Variant:
+		if x == nil {
+			return ""
+		}
+		return FormatValue(x.Value())
+	case *ua.DataValue:
+		return formatDataValue(x)
+	case ua.XMLElement:
+		return string(x)
 	}
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
 		n := rv.Len()
 		parts := make([]string, n)
 		for i := 0; i < n; i++ {
-			parts[i] = fmt.Sprintf("%v", rv.Index(i).Interface())
+			parts[i] = FormatValue(rv.Index(i).Interface())
 		}
 		return strings.Join(parts, ", ")
+	case reflect.Pointer, reflect.Interface, reflect.Map:
+		if rv.IsNil() {
+			return ""
+		}
+	}
+	switch x := v.(type) {
+	case error:
+		return x.Error()
+	case fmt.Stringer:
+		return x.String()
+	}
+	switch {
+	case rv.Kind() == reflect.Pointer && rv.Elem().Kind() != reflect.Struct:
+		return FormatValue(rv.Elem().Interface())
+	case rv.Kind() == reflect.Struct, rv.Kind() == reflect.Pointer, rv.Kind() == reflect.Map:
+		return formatStruct(v)
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// formatStruct is the type name and the compact JSON of v:
+// BuildInfo {"ProductURI":"...",...}.
+func formatStruct(v interface{}) string {
+	t := reflect.TypeOf(v)
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return t.Name()
+	}
+	if t.Name() == "" {
+		return string(b)
+	}
+	return t.Name() + " " + string(b)
+}
+
+// formatExtensionObject renders the decoded body of an ExtensionObject, or
+// its TypeId, encoding and length when the body could not be decoded.
+func formatExtensionObject(eo *ua.ExtensionObject) string {
+	if eo == nil {
+		return ""
+	}
+	if eo.Value != nil {
+		return FormatValue(eo.Value)
+	}
+	typeID := "i=0"
+	if eo.TypeID != nil && eo.TypeID.NodeID != nil {
+		typeID = eo.TypeID.String()
+	}
+	switch {
+	case eo.EncodingMask == ua.ExtensionObjectEmpty && len(eo.RawBody) == 0:
+		return fmt.Sprintf("ExtensionObject{TypeId: %s, empty}", typeID)
+	case eo.EncodingMask == ua.ExtensionObjectXML:
+		return fmt.Sprintf("ExtensionObject{TypeId: %s, xml, %d bytes}", typeID, len(eo.RawBody))
+	}
+	return fmt.Sprintf("ExtensionObject{TypeId: %s, binary, %d bytes}", typeID, len(eo.RawBody))
+}
+
+// formatDataValue is the value of a DataValue, with its status when that is
+// not Good.
+func formatDataValue(dv *ua.DataValue) string {
+	if dv == nil {
+		return ""
+	}
+	s := FormatValue(dv.Value)
+	if dv.Status != ua.StatusOK {
+		if s == "" {
+			return dv.Status.Symbol()
+		}
+		s += " (" + dv.Status.Symbol() + ")"
+	}
+	return s
 }
