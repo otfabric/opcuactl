@@ -180,7 +180,7 @@ Examples:
 				results[i] = rec
 			}
 			if verbose {
-				format.Errf("returned %d historical event(s) for %s in %d page(s)", len(results), nodeID, pages)
+				format.Infof("returned %d historical event(s) for %s in %d page(s)", len(results), nodeID, pages)
 			}
 
 			w := newWriter()
@@ -312,7 +312,7 @@ func releaseEventContinuation(ctx context.Context, c *opcua.Client, nodeID *ua.N
 	if err != nil {
 		format.Errf("releasing the continuation point of %s: %v", nodeID, err)
 	} else if verbose {
-		format.Errf("released the continuation point of %s", nodeID)
+		format.Infof("released the continuation point of %s", nodeID)
 	}
 }
 

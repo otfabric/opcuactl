@@ -297,6 +297,30 @@ func TestErrf(t *testing.T) {
 	}
 }
 
+func TestInfof(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	ResetPrinted()
+	Infof("found %d node(s)", 3)
+	_ = w.Close()
+	os.Stderr = old
+	outB, err := io.ReadAll(r)
+	_ = r.Close()
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if out := string(outB); out != "found 3 node(s)\n" {
+		t.Errorf("Infof output = %q", out)
+	}
+	if ErrPrinted("found") {
+		t.Error("an Infof message counts as a printed error")
+	}
+}
+
 func TestFormatValue(t *testing.T) {
 	tests := []struct {
 		name string

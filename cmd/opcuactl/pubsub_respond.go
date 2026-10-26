@@ -269,7 +269,7 @@ Examples:
 				if s.broker {
 					where += " queue " + s.requestAddress
 				}
-				pubsubInfo("responding as publisher %s, writer %d, targets %s on %s", s.responder, af.writerID, strings.Join(targetSpecs, ","), where)
+				format.Infof("responding as publisher %s, writer %d, targets %s on %s", s.responder, af.writerID, strings.Join(targetSpecs, ","), where)
 			}
 
 			var deadline <-chan time.Time

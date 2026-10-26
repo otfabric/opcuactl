@@ -98,7 +98,7 @@ Examples:
 			}
 
 			if verbose {
-				format.Errf("exported %d node(s)", len(nodes))
+				format.Infof("exported %d node(s)", len(nodes))
 			}
 
 			w := newWriter()
@@ -373,7 +373,7 @@ func exportSnapshotValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.No
 	}
 
 	if verbose {
-		format.Errf("exported %d value(s)", len(results))
+		format.Infof("exported %d value(s)", len(results))
 	}
 	return writeExportedValues(results, output)
 }
@@ -487,7 +487,7 @@ func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.Nod
 	}
 
 	if verbose {
-		format.Errf("exported %d historical value(s) across %d node(s)", len(results), len(nodeIDs))
+		format.Infof("exported %d historical value(s) across %d node(s)", len(results), len(nodeIDs))
 	}
 	if err := writeExportedValues(results, opts.output); err != nil {
 		return err

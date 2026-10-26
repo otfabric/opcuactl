@@ -235,7 +235,7 @@ Examples:
 				}()
 			}
 			if verbose {
-				pubsubInfo("listening on %s (topic %q, encoding %s)", tf.url, topic, enc)
+				format.Infof("listening on %s (topic %q, encoding %s)", tf.url, topic, enc)
 			}
 
 			var deadline <-chan time.Time
@@ -282,21 +282,21 @@ Examples:
 						if showMeta {
 							emit(mdm, metaDataLine(mdm))
 						} else if verbose {
-							pubsubInfo("%s", metaDataLine(mdm))
+							format.Infof("%s", metaDataLine(mdm))
 						}
 					}
 					for _, a := range res.Announcements {
 						if showMeta {
 							emit(a, announcementLine(a))
 						} else if verbose {
-							pubsubInfo("%s", announcementLine(a))
+							format.Infof("%s", announcementLine(a))
 						}
 					}
 					if res.Status != nil && (showMeta || verbose) {
 						if showMeta {
 							emit(res.Status, statusLine(res.Status))
 						} else {
-							pubsubInfo("%s", statusLine(res.Status))
+							format.Infof("%s", statusLine(res.Status))
 						}
 					}
 					for _, ds := range res.DataSets {
@@ -307,7 +307,7 @@ Examples:
 						}
 					}
 					if n := dropped.Swap(0); n > 0 && verbose {
-						pubsubInfo("%d message(s) dropped: output too slow", n)
+						format.Infof("%d message(s) dropped: output too slow", n)
 					}
 				}
 			}

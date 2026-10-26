@@ -18,6 +18,7 @@ import (
 	"github.com/otfabric/go-opcua/pubsub/transport"
 	"github.com/otfabric/go-opcua/pubsub/uadp"
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
 	"github.com/spf13/pflag"
@@ -226,13 +227,13 @@ func (p *pubsubProber) probe(ctx context.Context, pub message.PublisherID, write
 	}
 	if err != nil {
 		if verbose && ctx.Err() == nil {
-			pubsubInfo("probing for the DataSetMetaData of %s writer %d: %v", pub, writerID, err)
+			format.Infof("probing for the DataSetMetaData of %s writer %d: %v", pub, writerID, err)
 		}
 		return
 	}
 	p.diag.add(ctrDiscoveryRequestsSent, 1)
 	if verbose {
-		pubsubInfo("probed for the DataSetMetaData of pub=%s writer=%d", pub, writerID)
+		format.Infof("probed for the DataSetMetaData of pub=%s writer=%d", pub, writerID)
 	}
 }
 

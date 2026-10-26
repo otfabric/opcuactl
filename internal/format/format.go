@@ -206,6 +206,14 @@ func Errf(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
 }
 
+// Infof prints an informational message to stderr: the progress and summary
+// lines of --verbose, warnings and hints that accompany a successful
+// command. Unlike Errf it has no "Error:" prefix and does not count as a
+// printed error.
+func Infof(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
+
 // ErrPrinted reports whether an Errf message since the last ResetPrinted
 // contains msg: a command that printed its error before returning it.
 func ErrPrinted(msg string) bool {

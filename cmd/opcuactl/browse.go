@@ -451,7 +451,7 @@ Examples:
 			}
 
 			if verbose {
-				format.Errf("resolved %q → %s", pathStr, result.NodeID)
+				format.Infof("resolved %q → %s", pathStr, result.NodeID)
 			}
 
 			if quiet {

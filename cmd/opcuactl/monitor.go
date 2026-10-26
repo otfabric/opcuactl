@@ -180,13 +180,13 @@ Examples:
 			}
 
 			if sub.RevisedPublishingInterval != interval {
-				format.Errf("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
+				format.Infof("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
 			}
 			if verbose {
-				format.Errf("subscription %d started, monitoring %d node(s), interval=%s, queue-size=%d, discard-oldest=%v",
+				format.Infof("subscription %d started, monitoring %d node(s), interval=%s, queue-size=%d, discard-oldest=%v",
 					sub.SubscriptionID, len(nodeIDs), sub.RevisedPublishingInterval, queueSize, discardOldest)
 				if sampling > 0 {
-					format.Errf("  sampling interval: %s", sampling)
+					format.Infof("  sampling interval: %s", sampling)
 				}
 			}
 
@@ -380,10 +380,10 @@ Examples:
 			defer func() { _ = sub.Cancel(ctx) }()
 
 			if sub.RevisedPublishingInterval != interval {
-				format.Errf("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
+				format.Infof("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
 			}
 			if verbose {
-				format.Errf("subscription %d started, monitoring events on %s (fields: %s)",
+				format.Infof("subscription %d started, monitoring events on %s (fields: %s)",
 					sub.SubscriptionID, nodeID, strings.Join(fields, ", "))
 			}
 
@@ -540,10 +540,10 @@ Examples:
 			defer func() { _ = sub.Cancel(ctx) }()
 
 			if sub.RevisedPublishingInterval != interval {
-				format.Errf("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
+				format.Infof("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
 			}
 			if verbose {
-				format.Errf("subscription %d started, monitoring alarms on %s (fields: %s)",
+				format.Infof("subscription %d started, monitoring alarms on %s (fields: %s)",
 					sub.SubscriptionID, nodeID, strings.Join(fields, ", "))
 			}
 

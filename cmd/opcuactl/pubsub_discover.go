@@ -216,7 +216,7 @@ Examples:
 				dec.diag.add(ctrDiscoveryRequestsSent, 1)
 			}
 			if verbose {
-				pubsubInfo("sent %d probe(s) to %s, listening for %s", len(probes), url, duration)
+				format.Infof("sent %d probe(s) to %s, listening for %s", len(probes), url, duration)
 			}
 
 			useJSON := jsonl || format.ParseFormat(outputFormat) != format.Table
@@ -237,7 +237,7 @@ Examples:
 					return nil
 				case <-timer.C:
 					if seen == 0 && !quiet {
-						pubsubInfo("no announcements within %s", duration)
+						format.Infof("no announcements within %s", duration)
 					}
 					return nil
 				case m := <-msgs:

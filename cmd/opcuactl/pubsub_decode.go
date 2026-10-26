@@ -123,9 +123,9 @@ Examples:
 			}
 			if shown == 0 && !quiet {
 				if st := dec.reasm.Stats(); st.Pending > 0 {
-					pubsubInfo("incomplete chunked message: chunks are missing")
+					format.Infof("incomplete chunked message: chunks are missing")
 				} else {
-					pubsubInfo("the message does not match the filters")
+					format.Infof("the message does not match the filters")
 				}
 			}
 			return nil

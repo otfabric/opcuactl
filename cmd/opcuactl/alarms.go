@@ -977,7 +977,7 @@ Examples:
 			}
 			defer func() { _ = sub.Cancel(context.WithoutCancel(ctx)) }()
 			if verbose {
-				format.Errf("subscription %d started, watching conditions on %s", sub.SubscriptionID, nf.node)
+				format.Infof("subscription %d started, watching conditions on %s", sub.SubscriptionID, nf.node)
 			}
 
 			var deadline <-chan time.Time

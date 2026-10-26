@@ -412,7 +412,7 @@ func finishChange(ctx context.Context, g *gds.Client, res model.GDSResult, noApp
 	}
 	pending := res.ApplyChangesRequired && !res.Applied && noApply
 	if pending {
-		format.Errf("the change is pending in the transaction of this session; servers that keep a transaction per session drop it when opcuactl closes the session")
+		format.Infof("the change is pending in the transaction of this session; servers that keep a transaction per session drop it when opcuactl closes the session")
 	}
 	if format.ParseFormat(outputFormat) != format.Table {
 		return newWriter().Write(res)
@@ -462,7 +462,7 @@ Examples:
 					out.CertificateTypes = append(out.CertificateTypes, parse.CertificateTypeName(t))
 				}
 				if len(out.SupportedPrivateKeyFormats) == 0 && len(out.CertificateTypes) == 0 {
-					format.Errf("the server publishes no ServerConfiguration properties: it probably does not implement push certificate management")
+					format.Infof("the server publishes no ServerConfiguration properties: it probably does not implement push certificate management")
 				}
 				if format.ParseFormat(outputFormat) != format.Table {
 					return newWriter().Write(out)
@@ -790,7 +790,7 @@ Examples:
 			counts := fmt.Sprintf("%d trusted, %d trusted CRLs, %d issuers, %d issuer CRLs",
 				len(tl.TrustedCertificates), len(tl.TrustedCrls), len(tl.IssuerCertificates), len(tl.IssuerCrls))
 			if lists&ua.TrustListMasksTrustedCertificates != 0 && len(tl.TrustedCertificates) == 0 {
-				format.Errf("warning: the trusted certificates will be empty")
+				format.Infof("warning: the trusted certificates will be empty")
 			}
 			if _, _, err := parseGroup(group); err != nil {
 				return err

@@ -1005,7 +1005,7 @@ Every networked command supports these connection and output flags:
 | `--namespace` | `OPCUACTL_NAMESPACE` | Default namespace index for node IDs |
 | `-f, --format` | `OPCUACTL_FORMAT` | Output format: `table`, `json`, `yaml`, `csv`, `jsonl` |
 | `--pretty` | — | Pretty-print JSON / YAML output |
-| `-v, --verbose` | — | Verbose diagnostics on stderr |
+| `-v, --verbose` | — | Verbose diagnostics on stderr (plain lines; only errors have the `Error:` prefix) |
 | `-q, --quiet` | — | Emit only the primary value (scripting) |
 
 ## Output Formats

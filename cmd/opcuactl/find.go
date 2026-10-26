@@ -431,7 +431,7 @@ Examples:
 			}
 
 			if verbose {
-				format.Errf("found %d node(s)", len(results))
+				format.Infof("found %d node(s)", len(results))
 			}
 
 			w := newWriter()

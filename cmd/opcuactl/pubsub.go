@@ -95,11 +95,6 @@ Examples:
 	return cmd
 }
 
-// pubsubInfo prints a diagnostic line on stderr.
-func pubsubInfo(msg string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, msg+"\n", args...)
-}
-
 // ---------------------------------------------------------------------------
 // Security: keys of a SecurityGroup.
 

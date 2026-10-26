@@ -491,7 +491,7 @@ Examples:
 				p.maxSize = conn.MaxMessageSize()
 			}
 			if compress && mqttVersionOf(conn) != pubsub.MQTTVersion5 {
-				pubsubInfo("warning: the broker connection runs MQTT %s, which cannot carry a content type: JSON messages are sent uncompressed", mqttVersionOf(conn))
+				format.Infof("warning: the broker connection runs MQTT %s, which cannot carry a content type: JSON messages are sent uncompressed", mqttVersionOf(conn))
 				compress = false
 			}
 			defer gf.print(diag)
@@ -541,7 +541,7 @@ Examples:
 					return exitCodef(2, "sending the DataSetMetaData: %v", err)
 				}
 				if verbose {
-					pubsubInfo("sent DataSetMetaData (%d bytes)", n)
+					format.Infof("sent DataSetMetaData (%d bytes)", n)
 				}
 				return nil
 			}
@@ -605,7 +605,7 @@ Examples:
 					if _, err := sendParts(to, parts, transport.PublishOptions{}); err == nil {
 						diag.add(ctrDiscoveryResponsesSent, 1)
 						if verbose {
-							pubsubInfo("answered a %s probe with a %s announcement", nm.Request.InformationType, a.d.Type)
+							format.Infof("answered a %s probe with a %s announcement", nm.Request.InformationType, a.d.Type)
 						}
 					}
 				}
@@ -627,7 +627,7 @@ Examples:
 					chunks += len(parts)
 				}
 				if verbose {
-					pubsubInfo("sent message %d (%d bytes, %d NetworkMessage(s))", seq, n, len(parts))
+					format.Infof("sent message %d (%d bytes, %d NetworkMessage(s))", seq, n, len(parts))
 				}
 				return nil
 			}

@@ -347,7 +347,7 @@ Examples:
 					return err
 				}
 				if res.NextRecordID != 0 {
-					format.Errf("more applications: --start %d", res.NextRecordID)
+					format.Infof("more applications: --start %d", res.NextRecordID)
 				}
 				return nil
 			})
@@ -833,7 +833,7 @@ func writeIssued(f *issuedFiles, appID, reqID string, cert []byte, key []byte, i
 			out.KeyFile = kf
 		} else {
 			out.PrivateKeyPEM = string(key)
-			format.Errf("warning: the GDS generated the private key and returns it only once; it is printed because --key-out was not given")
+			format.Infof("warning: the GDS generated the private key and returns it only once; it is printed because --key-out was not given")
 		}
 	}
 	if f.issuersOut != "" && len(issuers) > 0 {

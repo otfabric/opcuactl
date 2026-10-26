@@ -138,7 +138,7 @@ Examples:
 				target.ResponseMetaData = pubsub.MetaData("Response", respFields...)
 			}
 			if verbose {
-				pubsubInfo("calling Action target %d of writer %d of publisher %s as %s on %s (request address %q)",
+				format.Infof("calling Action target %d of writer %d of publisher %s as %s on %s (request address %q)",
 					targetID, af.writerID, s.responder, rid, af.tf.url, s.requestAddress)
 			}
 			start := time.Now()

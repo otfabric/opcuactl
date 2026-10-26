@@ -198,7 +198,7 @@ Examples:
 			}
 
 			if verbose {
-				format.Errf("returned %d historical value(s) for %s (mode=%s)", len(results), nodeID, mode)
+				format.Infof("returned %d historical value(s) for %s (mode=%s)", len(results), nodeID, mode)
 			}
 
 			w := newWriter()

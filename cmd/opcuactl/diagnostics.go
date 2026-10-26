@@ -86,7 +86,7 @@ func warnIfDisabled(ctx context.Context, c *opcua.Client, n int) {
 		return
 	}
 	if on, err := c.ServerDiagnosticsEnabled(ctx); err == nil && !on {
-		format.Errf("the server diagnostics are disabled (EnabledFlag false): opcuactl diagnostics enable switches them on")
+		format.Infof("the server diagnostics are disabled (EnabledFlag false): opcuactl diagnostics enable switches them on")
 	}
 }
 
