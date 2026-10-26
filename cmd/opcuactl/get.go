@@ -240,6 +240,12 @@ Examples:
 			for _, nid := range nodeIDs {
 				n := c.Node(nid)
 				summary, err := n.Summary(opCtx)
+				if err == nil && summary.NodeClass == ua.NodeClassUnspecified {
+					// Summary leaves out the attributes it could not read;
+					// every node has a NodeClass, so read it for the status
+					// (BadNodeIdUnknown).
+					_, err = n.NodeClass(opCtx)
+				}
 				if err != nil {
 					format.Errf("getting summary for %s: %v", nid, err)
 					return exitCode(3, err)
