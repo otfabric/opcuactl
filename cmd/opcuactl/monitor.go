@@ -291,6 +291,10 @@ Examples:
 	return cmd
 }
 
+// eventQueueSize is the queue size of the event monitored item of monitor
+// event and monitor alarm.
+const eventQueueSize = 10
+
 func newMonitorEventCmd() *cobra.Command {
 	var (
 		nodeStr     string
@@ -367,13 +371,11 @@ Examples:
 			}
 			defer func() { _ = c.Close(ctx) }()
 
-			sub, notifyCh, err := c.NewSubscription().
-				Interval(interval).
-				MonitorEvents(filter, nodeID).
-				Start(ctx)
+			// A notifier the server rejects (an unknown node, one that is
+			// no event notifier) exits 3.
+			sub, notifyCh, err := eventSubscription(ctx, c, &notifierFlags{node: nodeStr, interval: interval, queueSize: eventQueueSize}, filter)
 			if err != nil {
-				format.Errf("starting event subscription: %v", err)
-				return exitCode(3, err)
+				return err
 			}
 			defer func() { _ = sub.Cancel(ctx) }()
 
@@ -529,13 +531,11 @@ Examples:
 			}
 			defer func() { _ = c.Close(ctx) }()
 
-			sub, notifyCh, err := c.NewSubscription().
-				Interval(interval).
-				MonitorEvents(filter, nodeID).
-				Start(ctx)
+			// A notifier the server rejects (an unknown node, one that is
+			// no event notifier) exits 3.
+			sub, notifyCh, err := eventSubscription(ctx, c, &notifierFlags{node: nodeStr, interval: interval, queueSize: eventQueueSize}, filter)
 			if err != nil {
-				format.Errf("starting alarm subscription: %v", err)
-				return exitCode(3, err)
+				return err
 			}
 			defer func() { _ = sub.Cancel(ctx) }()
 
