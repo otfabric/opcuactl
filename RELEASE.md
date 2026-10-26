@@ -11,6 +11,7 @@ A patch release from a test-coverage pass over the commands: end-to-end tests ag
 
 ### Fixed
 
+- **`call method` exits 3 on a Bad method result.** The result is still printed, but a Bad StatusCode of the call (`BadTypeMismatch`, `BadArgumentsMissing`, `BadMethodInvalid`, ...) now exits 3, as `write value` does since v0.10.0, instead of 0.
 - **`browse refs --direction`.** `forward`, `inverse` and `both` (the documented values, and the default `both`) were passed to a case-sensitive parser that only knew `Forward`, `Inverse` and `Both`, so every lowercase value browsed forward only. They are now case-insensitive, and an unknown direction is a usage error (exit 1).
 - **`browse refs --refs`.** A value that is not a numeric reference type NodeId of namespace 0 was ignored silently (all references were returned); it is now a usage error (exit 1).
 - **`--node-class` / `--class` of `browse`, `find` and `export nodes`.** `objecttype`, `variabletype`, `referencetype` and `datatype` (offered by the shell completion) were not recognised: `browse` returned every class and `find` nothing. They are recognised in any case now, and an unknown class is a usage error (exit 1) instead of being ignored.

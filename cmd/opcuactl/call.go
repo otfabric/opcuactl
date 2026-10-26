@@ -238,9 +238,14 @@ Examples:
 						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%d] %v\n", i, v)
 					}
 				}
-				return nil
+			} else if err := w.Write(callResult); err != nil {
+				return err
 			}
-			return w.Write(callResult)
+			// A Bad result of the method is a status-code failure (exit 3).
+			if isBadStatus(result.StatusCode) {
+				return exitCodef(3, "calling method %s on %s: %s", methodID, objectID, result.StatusCode.Symbol())
+			}
+			return nil
 		},
 	}
 
