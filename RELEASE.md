@@ -1,5 +1,26 @@
 # opcuactl Releases
 
+## v0.10.2
+
+**Date:** 2026-10-26  
+**Previous release:** v0.10.1
+
+### Summary
+
+Built on **[go-opcua v1.26.1](https://github.com/otfabric/go-opcua/releases/tag/v1.26.1)**, which fixes three bugs the v0.10.1 test pass found in the library.
+
+### Fixed
+
+- **`browse children`, `browse refs` and `find` exit 3 for a start node that does not exist.** go-opcua's browse helpers dropped the Bad status of the BrowseResult, so an unknown node printed an empty result with exit 0; the `BadNodeIdUnknown` is reported now.
+- **`serve`: the Demo object has its inverse references.** Browsing Demo with `--direction inverse` or `both` now returns the Organizes reference from the Objects folder (go-opcua records the inverse of a reference on its target, Part 3 §7.1).
+- **`serve`: the HistoricalEventFilter Property of Demo has a well-formed NodeId**, `ns=1;s=Demo.HistoricalEventFilter` instead of `ns=1;s=ns=1;s=Demo/HistoricalEventFilter`.
+
+### Dependency
+
+- **`github.com/otfabric/go-opcua`**: v1.26.0 → [v1.26.1](https://github.com/otfabric/go-opcua/releases/tag/v1.26.1)
+
+---
+
 ## v0.10.1
 
 **Date:** 2026-10-26  

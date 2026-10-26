@@ -115,7 +115,23 @@ func TestE2E_Browse(t *testing.T) {
 			t.Errorf("--refs i=47 --node-class variable returned other references:\n%s", out)
 		}
 		inv := mustRun(t, "browse", "refs", "-e", ep, "-n", demo, "--direction", "inverse")
-		wantContains(t, inv, "inverse", "HasNotifier")
+		// The Objects folder organizes Demo (go-opcua v1.26.1 records the
+		// inverse of a reference on its target).
+		wantContains(t, inv, "inverse", "HasNotifier", "Organizes", "i=85")
+	})
+
+	t.Run("unknown node", func(t *testing.T) {
+		// go-opcua v1.26.1 returns the Bad BrowseResult status: exit 3.
+		for _, args := range [][]string{
+			{"browse", "children", "-e", ep, "-n", "ns=1;s=NoSuchNode"},
+			{"browse", "refs", "-e", ep, "-n", "ns=1;s=NoSuchNode"},
+		} {
+			_, stderr, err := runCLI(t, args...)
+			if ExitCode(err) != 3 {
+				t.Errorf("opcuactl %s: %v (exit %d)", strings.Join(args, " "), err, ExitCode(err))
+			}
+			wantContains(t, stderr, "BadNodeIDUnknown")
+		}
 	})
 
 	t.Run("tree", func(t *testing.T) {
