@@ -69,6 +69,26 @@ func TestE2E_CallMethod(t *testing.T) {
 		wantContains(t, out, "Object: "+demo+"  Method: "+add, "Input Arguments:", "second addend", "Output Arguments:", "sum")
 	})
 
+	t.Run("introspect of a node that is not a method exits 3", func(t *testing.T) {
+		for _, tc := range []struct {
+			method, want string
+		}{
+			{s.node("Demo.Nope"), "BadNodeIDUnknown"},
+			{s.node(serve.DemoInt32), "BadNodeClassInvalid"},
+			{demo, "BadNodeClassInvalid"},
+		} {
+			for _, f := range []string{"table", "json"} {
+				out, errOut := wantExit(t, 3, "call", "method", "-e", ep, "--object", demo, "--method", tc.method, "--introspect", "-f", f)
+				if out != "" {
+					t.Errorf("introspect %s: printed %q", tc.method, out)
+				}
+				wantContains(t, errOut, tc.want)
+			}
+		}
+		_, errOut := wantExit(t, 3, "call", "method", "-e", ep, "--object", demo, "--method", s.node(serve.DemoInt32), "--introspect")
+		wantContains(t, errOut, "is a Variable, not a Method")
+	})
+
 	t.Run("call", func(t *testing.T) {
 		res := runJSON[model.CallResult](t, call("--arg", "2", "--arg", "40", "--types", "int32, int32")...)
 		if res.Status != "Good" || res.StatusCode != 0 || len(res.OutputArguments) != 1 || res.OutputArguments[0] != float64(42) {

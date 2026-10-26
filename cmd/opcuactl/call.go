@@ -91,7 +91,7 @@ Examples:
 			defer opCancel()
 
 			if introspect {
-				inputs, outputs, err := c.MethodArguments(opCtx, objectID, methodID)
+				inputs, outputs, err := methodSignature(opCtx, c, objectID, methodID)
 				if err != nil {
 					format.Errf("reading method arguments: %v", err)
 					return exitCode(3, err)
@@ -297,4 +297,23 @@ func callMethod(ctx context.Context, c *opcua.Client, objectID, methodID *ua.Nod
 		return fmt.Sprintf("call %s input argument %d", methodID, i)
 	})
 	return res, nil
+}
+
+// methodSignature reads the input and output arguments of methodID. A node
+// that does not exist or is not a Method is an error with its status
+// (BadNodeIdUnknown, BadNodeClassInvalid), not an empty signature.
+func methodSignature(ctx context.Context, c *opcua.Client, objectID, methodID *ua.NodeID) (inputs, outputs []*ua.Argument, err error) {
+	class, err := c.Node(methodID).NodeClass(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if class != ua.NodeClassMethod {
+		return nil, nil, fmt.Errorf("%s is a %s, not a Method: %w", methodID, nodeClassName(class), ua.StatusBadNodeClassInvalid)
+	}
+	return c.MethodArguments(ctx, objectID, methodID)
+}
+
+// nodeClassName is the NodeClass without the NodeClass prefix (Variable).
+func nodeClassName(c ua.NodeClass) string {
+	return strings.TrimPrefix(c.String(), "NodeClass")
 }

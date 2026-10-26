@@ -563,6 +563,8 @@ opcuactl call method -e opc.tcp://localhost:4840 --object "ns=2;i=1" --method "n
   --arg-file args.json
 ```
 
+`--introspect` exits 3 when the method node does not exist (`BadNodeIdUnknown`) or is not a Method (`BadNodeClassInvalid`).
+
 ### Monitoring
 
 ```sh
