@@ -24,6 +24,11 @@ A patch release from a test-coverage pass over the commands: end-to-end tests ag
 - **`history value --mode modified|processed|attime` exits 3 on a Bad status of the node** (`BadHistoryOperationUnsupported`, `BadNodeIdUnknown`, ...), as `--mode raw` and `history event` do. The result was dropped and an empty list printed with exit 0. An empty range (`GoodNoData`) is still success.
 - **`export values --history` exits 4 when the history of some nodes could not be read, 3 when of none.** A failed node (no history, unknown node, mode not supported) was reported on stderr and skipped with exit 0; the values of the others are still exported.
 
+### Tests
+
+- **Coverage 79.1 % → 92.7 %** (`make coverage`; `cmd/opcuactl` 76.8 → 91.9 %, `internal/conn` 86.8 → 96.8 %, `internal/format` 86.9 → 99.0 %). New end-to-end tests run `browse`, `find`, `get node|attr|server|vars`, `history value`, `export nodes|values`, `call method`, `monitor event|alarm`, `ping`, `write value`, `version` and `completion` in-process against `opcuactl serve` and go-opcua test servers, with their output formats and the exit codes 1, 2, 3 and 4; unit tests cover certificate loading, endpoint and security selection, and the error handling of the output writers.
+- **`TestE2E_ServeSignals` no longer races** on the endpoint URL: stdout and stderr of the child are copied separately, so it waits for the URL on stdout as well as for "Serving".
+
 ---
 
 ## v0.10.0
