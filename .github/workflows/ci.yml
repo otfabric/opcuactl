@@ -13,8 +13,10 @@ permissions:
 
 jobs:
   ci:
-    uses: otfabric/.github/.github/workflows/go-ci.yml@v2
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v2.1.0
     with:
+      run-govulncheck: true
+      coverage-min: "90"
       codecov-name: opcuactl
       go-versions: '["1.26", "1.27"]'
       # The default also leaves out /cmd/, which here is the CLI itself:
