@@ -30,7 +30,8 @@ We will acknowledge your report within 48 hours and aim to provide a fix or miti
 
 - **Always use encrypted connections** (`--security-mode SignAndEncrypt`) when communicating over untrusted networks
 - **Use certificate-based authentication** (`--auth certificate`) instead of username/password where possible
-- **Avoid `--security-mode None`** unless on an isolated, trusted network
+- **`--insecure-no-security`** is the only way to run without message security over `opc.tcp`, as a client and with `serve`. Use it only on an isolated, trusted network
+- **List the servers you trust** with `--trusted-cert`: the system CA pool is not used, and a secure channel needs this list
 - **Do not use `--insecure-skip-verify`** in production — it disables server certificate validation
 
 ### Credential Handling

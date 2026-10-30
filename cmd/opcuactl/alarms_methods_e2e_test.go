@@ -294,7 +294,7 @@ func TestE2E_AlarmsAudit(t *testing.T) {
 	pump := a.pump.NodeID().String()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	c, err := opcua.NewClient(a.url, opcua.SecurityMode(ua.MessageSecurityModeNone))
+	c, err := opcua.NewClient(a.url, opcua.InsecureNoSecurity())
 	if err != nil {
 		t.Fatal(err)
 	}

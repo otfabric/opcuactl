@@ -11,8 +11,7 @@ This PLC only offers anonymous / username over `None/None`, and does not support
 > CONN=(
 >   -e opc.tcp://109.166.142.215:4840
 >   --auth anonymous
->   --security-mode None
->   --security-policy None
+>   --insecure-no-security
 > )
 > ```
 > For brevity the flag block is shown as `"${CONN[@]}"` in the examples below.

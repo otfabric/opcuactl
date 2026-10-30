@@ -158,8 +158,10 @@ func writeServersOnNetworkTable(w *format.Writer, servers []model.ServerOnNetwor
 }
 
 func discoverServersOnNetwork(ctx context.Context, w *format.Writer, startRecord, maxRecords uint32, capabilities []string) error {
-	// FindServersOnNetwork needs a connection but no session.
-	c, err := opcua.NewClient(connCfg.Endpoint, append(connCfg.DiscoveryOptions(), opcua.AutoReconnect(false))...)
+	// FindServersOnNetwork needs a connection but no session. It is a
+	// discovery service, which the specification defines without security;
+	// opcua.FindServersOnNetwork has no paging or capability filter.
+	c, err := opcua.NewClient(connCfg.Endpoint, append(connCfg.DiscoveryOptions(), opcua.AutoReconnect(false), opcua.InsecureNoSecurity())...)
 	if err != nil {
 		return exitCode(exitUsage, err)
 	}

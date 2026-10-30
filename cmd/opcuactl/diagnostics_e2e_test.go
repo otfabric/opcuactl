@@ -39,7 +39,7 @@ func startDiagnosticsServer(t *testing.T) (*testServer, *opcua.Client, *opcua.Su
 	)
 
 	ctx := context.Background()
-	c, err := opcua.NewClient(s.url, opcua.SecurityMode(ua.MessageSecurityModeNone), opcua.SessionName("other-client"))
+	c, err := opcua.NewClient(s.url, opcua.InsecureNoSecurity(), opcua.SessionName("other-client"))
 	if err != nil {
 		t.Fatal(err)
 	}

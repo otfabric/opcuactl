@@ -1,5 +1,23 @@
 # opcuactl Releases
 
+## v0.12.0
+
+**Date:** 2026-10-30  
+**Previous release:** v0.11.0
+
+### Summary
+
+Built on go-opcua v1.29.0, whose defaults are secure. Running without message security is now a choice made by name. **Scripts that connect to servers without security must add the opt-in.**
+
+### Breaking
+
+- **`--insecure-no-security`** (`OPCUACTL_INSECURE_NO_SECURITY=true`) is required to connect over `opc.tcp` without message security. Without it opcuactl refuses, and the error names the choices. Discovery (`discover`) and `opc.wss` / `opc.https` need no opt-in.
+- **`--trusted-cert` is the trust list.** Server certificates are checked against it only; the system CA pool is not used. A secure channel needs it, or `--insecure-skip-verify` for development.
+- **A server that presents no certificate is refused** under Sign and SignAndEncrypt.
+- **`serve` offers `Basic256Sha256` by default**, no longer None. `--insecure-no-security` adds None to the default, and `--security-policy None` needs it.
+
+---
+
 ## v0.11.0
 
 **Date:** 2026-10-30  

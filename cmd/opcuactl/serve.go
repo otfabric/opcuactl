@@ -29,7 +29,7 @@ import (
 
 // Defaults of serve.
 var (
-	defaultServePolicies = []string{"None", "Basic256Sha256"}
+	defaultServePolicies = []string{"Basic256Sha256"}
 	defaultServeModes    = []string{"Sign", "SignAndEncrypt"}
 )
 
@@ -58,6 +58,7 @@ type serveFlags struct {
 	appURI      string
 	trusted     []string
 	trustDir    string
+	insecure    bool
 	anonymous   bool
 	users       []string
 	nodesets    []string
@@ -85,7 +86,7 @@ the host of --listen, or the name of this machine when that is a wildcard
 address).
 
 Security: --security-policy names the policies (repeatable or comma-separated,
-default None,Basic256Sha256) and --security-mode the modes of the policies
+default Basic256Sha256, and None with --insecure-no-security) and --security-mode the modes of the policies
 other than None (default Sign,SignAndEncrypt). The application instance
 certificates come from --cert / --key (PEM or DER; a file may hold several
 certificates or keys); every policy without one gets a self-signed
@@ -120,7 +121,7 @@ JSON, -q: the endpoint URLs only).
 
 Examples:
   opcuactl serve
-  opcuactl serve --listen opc.tcp://127.0.0.1:4840 --security-policy None
+  opcuactl serve --listen opc.tcp://127.0.0.1:4840 --insecure-no-security --security-policy None
   opcuactl serve --cert-out server.pem --key-out server.key --user operator:secret
   opcuactl serve --cert server.pem --key server.key --trust-dir ./pki/trusted
   opcuactl serve --wss 0.0.0.0:4843 --https 0.0.0.0:4443 --uajson --cert-out server.pem
@@ -134,6 +135,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			f.insecure = f.insecure || connCfg.InsecureNoSecurity
 			return f.run(ctx, os.Stdout, os.Stderr, serveOutput{format: format.ParseFormat(outputFormat), pretty: prettyOutput, quiet: quiet, verbose: verbose})
 		},
 	}
@@ -146,7 +148,8 @@ Examples:
 	fs.StringVar(&f.tlsCert, "tls-cert", "", "opc.wss/opc.https: TLS certificate (PEM; default: the RSA application certificate)")
 	fs.StringVar(&f.tlsKey, "tls-key", "", "opc.wss/opc.https: private key (PEM) of --tls-cert")
 	fs.BoolVar(&f.uajson, "uajson", false, "Serve the UA JSON mappings wss-uajson and https-uajson on --wss and --https")
-	fs.StringSliceVar(&f.policies, "security-policy", nil, "Security policies to offer (repeatable or comma-separated; default None,Basic256Sha256)")
+	fs.BoolVar(&f.insecure, "insecure-no-security", false, "Offer endpoints without message security (--security-policy None): anyone on the network can read and change the traffic")
+	fs.StringSliceVar(&f.policies, "security-policy", nil, "Security policies to offer (repeatable or comma-separated; default Basic256Sha256)")
 	fs.StringSliceVar(&f.modes, "security-mode", nil, "Security modes of the policies other than None (Sign|SignAndEncrypt; default Sign,SignAndEncrypt)")
 	fs.StringArrayVar(&f.certs, "cert", nil, "Application instance certificate file (PEM/DER, repeatable; default: self-signed ones)")
 	fs.StringArrayVar(&f.keys, "key", nil, "Private key file of --cert (PEM/DER, repeatable)")
@@ -273,7 +276,7 @@ func (f *serveFlags) setup(stderr io.Writer) (*serveSetup, error) {
 			cfg.Hostname = strings.ToLower(cfg.Hostname)
 		}
 	}
-	if cfg.Policies, err = servePolicies(f.policies); err != nil {
+	if cfg.Policies, err = servePolicies(f.policies, f.insecure); err != nil {
 		return nil, err
 	}
 	if cfg.Modes, err = serveModes(f.modes); err != nil {
@@ -402,9 +405,12 @@ func isWildcard(host string) bool {
 }
 
 // servePolicies returns the URIs of --security-policy.
-func servePolicies(names []string) ([]string, error) {
+func servePolicies(names []string, insecure bool) ([]string, error) {
 	if len(names) == 0 {
 		names = defaultServePolicies
+		if insecure {
+			names = append([]string{"None"}, names...)
+		}
 	}
 	var out []string
 	for _, n := range names {
@@ -412,6 +418,9 @@ func servePolicies(names []string) ([]string, error) {
 		uri := parse.SecurityPolicy(n)
 		if n == "" || !uapolicy.IsSupported(uri) {
 			return nil, fmt.Errorf("invalid --security-policy %q (%s)", n, strings.Join(servePolicyValues, "|"))
+		}
+		if uri == ua.SecurityPolicyURINone && !insecure {
+			return nil, fmt.Errorf("--security-policy None offers no message security: accept this with --insecure-no-security")
 		}
 		if !slices.Contains(out, uri) {
 			out = append(out, uri)

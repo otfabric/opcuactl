@@ -106,6 +106,7 @@ func init() {
 	pf.StringVar(&connCfg.KeyFile, "key", "", "Client private key file (PEM/DER)")
 	pf.StringVar(&connCfg.ServerCertFile, "server-cert", "", "Server certificate file (overrides endpoint cert when set)")
 	pf.StringArrayVar(&connCfg.TrustedCertFiles, "trusted-cert", nil, "Trusted CA or self-signed server cert (repeatable; PEM/DER)")
+	pf.BoolVar(&connCfg.InsecureNoSecurity, "insecure-no-security", false, "Allow no message security (policy and mode None): anyone on the network can read and change the traffic, passwords included")
 	pf.BoolVar(&connCfg.InsecureSkipVerify, "insecure-skip-verify", false, "Skip server certificate verification (INSECURE)")
 	pf.StringVar(&connCfg.ReverseListen, "reverse-listen", "", "Reverse connect: listen on this address (host:port) and wait for the server to connect")
 	pf.StringVar(&connCfg.ReverseServerURI, "reverse-server-uri", "", "Reverse connect: only accept the server announcing this ApplicationUri")
@@ -191,6 +192,16 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 	if !flags.Changed("trusted-cert") {
 		if v := os.Getenv("OPCUACTL_TRUSTED_CERT"); v != "" {
 			connCfg.TrustedCertFiles = splitCSV(v)
+		}
+	}
+
+	if !flags.Changed("insecure-no-security") {
+		if v := os.Getenv("OPCUACTL_INSECURE_NO_SECURITY"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid OPCUACTL_INSECURE_NO_SECURITY %q: %w", v, err)
+			}
+			connCfg.InsecureNoSecurity = b
 		}
 	}
 

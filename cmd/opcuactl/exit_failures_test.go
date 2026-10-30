@@ -101,12 +101,12 @@ func cutProxy(t *testing.T, target string, frames int) string {
 				return
 			}
 			go func() {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				up, err := net.Dial("tcp", strings.TrimPrefix(target, "opc.tcp://"))
 				if err != nil {
 					return
 				}
-				defer up.Close()
+				defer func() { _ = up.Close() }()
 				go func() { _, _ = io.Copy(c, up) }()
 				for i := 0; i < frames; i++ {
 					hdr := make([]byte, 8) // type, final, size

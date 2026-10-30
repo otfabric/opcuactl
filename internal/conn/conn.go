@@ -9,31 +9,36 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/otfabric/go-opcua"
+	uaerrors "github.com/otfabric/go-opcua/errors"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/go-opcua/uapolicy"
 )
 
 // Config holds the connection parameters extracted from CLI flags.
 type Config struct {
-	Endpoint           string
-	SecurityPolicy     string
-	SecurityMode       string
-	Auth               string
-	Username           string
-	Password           string
-	AuthPolicyID       string
-	Token              string
-	TokenFile          string
-	CertFile           string
-	KeyFile            string
-	ServerCertFile     string
-	TrustedCertFiles   []string
+	Endpoint         string
+	SecurityPolicy   string
+	SecurityMode     string
+	Auth             string
+	Username         string
+	Password         string
+	AuthPolicyID     string
+	Token            string
+	TokenFile        string
+	CertFile         string
+	KeyFile          string
+	ServerCertFile   string
+	TrustedCertFiles []string
+	// InsecureNoSecurity allows a channel without message security
+	// (--insecure-no-security). Discovery and TLS transports do not need it.
+	InsecureNoSecurity bool
 	InsecureSkipVerify bool
 	Timeout            time.Duration
 
@@ -143,6 +148,9 @@ func (cfg *Config) NewClient(ctx context.Context) (*opcua.Client, error) {
 	}
 
 	c, err := opcua.NewClient(cfg.Endpoint, opts...)
+	if errors.Is(err, uaerrors.ErrInsecureNotAllowed) {
+		return nil, fmt.Errorf("%w: set --security-policy (auto, or a policy) with --trusted-cert, or accept this with --insecure-no-security", err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -300,7 +308,15 @@ func (cfg *Config) securityOptions(ctx context.Context, authType ua.UserTokenTyp
 		if err != nil {
 			return nil, fmt.Errorf("selecting endpoint: %w", err)
 		}
-		return []opcua.Option{opcua.SecurityFromEndpoint(ep, authType)}, nil
+		opts := []opcua.Option{opcua.SecurityFromEndpoint(ep, authType)}
+		if cfg.InsecureNoSecurity && ep.SecurityPolicyURI == ua.SecurityPolicyURINone {
+			opts = append(opts, opcua.InsecureNoSecurity())
+		}
+		return opts, nil
+	}
+
+	if cfg.InsecureNoSecurity && (policy == "" || strings.EqualFold(policy, "None")) {
+		return []opcua.Option{opcua.InsecureNoSecurity()}, nil
 	}
 
 	var opts []opcua.Option

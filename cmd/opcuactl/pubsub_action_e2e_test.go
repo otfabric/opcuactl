@@ -36,9 +36,13 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		_ = os.Setenv("OPCUACTL_INSECURE_NO_SECURITY", "true")
 		rootCmd.SetArgs(argv)
 		os.Exit(ExitCode(Execute()))
 	}
+	// The test servers run without message security; the tests that need the
+	// refusal clear this.
+	_ = os.Setenv("OPCUACTL_INSECURE_NO_SECURITY", "true")
 	os.Exit(m.Run())
 }
 
