@@ -8,7 +8,7 @@ opcuactl's exit codes are a script-facing contract (`cmd/opcuactl/errors.go`). T
 | 1 | findings | `gds pull check-revocation`: the certificate is not valid |
 | 2 | usage | Invalid flag or value. Errors without a code of their own, such as cobra's, are usage errors |
 | 3 | invalid_input | An input or output file that cannot be opened |
-| 4 | transport | Connection or transport failure, also a connection lost during a service or `alarms watch`; `serve` when a listener cannot start |
+| 4 | transport | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch`; `serve` when a listener cannot start |
 | 5 | timeout | A deadline passed or `Bad_Timeout`; `pubsub call` with no response within `--timeout` |
 | 6 | protocol | OPC UA service or status-code failure, for example a Bad result of `call` |
 | 7 | partial | Batch and export operations, `history update-events` and `delete-events` with some failed events |

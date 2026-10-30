@@ -5,11 +5,13 @@ package opcuactl
 import (
 	"encoding/binary"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // deadEndpoint and deadBroker are ports nothing listens on.
@@ -89,6 +91,18 @@ func TestExitCodesWithoutServer(t *testing.T) {
 // after the session is up. It returns the endpoint to use.
 func cutProxy(t *testing.T, target string, frames int) string {
 	t.Helper()
+	return proxy(t, target, frames, 0)
+}
+
+// timedCutProxy forwards every message and closes after d: it stands for a
+// server lost while a stream sits idle, when no message count would be reached.
+func timedCutProxy(t *testing.T, target string, d time.Duration) string {
+	t.Helper()
+	return proxy(t, target, math.MaxInt, d)
+}
+
+func proxy(t *testing.T, target string, frames int, after time.Duration) string {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +122,9 @@ func cutProxy(t *testing.T, target string, frames int) string {
 				}
 				defer func() { _ = up.Close() }()
 				go func() { _, _ = io.Copy(c, up) }()
+				if after > 0 {
+					defer time.AfterFunc(after, func() { _ = c.Close() }).Stop()
+				}
 				for i := 0; i < frames; i++ {
 					hdr := make([]byte, 8) // type, final, size
 					if _, err := io.ReadFull(c, hdr); err != nil {
@@ -215,6 +232,36 @@ func TestAlarmsWatchConnectionLost(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "-- refresh end --") {
 		t.Errorf("stdout %q", stdout)
+	}
+}
+
+// The monitor commands end like alarms watch: with what arrived before the
+// loss, exit 4, no reconnect and no hang.
+func TestMonitorConnectionLost(t *testing.T) {
+	s := startServer(t)
+	const node = "i=2258"
+	for _, c := range []struct {
+		args   []string
+		want   string
+		stdout string
+	}{
+		{[]string{"monitor", "value", "-n", node}, "monitoring i=2258: connection lost", node},
+		{[]string{"monitor", "value", "-n", node, "-n", "i=2259"}, "monitoring i=2258, i=2259: connection lost", node},
+		{[]string{"monitor", "event", "-n", "i=2253"}, "monitoring events on i=2253: connection lost", ""},
+		{[]string{"monitor", "alarm", "-n", "i=2253"}, "monitoring events on i=2253: connection lost", ""},
+	} {
+		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			stdout, stderr, err := runCLI(t, append(c.args, "-e", timedCutProxy(t, s.url, time.Second), "--timeout", "1s")...)
+			if got := ExitCode(err); got != exitTransport {
+				t.Errorf("exit %d, want %d (%v)", got, exitTransport, err)
+			}
+			if !strings.Contains(stderr, c.want) {
+				t.Errorf("stderr %q, want %q", stderr, c.want)
+			}
+			if !strings.Contains(stdout, c.stdout) {
+				t.Errorf("stdout %q, want %q", stdout, c.stdout)
+			}
+		})
 	}
 }
 

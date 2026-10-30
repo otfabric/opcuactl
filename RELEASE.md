@@ -11,7 +11,7 @@ Exit codes converge on the organisation table (ADR-0006). **Every script that te
 
 Built on go-opcua v1.29.0, whose defaults are secure. Running without message security is now a choice made by name. **Scripts that connect to servers without security must add the opt-in.**
 
-A connection lost after the session is up exits 4 (transport), as the organisation table says, and ends `alarms watch` instead of leaving it waiting silently.
+A connection lost after the session is up exits 4 (transport), as the organisation table says, and ends `monitor` and `alarms watch` instead of leaving them waiting silently.
 
 | Case | Old | New |
 |---|---|---|
@@ -34,6 +34,7 @@ A connection lost after the session is up exits 4 (transport), as the organisati
 - **`serve` offers `Basic256Sha256` by default**, no longer None. `--insecure-no-security` adds None to the default, and `--security-policy None` needs it.
 - **A connection lost during a service exits 4, not the code of a service failure.** EOF from a dropped connection no longer reads as a protocol error. A Bad status from the server stays 6. Applies to `ping` too, whose browse stage now also reports timeout (5), unsupported (8) and permission (9).
 - **`alarms watch` ends with exit 4 when the connection is lost**, after printing what arrived before it. It no longer reconnects: the client retried forever with nothing on stderr, and `--duration` then exited 0 as if the watch had seen everything. Restart it, with a refresh, to continue.
+- **`monitor value`, `monitor event` and `monitor alarm` end with exit 4 when the connection is lost**, the same way: they print what arrived before it and no longer reconnect. They waited in silence while the client retried, and `--duration` then exited 0. Restart them to continue. Ctrl+C now cancels the subscription on the server, which a cancelled context skipped.
 
 ### Changed
 
