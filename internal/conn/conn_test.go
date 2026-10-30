@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	uaerrors "github.com/otfabric/go-opcua/errors"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/go-opcua/uasc"
 )
@@ -38,6 +40,8 @@ func TestConfig_NewClient_connectionRefused(t *testing.T) {
 		Endpoint: "opc.tcp://127.0.0.1:1",
 		Timeout:  300 * time.Millisecond,
 		Auth:     "anonymous",
+
+		InsecureNoSecurity: true,
 	}
 	_, err := cfg.NewClient(context.Background())
 	if err == nil {
@@ -481,5 +485,18 @@ func TestTLSConfig(t *testing.T) {
 	}
 	if _, err := bad.NewClient(context.Background()); err == nil || !strings.Contains(err.Error(), "--tls-ca") {
 		t.Errorf("NewClient with a missing --tls-ca: %v", err)
+	}
+}
+
+// Without --insecure-no-security a client without message security is
+// refused before anything is sent, and the error names the choices.
+func TestConfig_NewClient_noSecurityNeedsOptIn(t *testing.T) {
+	t.Parallel()
+	for _, policy := range []string{"", "None"} {
+		cfg := &Config{Endpoint: "opc.tcp://127.0.0.1:1", Auth: "anonymous", SecurityPolicy: policy}
+		_, err := cfg.NewClient(context.Background())
+		if !errors.Is(err, uaerrors.ErrInsecureNotAllowed) || !strings.Contains(err.Error(), "--insecure-no-security") {
+			t.Errorf("policy %q: %v", policy, err)
+		}
 	}
 }

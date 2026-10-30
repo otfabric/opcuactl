@@ -123,7 +123,7 @@ func TestSecurityOptions(t *testing.T) {
 	t.Parallel()
 	srv, err := server.New(
 		server.EndPoint("localhost", 0),
-		server.EnableSecurity("None", ua.MessageSecurityModeNone),
+		server.InsecureNoSecurity(),
 		server.EnableAuthMode(ua.UserTokenTypeAnonymous),
 	)
 	if err != nil {

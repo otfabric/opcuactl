@@ -42,7 +42,7 @@ Most examples reuse a shell array for connection flags:
 
 ```sh
 # Lab / anonymous (default)
-CONN=(-e opc.tcp://your-server:4840 --auth anonymous --security-mode None --security-policy None)
+CONN=(-e opc.tcp://your-server:4840 --auth anonymous --insecure-no-security)
 ```
 
 Prefer `auto` once you leave None/None. Client certs are required for Sign / SignAndEncrypt:
@@ -108,6 +108,7 @@ Useful when you do not want secrets on the command line:
 | `OPCUACTL_SERVER_CERT` | `--server-cert` |
 | `OPCUACTL_TRUSTED_CERT` | `--trusted-cert` (comma-separated paths) |
 | `OPCUACTL_SECURITY_POLICY` / `OPCUACTL_SECURITY_MODE` | `--security-policy` / `--security-mode` |
+| `OPCUACTL_INSECURE_NO_SECURITY` | `--insecure-no-security` (`true` / `false`) |
 | `OPCUACTL_TLS_CA` | `--tls-ca` (`opc.wss` / `opc.https`) |
 | `OPCUACTL_TLS_CERT` / `OPCUACTL_TLS_KEY` | `--tls-cert` / `--tls-key` (mutual TLS) |
 | `OPCUACTL_TLS_INSECURE_SKIP_VERIFY` | `--tls-insecure-skip-verify` (`true` / `false`; development only) |
@@ -1199,7 +1200,7 @@ opcuactl write value -e opc.https://localhost:4443 --transport https-uajson --tl
 **In CI**: a free port, the endpoint from the JSON output, and a clean stop:
 
 ```sh
-opcuactl serve --listen 127.0.0.1:0 --security-policy None --format json > serve.json &
+opcuactl serve --listen 127.0.0.1:0 --insecure-no-security --security-policy None --format json > serve.json &
 SERVE=$!
 until EP=$(jq -er '.endpoints[0].endpointUrl' serve.json 2>/dev/null); do sleep 0.1; done
 opcuactl ping -e "$EP" && opcuactl get value -e "$EP" -n "ns=1;s=Demo.Int32" -q   # 42

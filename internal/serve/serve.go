@@ -188,7 +188,8 @@ func (cfg *Config) options() ([]server.Option, error) {
 	}
 	for _, p := range cfg.Policies {
 		if p == ua.SecurityPolicyURINone {
-			opts = append(opts, server.EnableSecurity(p, ua.MessageSecurityModeNone))
+			// The caller decided on None, by name (--insecure-no-security).
+			opts = append(opts, server.InsecureNoSecurity())
 			continue
 		}
 		for _, m := range modes {

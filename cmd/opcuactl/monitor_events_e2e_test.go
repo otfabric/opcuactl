@@ -134,7 +134,7 @@ func TestE2E_MonitorAlarm(t *testing.T) {
 	s, ep := startDemo(t, "--sim-interval", "20ms")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	c, err := opcua.NewClient(ep, opcua.SecurityMode(ua.MessageSecurityModeNone))
+	c, err := opcua.NewClient(ep, opcua.InsecureNoSecurity())
 	if err != nil {
 		t.Fatal(err)
 	}

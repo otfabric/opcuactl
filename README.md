@@ -51,7 +51,8 @@ opcuactl discover servers -e opc.tcp://localhost:4840
 # List endpoints and their security configurations
 opcuactl discover endpoints -e opc.tcp://localhost:4840
 
-# Read a value (anonymous / None — fine for lab servers)
+# Read a value without message security (lab servers): a deliberate choice
+export OPCUACTL_INSECURE_NO_SECURITY=true
 opcuactl get value -e opc.tcp://localhost:4840 -n i=2258
 
 # Browse the address space
@@ -1039,12 +1040,12 @@ In `table` output (and `--quiet`), values are printed as `json` prints them: arr
 | Concern | How to set it |
 |---------|----------------|
 | User identity | `--auth anonymous\|username\|certificate\|issued` |
-| Channel crypto | `--security-policy` / `--security-mode` (`None` … or `auto`) |
+| Channel crypto | `--security-policy` / `--security-mode` (`auto`, or a policy and mode). No message security needs `--insecure-no-security` or `OPCUACTL_INSECURE_NO_SECURITY=true`; otherwise opcuactl refuses to connect over opc.tcp. Discovery (`discover`, `GetEndpoints`) and `opc.wss` / `opc.https` need no opt-in |
 | Who opens the connection | the client by default; the server with `--reverse-listen` ([reverse connect](#reverse-connect)) |
 | Transport | the scheme of `--endpoint`: `opc.tcp`, `opc.wss` or `opc.https` ([HTTPS and WebSocket](#https-and-websocket)); `--transport wss-uajson\|https-uajson` for UA JSON ([UA JSON](#ua-json-wss-uajson-https-uajson)) |
 | TLS (`opc.wss` / `opc.https`) | `--tls-ca`, `--tls-cert` + `--tls-key` (mutual TLS), or `--tls-insecure-skip-verify` (dev only) |
 | Client application cert | `--cert` + `--key` (required for Sign / SignAndEncrypt) |
-| Trust the server | `--trusted-cert` (repeatable), `--server-cert`, or `--insecure-skip-verify` (dev only) |
+| Trust the server | `--trusted-cert` (repeatable) is the trust list: only those certificates are trusted, not the system CA pool. A secure channel needs it, or `--insecure-skip-verify` (dev only). `--server-cert` names the certificate to encrypt to and adds no trust |
 | User token PolicyId | usually filled by `auto`; override with `--auth-policy-id` if needed |
 
 ### Security policies
@@ -1177,9 +1178,10 @@ opcuactl monitor value --reverse-listen 0.0.0.0:4841 --timeout 60s -n "ns=2;s=Te
 
 ```sh
 # Port 4840 with None and Basic256Sha256 endpoints; save the self-signed certificate it makes
-opcuactl serve --cert-out server.pem --key-out server.key --user operator:secret
+opcuactl serve --insecure-no-security --cert-out server.pem --key-out server.key --user operator:secret
 
 # In another terminal: the demo namespace is ns=1
+export OPCUACTL_INSECURE_NO_SECURITY=true
 opcuactl get value -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Counter"
 opcuactl write value -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Level" --value 90 --type double --yes
 opcuactl alarms list -e opc.tcp://localhost:4840
@@ -1208,7 +1210,8 @@ opcuactl serve --listen 127.0.0.1:0 -q
 | `--wss`, `--https` | off | Also listen for `opc.wss` (WebSocket over TLS) and `opc.https` (UA Binary over HTTPS) on `host:port` |
 | `--uajson` | off | Serve wss-uajson and https-uajson on those listeners as well |
 | `--tls-cert`, `--tls-key` | the RSA application certificate | TLS certificate of `opc.wss` / `opc.https` (PEM) |
-| `--security-policy` | `None,Basic256Sha256` | Policies to offer (repeatable or comma-separated): `None`, `Basic256Sha256`, `Aes128Sha256RsaOaep`, `Aes256Sha256RsaPss`, `ECC_nistP256`, …, `ECC_curve448` |
+| `--insecure-no-security` | off | Offer endpoints without message security; needed for `--security-policy None` and adds None to the default policies |
+| `--security-policy` | `Basic256Sha256` | Policies to offer (repeatable or comma-separated): `None`, `Basic256Sha256`, `Aes128Sha256RsaOaep`, `Aes256Sha256RsaPss`, `ECC_nistP256`, …, `ECC_curve448` |
 | `--security-mode` | `Sign,SignAndEncrypt` | Modes of the policies other than None |
 | `--cert`, `--key` | self-signed | Application instance certificate and key (PEM or DER, repeatable; a file may hold several, matched by key) |
 | `--cert-out`, `--key-out` | — | Write the application certificates (for clients to trust) and their keys (mode 0600, to reuse with `--cert` / `--key`) |
