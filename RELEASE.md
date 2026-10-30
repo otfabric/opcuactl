@@ -1,5 +1,16 @@
 # opcuactl Releases
 
+## v0.11.1
+
+**Date:** 2026-10-30
+**Previous release:** v0.11.0
+
+### Fixed
+
+- A lost connection now ends `monitor value`, `event` and `alarm` with exit code 4 instead of hanging silently.
+
+---
+
 ## v0.11.0
 
 **Date:** 2026-10-30  
