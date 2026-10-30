@@ -143,7 +143,7 @@ func helloTo(msg []byte, url string) []byte {
 }
 
 // A server lost after the session is up fails the operation, which reports
-// what it was doing and exits with neither success nor a usage error.
+// what it was doing and exits with the code of a transport failure.
 func TestExitCodesServerLost(t *testing.T) {
 	s := startServer(t)
 	payload := filepath.Join(t.TempDir(), "payload")
@@ -195,10 +195,26 @@ func TestExitCodesServerLost(t *testing.T) {
 			if !strings.Contains(msg, c.want) {
 				t.Errorf("%q, want %q", msg, c.want)
 			}
-			if got := ExitCode(err); got == exitOK || got == exitUsage {
-				t.Errorf("exit %d", got)
+			if got := ExitCode(err); got != exitTransport {
+				t.Errorf("exit %d, want %d (%v)", got, exitTransport, err)
 			}
 		})
+	}
+}
+
+// A stream ends when its connection does, with what arrived before it, and
+// without reconnecting: the proxy would take a new connection.
+func TestAlarmsWatchConnectionLost(t *testing.T) {
+	s := startServer(t)
+	stdout, stderr, err := runCLI(t, "alarms", "watch", "-e", cutProxy(t, s.url, 10), "--timeout", "1s")
+	if got := ExitCode(err); got != exitTransport {
+		t.Errorf("exit %d, want %d (%v)", got, exitTransport, err)
+	}
+	if !strings.Contains(stderr, "connection lost") {
+		t.Errorf("stderr %q", stderr)
+	}
+	if !strings.Contains(stdout, "-- refresh end --") {
+		t.Errorf("stdout %q", stdout)
 	}
 }
 

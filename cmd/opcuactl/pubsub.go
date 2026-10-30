@@ -248,7 +248,7 @@ func (f *pubsubMetaFlags) load(ctx context.Context) (*ua.DataSetMetaDataType, er
 		defer cancel()
 		v, err := remote.New(c).Property(opCtx, nid, "DataSetMetaData")
 		if err != nil {
-			return nil, exitCodef(exitProtocol, "reading the DataSetMetaData of %s: %v", nid, err)
+			return nil, exitCodef(exitProtocol, "reading the DataSetMetaData of %s: %w", nid, err)
 		}
 		if eo, ok := v.Value().(*ua.ExtensionObject); ok {
 			if md, ok := eo.Value.(*ua.DataSetMetaDataType); ok {

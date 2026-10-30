@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -940,6 +941,7 @@ branch=<BranchId>; the optional states an alarm is in follow states=.
 With --format json (or --jsonl) every line is a JSON object; the refresh
 markers have "refresh": "start" / "end". --no-refresh skips the refresh.
 Stop with Ctrl+C, --duration or --count (condition events, not markers).
+A lost connection ends the stream with exit 4; opcuactl does not reconnect.
 
 opcuactl monitor alarm subscribes to plain event fields of your choice; alarms
 watch uses the condition fields of Part 9 and ConditionRefresh.
@@ -955,7 +957,16 @@ Examples:
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			c, err := connCfg.NewClient(ctx)
+			// A lost connection ends the stream. Reconnecting would hide it:
+			// the client retries forever while the notification channel
+			// stays silent, and events of the gap could go unseen.
+			lost := make(chan struct{})
+			var lostOnce sync.Once
+			c, err := connCfg.NewClient(ctx, opcua.AutoReconnect(false), opcua.WithConnStateHandler(func(s opcua.ConnState) {
+				if s == opcua.Disconnected {
+					lostOnce.Do(func() { close(lost) })
+				}
+			}))
 			if err != nil {
 				format.Errf("%v", err)
 				return exitCode(exitTransport, err)
@@ -988,30 +999,52 @@ Examples:
 			}
 			useJSON := jsonl || format.ParseFormat(outputFormat) != format.Table
 			received := 0
+			// handle prints the events of a notification and reports whether
+			// --count is reached.
+			handle := func(notif *opcua.PublishNotificationData) bool {
+				evs, err := conditionEvents(notif)
+				if err != nil {
+					format.Errf("condition event: %v", err)
+				}
+				for _, ev := range evs {
+					line := conditionNotification(ev, time.Now())
+					if line == nil {
+						continue
+					}
+					printConditionNotification(line, useJSON)
+					if line.Condition == nil {
+						continue
+					}
+					received++
+					if count > 0 && received >= count {
+						return true
+					}
+				}
+				return false
+			}
 			for {
 				select {
 				case <-ctx.Done():
 					return nil
 				case <-deadline:
 					return nil
-				case notif := <-ch:
-					evs, err := conditionEvents(notif)
-					if err != nil {
-						format.Errf("condition event: %v", err)
+				case <-lost:
+					// What arrived before the connection went comes first.
+					for {
+						select {
+						case notif := <-ch:
+							if handle(notif) {
+								return nil
+							}
+						default:
+							err := exitCodef(exitTransport, "watching conditions on %s: connection lost", nf.node)
+							format.Errf("%v", err)
+							return err
+						}
 					}
-					for _, ev := range evs {
-						line := conditionNotification(ev, time.Now())
-						if line == nil {
-							continue
-						}
-						printConditionNotification(line, useJSON)
-						if line.Condition == nil {
-							continue
-						}
-						received++
-						if count > 0 && received >= count {
-							return nil
-						}
+				case notif := <-ch:
+					if handle(notif) {
+						return nil
 					}
 				}
 			}

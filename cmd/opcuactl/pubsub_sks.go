@@ -79,7 +79,7 @@ Examples:
 			defer cancel()
 			res, err := sks.GetSecurityKeys(opCtx, c, group, startingToken, futureKeys)
 			if err != nil {
-				return exitCodef(exitProtocol, "GetSecurityKeys: %v", err)
+				return exitCodef(exitProtocol, "GetSecurityKeys: %w", err)
 			}
 			out := securityKeysModel(group, res, showKeys)
 

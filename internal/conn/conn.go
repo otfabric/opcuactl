@@ -136,8 +136,9 @@ func (cfg *Config) SelectEndpoint(endpoints []*ua.EndpointDescription, policy st
 	return opcua.SelectEndpoint(endpoints, policy, mode, certs[0].Raw)
 }
 
-// NewClient creates a connected OPC UA client from the config.
-func (cfg *Config) NewClient(ctx context.Context) (*opcua.Client, error) {
+// NewClient creates a connected OPC UA client from the config; extra options
+// apply after those of the config.
+func (cfg *Config) NewClient(ctx context.Context, extra ...opcua.Option) (*opcua.Client, error) {
 	if err := cfg.RequireEndpoint(); err != nil {
 		return nil, err
 	}
@@ -147,7 +148,7 @@ func (cfg *Config) NewClient(ctx context.Context) (*opcua.Client, error) {
 		return nil, err
 	}
 
-	c, err := opcua.NewClient(cfg.Endpoint, opts...)
+	c, err := opcua.NewClient(cfg.Endpoint, append(opts, extra...)...)
 	if errors.Is(err, uaerrors.ErrInsecureNotAllowed) {
 		return nil, fmt.Errorf("%w: set --security-policy (auto, or a policy) with --trusted-cert, or accept this with --insecure-no-security", err)
 	}

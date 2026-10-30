@@ -6,9 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"syscall"
 	"testing"
 
+	uaerrors "github.com/otfabric/go-opcua/errors"
 	"github.com/otfabric/go-opcua/ua"
 )
 
@@ -35,6 +38,13 @@ func TestExitCodes(t *testing.T) {
 		{"partial stays", exitCode(exitPartial, ua.StatusBadUserAccessDenied), exitPartial},
 		{"findings stay", exitCode(exitFindings, ua.StatusBadTimeout), exitFindings},
 		{"wrapped", fmt.Errorf("x: %w", exitCode(exitProtocol, errors.New("y"))), exitProtocol},
+		{"connection lost", exitCodef(exitProtocol, "x: %w", io.EOF), exitTransport},
+		{"connection reset", exitCode(exitProtocol, syscall.ECONNRESET), exitTransport},
+		{"channel closed", exitCode(exitProtocol, uaerrors.ErrSecureChannelClosed), exitTransport},
+		{"Bad_ConnectionClosed", exitCode(exitProtocol, ua.StatusBadConnectionClosed), exitTransport},
+		{"not connected", exitCode(exitProtocol, ua.StatusBadServerNotConnected), exitTransport},
+		{"a Bad status stays", exitCode(exitProtocol, ua.StatusBadNodeIDUnknown), exitProtocol},
+		{"EOF of a file", exitCode(exitInvalidInput, io.EOF), exitInvalidInput},
 	} {
 		if got := ExitCode(c.err); got != c.want {
 			t.Errorf("%s: exit %d, want %d", c.name, got, c.want)

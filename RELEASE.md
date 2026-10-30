@@ -1,5 +1,21 @@
 # opcuactl Releases
 
+## v0.13.0
+
+**Date:** 2026-10-30  
+**Previous release:** v0.12.0
+
+### Summary
+
+A connection lost after the session is up exits 4 (transport), as the organisation table says, and ends `alarms watch` instead of leaving it waiting silently. **Scripts that test for exit 6 on a lost connection must change.**
+
+### Breaking
+
+- **A connection lost during a service exits 4, not 6.** v0.11.0 gave such failures the code of the service, so EOF from a dropped connection read as a protocol error. A Bad status from the server stays 6. Applies to `ping` too, whose browse stage now also reports timeout (5), unsupported (8) and permission (9).
+- **`alarms watch` ends with exit 4 when the connection is lost**, after printing what arrived before it. It no longer reconnects: the client retried forever with nothing on stderr, and `--duration` then exited 0 as if the watch had seen everything. Restart it, with a refresh, to continue.
+
+---
+
 ## v0.12.0
 
 **Date:** 2026-10-30  

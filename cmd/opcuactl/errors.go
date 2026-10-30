@@ -6,8 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
+	"syscall"
 
+	uaerrors "github.com/otfabric/go-opcua/errors"
 	"github.com/otfabric/go-opcua/ua"
 )
 
@@ -79,6 +83,29 @@ func refine(code int, err error) int {
 		return exitPermission
 	case code == exitUsage && errors.As(err, &pe):
 		return exitInvalidInput
+	case code == exitProtocol && connectionLost(err):
+		return exitTransport
 	}
 	return code
+}
+
+// connectionLost reports whether a service failed because the connection
+// went away, which says nothing about what the server would have answered.
+func connectionLost(err error) bool {
+	for _, target := range []error{
+		io.EOF,
+		net.ErrClosed,
+		syscall.ECONNRESET,
+		syscall.EPIPE,
+		uaerrors.ErrSecureChannelClosed,
+		uaerrors.ErrNotConnected,
+		ua.StatusBadConnectionClosed,
+		ua.StatusBadSecureChannelClosed,
+		ua.StatusBadServerNotConnected,
+	} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }
