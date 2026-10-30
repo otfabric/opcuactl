@@ -36,6 +36,6 @@ func TestE2E_VerboseInfo(t *testing.T) {
 	}
 
 	// Errors keep their prefix.
-	_, errOut := wantExit(t, 3, "browse", "path", "-e", ep, "--path", "Nope", "-v")
+	_, errOut := wantExit(t, 6, "browse", "path", "-e", ep, "--path", "Nope", "-v")
 	wantContains(t, errOut, "Error: ")
 }

@@ -85,18 +85,18 @@ func (f *pubsubDiscoveryFlags) register(fs *pflag.FlagSet) {
 func (f *pubsubDiscoveryFlags) validate(url string, enc parse.PubSubEncoding, what string) error {
 	l, err := parse.DiscoveryLayout(f.layout)
 	if err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
 	f.parsed = l
 	scheme, _ := transport.Scheme(url)
 	if scheme != "opc.udp" && scheme != "opc.eth" {
-		return exitCodef(1, "%s needs a datagram transport (opc.udp://, opc.eth://): UADP discovery does not run over brokers", what)
+		return exitCodef(exitUsage, "%s needs a datagram transport (opc.udp://, opc.eth://): UADP discovery does not run over brokers", what)
 	}
 	if enc == parse.EncodingJSON {
-		return exitCodef(1, "%s needs the UADP encoding", what)
+		return exitCodef(exitUsage, "%s needs the UADP encoding", what)
 	}
 	if f.url == "" && !sharedAddress(url) {
-		return exitCodef(1, "%s needs a multicast --url or a --discovery-url: a unicast address reaches a single host", what)
+		return exitCodef(exitUsage, "%s needs a multicast --url or a --discovery-url: a unicast address reaches a single host", what)
 	}
 	return nil
 }
@@ -112,14 +112,14 @@ func (f *pubsubDiscoveryFlags) open(ctx context.Context, tf *pubsubTransportFlag
 		return nil, nil, err
 	}
 	if s, _ := transport.Scheme(f.url); s != "opc.udp" && s != "opc.eth" {
-		return nil, nil, exitCodef(1, "--discovery-url must be opc.udp:// or opc.eth://")
+		return nil, nil, exitCodef(exitUsage, "--discovery-url must be opc.udp:// or opc.eth://")
 	}
 	cfg.URL = f.url
 	openCtx, cancel := connCfg.TimeoutContext(ctx)
 	defer cancel()
 	dc, err = transport.Open(openCtx, cfg)
 	if err != nil {
-		return nil, nil, exitCodef(2, "opening the discovery address %s: %v", f.url, transportError(f.url, err))
+		return nil, nil, exitCodef(exitTransport, "opening the discovery address %s: %v", f.url, transportError(f.url, err))
 	}
 	return dc, func() { _ = dc.Close() }, nil
 }

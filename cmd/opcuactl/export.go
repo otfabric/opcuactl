@@ -61,13 +61,13 @@ Examples:
   opcuactl export nodes -e opc.tcp://localhost:4840 --format csv --output nodes.csv
   opcuactl export nodes -e opc.tcp://localhost:4840 --format yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -75,20 +75,20 @@ Examples:
 			if nodeStr != "" {
 				nodeID, err = parse.NodeID(nodeStr)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 
 			classMask, err := parse.NodeClassMask(nodeClass)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			n := c.Node(nodeID)
 
 			nodes, err := collectExportNodes(ctx, c, n, maxDepth, classMask)
 			if err != nil {
 				format.Errf("exporting nodes: %v", err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			if includeAttrs {
@@ -105,7 +105,7 @@ Examples:
 			if output != "" {
 				f, err := os.Create(output)
 				if err != nil {
-					return exitCodef(1, "creating output file: %v", err)
+					return exitCodef(exitUsage, "creating output file: %v", err)
 				}
 				defer func() { _ = f.Close() }()
 				w.SetOutput(f)
@@ -258,22 +258,22 @@ Examples:
 			if nodesFile != "" {
 				fileNodes, err := readNodesFile(nodesFile)
 				if err != nil {
-					return exitCodef(1, "reading --nodes-file: %v", err)
+					return exitCodef(exitUsage, "reading --nodes-file: %v", err)
 				}
 				nodes = append(nodes, fileNodes...)
 			}
 
 			if len(nodes) == 0 && startNode == "" {
-				return exitCodef(1, "at least one --node, --nodes-file, or --start-node is required")
+				return exitCodef(exitUsage, "at least one --node, --nodes-file, or --start-node is required")
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -282,19 +282,19 @@ Examples:
 			if len(nodes) > 0 {
 				nodeIDs, err = parse.NodeIDs(nodes)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			} else {
 				// Discover variable nodes from subtree
 				startID, err := parse.NodeID(startNode)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				n := c.Node(startID)
 				exported, err := collectExportNodes(ctx, c, n, maxDepth, ua.NodeClassVariable)
 				if err != nil {
 					format.Errf("discovering variables: %v", err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				for _, en := range exported {
 					nid, err := parse.NodeID(en.NodeID)
@@ -307,7 +307,7 @@ Examples:
 
 			if len(nodeIDs) == 0 {
 				format.Errf("no variable nodes found")
-				return exitCodef(1, "no nodes to export")
+				return exitCodef(exitUsage, "no nodes to export")
 			}
 
 			if history {
@@ -353,7 +353,7 @@ func exportSnapshotValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.No
 	dvs, err := c.ReadValues(opCtx, nodeIDs...)
 	if err != nil {
 		format.Errf("reading values: %v", err)
-		return exitCode(3, err)
+		return exitCode(exitProtocol, err)
 	}
 
 	var results []model.ExportedValue
@@ -389,27 +389,27 @@ func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.Nod
 	var err error
 	if mode != "attime" {
 		if opts.startStr == "" || opts.endStr == "" {
-			return exitCodef(1, "--start and --end are required with --history")
+			return exitCodef(exitUsage, "--start and --end are required with --history")
 		}
 		startTime, err = time.Parse(time.RFC3339, opts.startStr)
 		if err != nil {
-			return exitCodef(1, "invalid --start time: %v", err)
+			return exitCodef(exitUsage, "invalid --start time: %v", err)
 		}
 		endTime, err = time.Parse(time.RFC3339, opts.endStr)
 		if err != nil {
-			return exitCodef(1, "invalid --end time: %v", err)
+			return exitCodef(exitUsage, "invalid --end time: %v", err)
 		}
 		if !endTime.After(startTime) {
-			return exitCodef(1, "--end must be after --start")
+			return exitCodef(exitUsage, "--end must be after --start")
 		}
 	} else {
 		if len(opts.atTimes) == 0 {
-			return exitCodef(1, "--at is required for attime mode")
+			return exitCodef(exitUsage, "--at is required for attime mode")
 		}
 		for _, s := range opts.atTimes {
 			t, err := time.Parse(time.RFC3339, s)
 			if err != nil {
-				return exitCodef(1, "invalid --at time %q: %v", s, err)
+				return exitCodef(exitUsage, "invalid --at time %q: %v", s, err)
 			}
 			reqTimes = append(reqTimes, t)
 		}
@@ -418,10 +418,10 @@ func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.Nod
 	var aggID *ua.NodeID
 	if mode == "processed" {
 		if opts.aggInterval == 0 {
-			return exitCodef(1, "--interval is required for processed mode")
+			return exitCodef(exitUsage, "--interval is required for processed mode")
 		}
 		if aggID, err = aggregateNodeID(opts.aggregate); err != nil {
-			return exitCode(1, err)
+			return exitCode(exitUsage, err)
 		}
 	}
 
@@ -494,9 +494,9 @@ func exportHistoryValues(ctx context.Context, c *opcua.Client, nodeIDs []*ua.Nod
 	}
 	switch {
 	case failed == len(nodeIDs):
-		return exitCodef(3, "reading history: all %d node(s) failed", failed)
+		return exitCodef(exitProtocol, "reading history: all %d node(s) failed", failed)
 	case failed > 0:
-		return exitCodef(4, "reading history: %d of %d node(s) failed", failed, len(nodeIDs))
+		return exitCodef(exitPartial, "reading history: %d of %d node(s) failed", failed, len(nodeIDs))
 	}
 	return nil
 }
@@ -508,7 +508,7 @@ func writeExportedValues(results []model.ExportedValue, output string) error {
 	if output != "" {
 		f, err := os.Create(output)
 		if err != nil {
-			return exitCodef(1, "creating output file: %v", err)
+			return exitCodef(exitUsage, "creating output file: %v", err)
 		}
 		defer func() { _ = f.Close() }()
 		w.SetOutput(f)

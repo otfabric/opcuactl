@@ -66,28 +66,28 @@ Examples:
   opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Label" --value '{"UaType":21,"Value":{"Locale":"en","Text":"Tank 1"}}' --type ua-json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 			if value == "" {
-				return exitCodef(1, "--value is required")
+				return exitCodef(exitUsage, "--value is required")
 			}
 
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			var goVal interface{}
 			if parse.IsUAEncodedType(typeName) {
 				variant, vErr := parse.UAVariant(value, typeName)
 				if vErr != nil {
-					return exitCodef(1, "decoding %s value: %v", typeName, vErr)
+					return exitCodef(exitUsage, "decoding %s value: %v", typeName, vErr)
 				}
 				goVal = variant.Value()
 			} else {
 				goVal, err = parse.CoerceValue(value, typeName)
 				if err != nil {
-					return exitCodef(1, "type coercion failed: %v", err)
+					return exitCodef(exitUsage, "type coercion failed: %v", err)
 				}
 			}
 
@@ -111,7 +111,7 @@ Examples:
 				}
 
 				// Connect to read current state if possible.
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(rootContext())
 				defer cancel()
 				if c, cErr := connCfg.NewClient(ctx); cErr == nil {
 					defer func() { _ = c.Close(ctx) }()
@@ -148,13 +148,13 @@ Examples:
 				return w.Write(result)
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -163,7 +163,7 @@ Examples:
 
 			v, vErr := ua.NewVariant(goVal)
 			if vErr != nil {
-				return exitCodef(1, "creating variant: %v", vErr)
+				return exitCodef(exitUsage, "creating variant: %v", vErr)
 			}
 			dv := &ua.DataValue{EncodingMask: ua.DataValueValue, Value: v}
 			resp, wErr := c.Write(opCtx, &ua.WriteRequest{NodesToWrite: []*ua.WriteValue{{
@@ -174,7 +174,7 @@ Examples:
 			}}})
 			if wErr != nil {
 				format.Errf("writing value to %s: %v", nodeID, wErr)
-				return exitCode(3, wErr)
+				return exitCode(exitProtocol, wErr)
 			}
 			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
 				return "write " + nodeID.String()
@@ -205,7 +205,7 @@ Examples:
 			}
 			// A Bad status of the write is a status-code failure (exit 3).
 			if isBadStatus(sc) {
-				return exitCodef(3, "writing value to %s: %s", nodeID, sc.Symbol())
+				return exitCodef(exitProtocol, "writing value to %s: %s", nodeID, sc.Symbol())
 			}
 			return nil
 		},

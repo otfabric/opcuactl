@@ -90,20 +90,20 @@ Examples:
 				return err
 			}
 			if cmd.Flags().Changed("qos") {
-				return exitCodef(1, "--qos: the requests are sent at least once; the Responder's writer group sets the delivery guarantee (pubsub respond --qos)")
+				return exitCodef(exitUsage, "--qos: the requests are sent at least once; the Responder's writer group sets the delivery guarantee (pubsub respond --qos)")
 			}
 			if resend < 0 {
-				return exitCodef(1, "--resend-interval must not be negative")
+				return exitCodef(exitUsage, "--resend-interval must not be negative")
 			}
 			if connCfg.Timeout <= 0 {
-				return exitCodef(1, "--timeout must be positive")
+				return exitCodef(exitUsage, "--timeout must be positive")
 			}
 			if requestorID == "" {
 				requestorID = randomRequestorID()
 			}
 			rid, err := parse.PublisherID(requestorID)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			s, closeKeys, err := af.setup(ctx)
 			if err != nil {
@@ -147,11 +147,11 @@ Examples:
 			if err != nil {
 				switch {
 				case errors.Is(err, pubsub.ErrActionTimeout):
-					return exitCodef(2, "no response from the Action target %d of writer %d of publisher %s within %v", targetID, af.writerID, s.responder, connCfg.Timeout)
+					return exitCodef(exitTimeout, "no response from the Action target %d of writer %d of publisher %s within %v", targetID, af.writerID, s.responder, connCfg.Timeout)
 				case ctx.Err() != nil:
-					return exitCode(2, ctx.Err())
+					return exitCode(exitTransport, ctx.Err())
 				}
-				return exitCodef(2, "calling the Action: %v", err)
+				return exitCodef(exitTransport, "calling the Action: %v", err)
 			}
 			out := model.PubSubActionResult{
 				PublisherID:     s.responder.String(),
@@ -167,7 +167,7 @@ Examples:
 				return err
 			}
 			if isBadStatus(res.Status) {
-				return exitCode(3, fmt.Errorf("the Action target %d of writer %d of publisher %s answered %s", targetID, af.writerID, s.responder, res.Status.Symbol()))
+				return exitCode(exitProtocol, fmt.Errorf("the Action target %d of writer %d of publisher %s answered %s", targetID, af.writerID, s.responder, res.Status.Symbol()))
 			}
 			return nil
 		},
@@ -194,11 +194,11 @@ func parseActionValues(specs []string, flag string) ([]*ua.Variant, []pubsub.Fie
 	for i, s := range specs {
 		f, err := parse.PubSubFieldWithValue(s)
 		if err != nil {
-			return nil, nil, exitCodef(1, "%s: %v", flag, err)
+			return nil, nil, exitCodef(exitUsage, "%s: %v", flag, err)
 		}
 		v, err := ua.NewVariant(f.Value)
 		if err != nil {
-			return nil, nil, exitCodef(1, "%s %s: %v", flag, f.Name, err)
+			return nil, nil, exitCodef(exitUsage, "%s %s: %v", flag, f.Name, err)
 		}
 		values[i], fields[i] = v, f.Field
 	}
@@ -211,7 +211,7 @@ func parseActionFields(specs []string, flag string) ([]pubsub.Field, error) {
 	for i, s := range specs {
 		f, err := parse.PubSubField(s)
 		if err != nil {
-			return nil, exitCodef(1, "%s: %v", flag, err)
+			return nil, exitCodef(exitUsage, "%s: %v", flag, err)
 		}
 		fields[i] = f
 	}

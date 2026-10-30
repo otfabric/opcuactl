@@ -112,7 +112,7 @@ func TestE2E_HistoryValue(t *testing.T) {
 			{"--mode", "processed", "--start", from, "--end", to, "--interval", "1h"},
 			{"--mode", "attime", "--at", at},
 		} {
-			_, errOut := wantExit(t, 3, hist(append([]string{"-n", plain}, mode...)...)...)
+			_, errOut := wantExit(t, 6, hist(append([]string{"-n", plain}, mode...)...)...)
 			wantContains(t, errOut, "HistoryOperationUnsupported")
 		}
 	})
@@ -130,8 +130,8 @@ func TestE2E_HistoryValue(t *testing.T) {
 			{"-n", sine, "--mode", "processed", "--start", from, "--end", to},
 			{"-n", sine, "--mode", "processed", "--start", from, "--end", to, "--interval", "1m", "--aggregate", "median"},
 		} {
-			wantExit(t, 1, hist(args...)...)
+			wantExit(t, 2, hist(args...)...)
 		}
-		wantExit(t, 2, "history", "value", "-e", "opc.tcp://"+freeAddr(t), "-n", sine, "--start", from, "--end", to, "--timeout", "2s")
+		wantExit(t, 4, "history", "value", "-e", "opc.tcp://"+freeAddr(t), "-n", sine, "--start", from, "--end", to, "--timeout", "2s")
 	})
 }

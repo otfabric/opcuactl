@@ -63,35 +63,35 @@ Examples:
   opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Recipe" --ua-encoding xml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(nodes) == 0 {
-				return exitCodef(1, "at least one --node is required")
+				return exitCodef(exitUsage, "at least one --node is required")
 			}
 
 			nodeIDs, err := parse.NodeIDs(nodes)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			tsReturn, err := parse.TimestampsToReturn(timestampsToReturn)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			var encoding *parse.UAEncoding
 			if uaEncoding != "" {
 				enc, err := parse.ParseUAEncoding(uaEncoding)
 				if err != nil {
-					return exitCodef(1, "invalid --ua-encoding: %v", err)
+					return exitCodef(exitUsage, "invalid --ua-encoding: %v", err)
 				}
 				encoding = &enc
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -112,7 +112,7 @@ Examples:
 			})
 			if err != nil {
 				format.Errf("reading value: %v", err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(i int) string {
 				return "read " + nodeIDs[i].String()
@@ -122,7 +122,7 @@ Examples:
 				for _, dv := range resp.Results {
 					data, err := encoding.Encode(dv, prettyOutput)
 					if err != nil {
-						return exitCodef(3, "encoding value: %v", err)
+						return exitCodef(exitProtocol, "encoding value: %v", err)
 					}
 					fmt.Println(string(data))
 				}
@@ -214,21 +214,21 @@ Examples:
   opcuactl get node --endpoint opc.tcp://localhost:4840 --node i=2258 --full`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(nodes) == 0 {
-				return exitCodef(1, "at least one --node is required")
+				return exitCodef(exitUsage, "at least one --node is required")
 			}
 
 			nodeIDs, err := parse.NodeIDs(nodes)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -248,7 +248,7 @@ Examples:
 				}
 				if err != nil {
 					format.Errf("getting summary for %s: %v", nid, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 
 				info := model.NodeInfo{
@@ -361,13 +361,13 @@ Examples:
   opcuactl get server --endpoint opc.tcp://localhost:4840
   opcuactl get server --endpoint opc.tcp://localhost:4840 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -377,7 +377,7 @@ Examples:
 			ss, err := c.ServerStatus(opCtx)
 			if err != nil {
 				format.Errf("getting server status: %v", err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			w := newWriter()
@@ -545,15 +545,15 @@ Examples:
   opcuactl get attr -e opc.tcp://localhost:4840 -n i=2258 --all --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 			if len(attrs) == 0 && !all {
-				return exitCodef(1, "at least one --attr is required (or use --all)")
+				return exitCodef(exitUsage, "at least one --attr is required (or use --all)")
 			}
 
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			var attrIDs []ua.AttributeID
@@ -564,19 +564,19 @@ Examples:
 				for i, a := range attrs {
 					aid, err := parse.AttributeIDFromName(a)
 					if err != nil {
-						return exitCodef(1, "invalid --attr %q: %v", a, err)
+						return exitCodef(exitUsage, "invalid --attr %q: %v", a, err)
 					}
 					attrIDs[i] = aid
 				}
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -587,7 +587,7 @@ Examples:
 			dvs, err := n.Attributes(opCtx, attrIDs...)
 			if err != nil {
 				format.Errf("reading attributes for %s: %v", nodeID, err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			var results []AttributeResult

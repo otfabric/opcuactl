@@ -90,26 +90,26 @@ Examples:
   opcuactl history event -e opc.tcp://localhost:4840 -n i=2253 --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z --num-values 100 --format jsonl`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			var startTime, endTime time.Time
 			if startStr != "" {
 				if startTime, err = time.Parse(time.RFC3339, startStr); err != nil {
-					return exitCodef(1, "invalid --start time: %v", err)
+					return exitCodef(exitUsage, "invalid --start time: %v", err)
 				}
 			}
 			if endStr != "" {
 				if endTime, err = time.Parse(time.RFC3339, endStr); err != nil {
-					return exitCodef(1, "invalid --end time: %v", err)
+					return exitCodef(exitUsage, "invalid --end time: %v", err)
 				}
 			}
 			continuation = strings.ToLower(continuation)
 			if continuation != "all" && continuation != "single" {
-				return exitCodef(1, "invalid --continuation %q (all|single)", continuation)
+				return exitCodef(exitUsage, "invalid --continuation %q (all|single)", continuation)
 			}
 			perNode := numValues
 			if maxEvents > 0 && (perNode == 0 || maxEvents < perNode) {
@@ -122,7 +122,7 @@ Examples:
 				}
 			}
 			if given < 2 {
-				return exitCodef(1, "give --start and --end, or one of them with --num-values or --max-events")
+				return exitCodef(exitUsage, "give --start and --end, or one of them with --num-values or --max-events")
 			}
 
 			fields := historyEventFields
@@ -131,12 +131,12 @@ Examples:
 			}
 			selects, err := parse.EventSelectClauses(fields)
 			if err != nil {
-				return exitCodef(1, "invalid --select: %v", err)
+				return exitCodef(exitUsage, "invalid --select: %v", err)
 			}
 			var ofType *ua.NodeID
 			if ofTypeStr != "" {
 				if ofType, err = parse.NodeID(ofTypeStr); err != nil {
-					return exitCodef(1, "invalid --of-type: %v", err)
+					return exitCodef(exitUsage, "invalid --of-type: %v", err)
 				}
 			}
 			var sevMin, sevMax *uint16
@@ -158,7 +158,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
@@ -247,18 +247,18 @@ func readEventHistory(ctx context.Context, c *opcua.Client, nodeID *ua.NodeID, d
 		resp, err := c.HistoryReadEvent(opCtx, []*ua.HistoryReadValueID{{NodeID: nodeID, ContinuationPoint: cp}}, details)
 		cancel()
 		if err != nil {
-			return out, pages, exitCodef(3, "reading event history of %s: %w", nodeID, err)
+			return out, pages, exitCodef(exitProtocol, "reading event history of %s: %w", nodeID, err)
 		}
 		pages++
 		printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
 			return "history read " + nodeID.String()
 		})
 		if len(resp.Results) != 1 || resp.Results[0] == nil {
-			return out, pages, exitCodef(3, "reading event history of %s: %d results for 1 node", nodeID, len(resp.Results))
+			return out, pages, exitCodef(exitProtocol, "reading event history of %s: %d results for 1 node", nodeID, len(resp.Results))
 		}
 		r := resp.Results[0]
 		if isBadStatus(r.StatusCode) {
-			return out, pages, exitCodef(3, "reading event history of %s: %s", nodeID, r.StatusCode.Symbol())
+			return out, pages, exitCodef(exitProtocol, "reading event history of %s: %s", nodeID, r.StatusCode.Symbol())
 		}
 		if r.HistoryData != nil && r.HistoryData.Value != nil {
 			switch he := r.HistoryData.Value.(type) {
@@ -268,7 +268,7 @@ func readEventHistory(ctx context.Context, c *opcua.Client, nodeID *ua.NodeID, d
 				out = append(out, he.Events...)
 			default:
 				releaseEventContinuation(ctx, c, nodeID, details, r.ContinuationPoint)
-				return out, pages, exitCodef(3, "reading event history of %s: the server returned %T, not HistoryEvent", nodeID, he)
+				return out, pages, exitCodef(exitProtocol, "reading event history of %s: the server returned %T, not HistoryEvent", nodeID, he)
 			}
 		}
 		cp = r.ContinuationPoint
@@ -356,9 +356,9 @@ func historyUpdateExit(results []model.HistoryEventUpdate, what string) error {
 	case bad == 0:
 		return nil
 	case bad == len(results):
-		return exitCodef(3, "%s: all %d operation(s) failed", what, bad)
+		return exitCodef(exitProtocol, "%s: all %d operation(s) failed", what, bad)
 	default:
-		return exitCodef(4, "%s: %d of %d operation(s) failed", what, bad, len(results))
+		return exitCodef(exitPartial, "%s: %d of %d operation(s) failed", what, bad, len(results))
 	}
 }
 
@@ -450,11 +450,11 @@ Examples:
   opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --events-file events.json --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			var perform ua.PerformUpdateType
 			switch strings.ToLower(mode) {
@@ -465,14 +465,14 @@ Examples:
 			case "update":
 				perform = ua.PerformUpdateTypeUpdate
 			default:
-				return exitCodef(1, "invalid --mode %q (insert|replace|update)", mode)
+				return exitCodef(exitUsage, "invalid --mode %q (insert|replace|update)", mode)
 			}
 			mode = strings.ToLower(mode)
 			var events []parse.Event
 			for _, s := range eventJSON {
 				evs, err := parse.Events([]byte(s))
 				if err != nil {
-					return exitCodef(1, "invalid --event: %v", err)
+					return exitCodef(exitUsage, "invalid --event: %v", err)
 				}
 				events = append(events, evs...)
 			}
@@ -484,22 +484,22 @@ Examples:
 					data, err = os.ReadFile(eventsFile)
 				}
 				if err != nil {
-					return exitCodef(1, "reading --events-file: %v", err)
+					return exitCodef(exitUsage, "reading --events-file: %v", err)
 				}
 				evs, err := parse.Events(data)
 				if err != nil {
-					return exitCodef(1, "invalid --events-file: %v", err)
+					return exitCodef(exitUsage, "invalid --events-file: %v", err)
 				}
 				events = append(events, evs...)
 			}
 			if len(events) == 0 {
-				return exitCodef(1, "--event or --events-file is required")
+				return exitCodef(exitUsage, "--event or --events-file is required")
 			}
 			now := time.Now().UTC()
 			for i, ev := range events {
 				if perform == ua.PerformUpdateTypeReplace {
 					if ev.Field("EventId") == nil || ev.Field("EventId").Value() == nil {
-						return exitCodef(1, "event %d: --mode replace needs the EventId", i+1)
+						return exitCodef(exitUsage, "event %d: --mode replace needs the EventId", i+1)
 					}
 					continue
 				}
@@ -550,7 +550,7 @@ Examples:
 				if !ok {
 					selects, err := parse.EventSelectClauses(ev.Names())
 					if err != nil {
-						return exitCodef(1, "event %d: %v", i+1, err)
+						return exitCodef(exitUsage, "event %d: %v", i+1, err)
 					}
 					g = len(details)
 					group[key] = g
@@ -574,7 +574,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 			opCtx, cancel := connCfg.TimeoutContext(ctx)
@@ -582,13 +582,13 @@ Examples:
 			resp, err := c.HistoryUpdateEvents(opCtx, details...)
 			if err != nil {
 				format.Errf("updating the event history of %s: %v", nodeID, err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
 				return "history update " + nodeID.String()
 			})
 			if len(resp.Results) != len(details) {
-				return exitCodef(3, "updating the event history of %s: %d results for %d details", nodeID, len(resp.Results), len(details))
+				return exitCodef(exitProtocol, "updating the event history of %s: %d results for %d details", nodeID, len(resp.Results), len(details))
 			}
 			for g, idx := range members {
 				for j, i := range idx {
@@ -642,21 +642,21 @@ Examples:
   opcuactl history delete-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event-id 0x0102 --event-id 0x0304 --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			if len(eventIDs) == 0 {
-				return exitCodef(1, "--event-id is required")
+				return exitCodef(exitUsage, "--event-id is required")
 			}
 			ids := make([][]byte, len(eventIDs))
 			results := make([]model.HistoryEventUpdate, len(eventIDs))
 			for i, s := range eventIDs {
 				b, latest, err := parse.EventID(s)
 				if err != nil || latest {
-					return exitCodef(1, "invalid --event-id %q (base64 or 0x hex)", s)
+					return exitCodef(exitUsage, "invalid --event-id %q (base64 or 0x hex)", s)
 				}
 				ids[i] = b
 				results[i] = model.HistoryEventUpdate{
@@ -680,7 +680,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 			opCtx, cancel := connCfg.TimeoutContext(ctx)
@@ -688,13 +688,13 @@ Examples:
 			resp, err := c.HistoryDeleteEvents(opCtx, &ua.DeleteEventDetails{NodeID: nodeID, EventIDs: ids})
 			if err != nil {
 				format.Errf("deleting from the event history of %s: %v", nodeID, err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
 				return "history delete " + nodeID.String()
 			})
 			if len(resp.Results) != 1 {
-				return exitCodef(3, "deleting from the event history of %s: %d results for 1 details", nodeID, len(resp.Results))
+				return exitCodef(exitProtocol, "deleting from the event history of %s: %d results for 1 details", nodeID, len(resp.Results))
 			}
 			for i := range results {
 				st := historyUpdateResult(resp.Results[0], i)

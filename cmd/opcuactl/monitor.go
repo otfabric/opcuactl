@@ -87,17 +87,17 @@ Examples:
   opcuactl monitor value -e opc.tcp://localhost:4840 -n i=2258 --count 10 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(nodes) == 0 {
-				return exitCodef(1, "at least one --node is required")
+				return exitCodef(exitUsage, "at least one --node is required")
 			}
 
 			nodeIDs, err := parse.NodeIDs(nodes)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			ts, err := parse.TimestampsToReturn(timestamps)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			// DataChangeFilter: only sent when asked for, so servers without
@@ -107,19 +107,19 @@ Examples:
 			if flags.Changed("trigger") || flags.Changed("deadband-type") || flags.Changed("deadband") {
 				trig, err := parse.DataChangeTrigger(trigger)
 				if err != nil {
-					return exitCodef(1, "invalid --trigger: %v", err)
+					return exitCodef(exitUsage, "invalid --trigger: %v", err)
 				}
 				dbType, err := parse.DeadbandType(deadbandType)
 				if err != nil {
-					return exitCodef(1, "invalid --deadband-type: %v", err)
+					return exitCodef(exitUsage, "invalid --deadband-type: %v", err)
 				}
 				switch {
 				case dbType == ua.DeadbandTypeNone && flags.Changed("deadband"):
-					return exitCodef(1, "--deadband needs --deadband-type absolute or percent")
+					return exitCodef(exitUsage, "--deadband needs --deadband-type absolute or percent")
 				case deadband < 0:
-					return exitCodef(1, "--deadband must not be negative")
+					return exitCodef(exitUsage, "--deadband must not be negative")
 				case dbType == ua.DeadbandTypePercent && deadband > 100:
-					return exitCodef(1, "--deadband is a percentage (0-100) with --deadband-type percent")
+					return exitCodef(exitUsage, "--deadband is a percentage (0-100) with --deadband-type percent")
 				}
 				filter = opcua.NewDataChangeFilter(trig, dbType, deadband)
 			}
@@ -130,7 +130,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -153,7 +153,7 @@ Examples:
 			sub, err := c.Subscribe(ctx, &opcua.SubscriptionParameters{Interval: interval}, notifyCh)
 			if err != nil {
 				format.Errf("starting subscription: %v", err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 			defer func() { _ = sub.Cancel(context.Background()) }()
 
@@ -163,7 +163,7 @@ Examples:
 			created, err := sub.Monitor(ctx, ts, items...)
 			if err != nil {
 				format.Errf("creating monitored items: %v", err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 			accepted := 0
 			for i, res := range created.Results {
@@ -176,7 +176,7 @@ Examples:
 				}
 			}
 			if accepted == 0 {
-				return exitCodef(3, "the server rejected all monitored items")
+				return exitCodef(exitProtocol, "the server rejected all monitored items")
 			}
 
 			if sub.RevisedPublishingInterval != interval {
@@ -330,12 +330,12 @@ Examples:
   opcuactl monitor event -e opc.tcp://localhost:4840 --node i=2253 --jsonl --duration 60s`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			fields := defaultFields
@@ -347,7 +347,7 @@ Examples:
 			if ofTypeStr != "" {
 				ofType, err = parse.NodeID(ofTypeStr)
 				if err != nil {
-					return exitCodef(1, "invalid --of-type: %v", err)
+					return exitCodef(exitUsage, "invalid --of-type: %v", err)
 				}
 			}
 			var sevMin, sevMax *uint16
@@ -367,7 +367,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -505,12 +505,12 @@ Examples:
   opcuactl monitor alarm -e opc.tcp://localhost:4840 --node i=2253 --select EventType --select Message --select ActiveState`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			fields := defaultFields
@@ -527,7 +527,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 

@@ -65,40 +65,40 @@ Examples:
   opcuactl history value -e opc.tcp://localhost:4840 -n i=2258 --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nodeStr == "" {
-				return exitCodef(1, "--node is required")
+				return exitCodef(exitUsage, "--node is required")
 			}
 
 			nodeID, err := parse.NodeID(nodeStr)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			mode = strings.ToLower(mode)
 			var startTime, endTime time.Time
 			if mode != "attime" {
 				if startStr == "" || endStr == "" {
-					return exitCodef(1, "--start and --end are required")
+					return exitCodef(exitUsage, "--start and --end are required")
 				}
 				startTime, err = time.Parse(time.RFC3339, startStr)
 				if err != nil {
-					return exitCodef(1, "invalid --start time: %v", err)
+					return exitCodef(exitUsage, "invalid --start time: %v", err)
 				}
 				endTime, err = time.Parse(time.RFC3339, endStr)
 				if err != nil {
-					return exitCodef(1, "invalid --end time: %v", err)
+					return exitCodef(exitUsage, "invalid --end time: %v", err)
 				}
 				if !endTime.After(startTime) {
-					return exitCodef(1, "--end must be after --start")
+					return exitCodef(exitUsage, "--end must be after --start")
 				}
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -119,21 +119,21 @@ Examples:
 				resp, err := c.HistoryReadRawModified(opCtx, nodes, details)
 				if err != nil {
 					format.Errf("reading modified history for %s: %v", nodeID, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				results, err = historyResponseToValues(nodeID.String(), resp)
 				if err != nil {
 					format.Errf("reading history for %s: %v", nodeID, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 
 			case "processed":
 				if aggInterval == 0 {
-					return exitCodef(1, "--interval is required for processed mode")
+					return exitCodef(exitUsage, "--interval is required for processed mode")
 				}
 				aggID, err := aggregateNodeID(aggregate)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				nodes := []*ua.HistoryReadValueID{{NodeID: nodeID}}
 				details := &ua.ReadProcessedDetails{
@@ -145,23 +145,23 @@ Examples:
 				resp, err := c.HistoryReadProcessed(opCtx, nodes, details)
 				if err != nil {
 					format.Errf("reading processed history for %s: %v", nodeID, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				results, err = historyResponseToValues(nodeID.String(), resp)
 				if err != nil {
 					format.Errf("reading history for %s: %v", nodeID, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 
 			case "attime":
 				if len(atTimes) == 0 {
-					return exitCodef(1, "--at is required for attime mode (repeatable RFC3339 timestamps)")
+					return exitCodef(exitUsage, "--at is required for attime mode (repeatable RFC3339 timestamps)")
 				}
 				reqTimes := make([]time.Time, 0, len(atTimes))
 				for _, s := range atTimes {
 					t, err := time.Parse(time.RFC3339, s)
 					if err != nil {
-						return exitCodef(1, "invalid --at time %q: %v", s, err)
+						return exitCodef(exitUsage, "invalid --at time %q: %v", s, err)
 					}
 					reqTimes = append(reqTimes, t)
 				}
@@ -170,12 +170,12 @@ Examples:
 				resp, err := c.HistoryReadAtTime(opCtx, nodes, details)
 				if err != nil {
 					format.Errf("reading at-time history for %s: %v", nodeID, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				results, err = historyResponseToValues(nodeID.String(), resp)
 				if err != nil {
 					format.Errf("reading history for %s: %v", nodeID, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 
 			default: // "raw" or ""
@@ -183,14 +183,14 @@ Examples:
 					values, err := c.ReadHistory(opCtx, nodeID, startTime, endTime, maxValues)
 					if err != nil {
 						format.Errf("reading history for %s: %v", nodeID, err)
-						return exitCode(3, err)
+						return exitCode(exitProtocol, err)
 					}
 					results = historyDataValues(nodeID.String(), values)
 				} else {
 					for dv, err := range c.ReadHistoryAll(ctx, nodeID, startTime, endTime) {
 						if err != nil {
 							format.Errf("reading history for %s: %v", nodeID, err)
-							return exitCode(3, err)
+							return exitCode(exitProtocol, err)
 						}
 						results = append(results, toHistoryValue(nodeID.String(), dv))
 					}

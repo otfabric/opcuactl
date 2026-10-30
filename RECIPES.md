@@ -360,7 +360,7 @@ opcuactl history delete-events "${CONN[@]}" -n i=2253 --event-id "<base64 from h
 
 # Load events from a file, check them first
 opcuactl history update-events "${CONN[@]}" -n i=2253 --events-file shift-log.json --dry-run
-opcuactl history update-events "${CONN[@]}" -n i=2253 --events-file shift-log.json --yes || echo "exit $? (4: some events failed)"
+opcuactl history update-events "${CONN[@]}" -n i=2253 --events-file shift-log.json --yes || echo "exit $? (7: some events failed)"
 ```
 
 `--aggregate` accepts `average` (default), `min`, `max`, `count`.
@@ -455,7 +455,7 @@ opcuactl call method "${CONN[@]}" \
   --arg-json '[42, "hello"]'
 ```
 
-The JSON values take the types of the method's InputArguments: for a method `Add(a Int32, b Int32)`, `--arg-json '[2, 40]'` sends two Int32. A value that does not fit (`2.5`, `3000000000`) is rejected with exit 1 before the call.
+The JSON values take the types of the method's InputArguments: for a method `Add(a Int32, b Int32)`, `--arg-json '[2, 40]'` sends two Int32. A value that does not fit (`2.5`, `3000000000`) is rejected with exit 2 before the call.
 
 ---
 
@@ -820,7 +820,7 @@ opcuactl pubsub respond --url opc.udp://10.0.0.9:4840 --max-concurrent 4 --rate 
   --diagnostics-interval 10s
 ```
 
-In scripts, branch on the exit code of `call`: 0 for a Good result, 3 for a Bad result (printed as well), 2 when no response came within `--timeout`. `--quiet` prints only the output values, one per line.
+In scripts, branch on the exit code of `call`: 0 for a Good result, 6 for a Bad result (printed as well), 5 when no response came within `--timeout`. `--quiet` prints only the output values, one per line.
 
 ---
 
@@ -868,7 +868,7 @@ opcuactl alarms watch "${CONN[@]}" --jsonl >> alarms.jsonl
 jq -r 'select(.conditionId) | [.ts, .conditionName, .severity, .active, .acked] | @tsv' alarms.jsonl
 ```
 
-To acknowledge exactly the event an operator saw (not a newer one), pass its EventId from `alarms list` or `alarms watch`: `--event-id +LbyRwxcuik8Tz1iutx3ug==`. A server that refused the method exits with code 3 and the reason: `already acknowledged`, `the EventId is not one of the recent events of the condition`, `the condition is disabled`, `the user may not call this method` (connect with an identity that may).
+To acknowledge exactly the event an operator saw (not a newer one), pass its EventId from `alarms list` or `alarms watch`: `--event-id +LbyRwxcuik8Tz1iutx3ug==`. A server that refused the method exits with code 6 (9 for `the user may not call this method`) and the reason: `already acknowledged`, `the EventId is not one of the recent events of the condition`, `the condition is disabled`, `the user may not call this method` (connect with an identity that may).
 
 ---
 
@@ -1085,7 +1085,7 @@ opcuactl alarms ack "${CONN[@]}" "ns=2;s=Tank.LevelAlarm" -m "checked" --audit-e
 opcuactl alarms audit "${CONN[@]}" --entry-id ticket-4711 --count 1
 ```
 
-The server must audit (`Server/Auditing` true) and let the user receive audit events. A method the condition does not support exits with 3 (`Bad_MethodInvalid`, the alarm has no such optional state); `Bad_InvalidState` says the alarm is not in a state that allows it (not latched, not active, not out of service), `Bad_DialogNotActive` / `Bad_DialogResponseInvalid` that the dialog is over or the option unknown.
+The server must audit (`Server/Auditing` true) and let the user receive audit events. A method the condition does not support exits with 6 (`Bad_MethodInvalid`, the alarm has no such optional state); `Bad_InvalidState` says the alarm is not in a state that allows it (not latched, not active, not out of service), `Bad_DialogNotActive` / `Bad_DialogResponseInvalid` that the dialog is over or the option unknown.
 
 ---
 
@@ -1116,7 +1116,7 @@ APP=$(opcuactl gds pull register "${GDS[@]}" --uri urn:plant:line4 --name "Line 
         --discovery-url opc.tcp://line4:4840 --capability DA -q)
 REQ=$(opcuactl gds pull request "${GDS[@]}" "$APP" --csr line4.csr -q)
 opcuactl gds pull finish "${GDS[@]}" "$APP" "$REQ" --cert-out line4.pem --issuers-out ca.pem \
-  || echo "still waiting for approval"            # exit 3 (Bad_NothingToDo) while pending
+  || echo "still waiting for approval"            # exit 6 (Bad_NothingToDo) while pending
 opcuactl gds pull wait "${GDS[@]}" "$APP" "$REQ" --cert-out line4.pem --poll 30s
 ```
 
@@ -1130,7 +1130,7 @@ opcuactl gds pull update "${GDS[@]}" "$APP" --discovery-url opc.tcp://line4.plan
 opcuactl gds pull status "${GDS[@]}" "$APP" --type rsa          # time to renew? (exit 0 either way)
 opcuactl gds pull trustlist "${GDS[@]}" "$APP" --out ./line4-pki
 opcuactl gds pull revoke "${GDS[@]}" "$APP" line4.pem --yes
-opcuactl gds pull check-revocation "${GDS[@]}" line4.pem || echo "revoked or unknown"   # exit 4
+opcuactl gds pull check-revocation "${GDS[@]}" line4.pem || echo "revoked or unknown"   # exit 1
 opcuactl gds pull unregister "${GDS[@]}" "$APP" --yes           # also revokes its certificates
 ```
 

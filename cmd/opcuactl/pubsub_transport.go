@@ -97,31 +97,31 @@ func (f *pubsubTransportFlags) register(fs *pflag.FlagSet) {
 func (f *pubsubTransportFlags) config(enc parse.PubSubEncoding) (transport.Config, error) {
 	var cfg transport.Config
 	if f.url == "" {
-		return cfg, exitCodef(1, "--url is required (%s)", pubsubSchemes)
+		return cfg, exitCodef(exitUsage, "--url is required (%s)", pubsubSchemes)
 	}
 	if f.qos > 2 {
-		return cfg, exitCodef(1, "--qos must be 0, 1 or 2")
+		return cfg, exitCodef(exitUsage, "--qos must be 0, 1 or 2")
 	}
 	profile, err := transportProfile(f.url, enc)
 	if err != nil {
-		return cfg, exitCode(1, err)
+		return cfg, exitCode(exitUsage, err)
 	}
 	scheme, _ := transport.Scheme(f.url)
 	if scheme == "opc.eth" && f.iface == "" {
-		return cfg, exitCodef(1, "--interface is required with opc.eth:// (the network interface the frames are sent and received on, e.g. eth0)")
+		return cfg, exitCodef(exitUsage, "--interface is required with opc.eth:// (the network interface the frames are sent and received on, e.g. eth0)")
 	}
 	var version string
 	if f.mqttVersion != "" {
 		if !isMQTTScheme(scheme) {
-			return cfg, exitCodef(1, "--mqtt-version needs an MQTT broker (mqtt://, mqtts://)")
+			return cfg, exitCodef(exitUsage, "--mqtt-version needs an MQTT broker (mqtt://, mqtts://)")
 		}
 		if version, err = parse.MQTTVersion(f.mqttVersion); err != nil {
-			return cfg, exitCode(1, err)
+			return cfg, exitCode(exitUsage, err)
 		}
 	}
 	props, err := parse.TransportProperties(f.properties)
 	if err != nil {
-		return cfg, exitCode(1, err)
+		return cfg, exitCode(exitUsage, err)
 	}
 	password := f.password
 	for _, env := range []string{"OPCUACTL_BROKER_PASSWORD", "OPCUACTL_MQTT_PASSWORD"} {
@@ -150,7 +150,7 @@ func (f *pubsubTransportFlags) open(ctx context.Context, enc parse.PubSubEncodin
 	defer cancel()
 	c, err := transport.Open(openCtx, cfg)
 	if err != nil {
-		return nil, exitCode(2, transportError(f.url, err))
+		return nil, exitCode(exitTransport, transportError(f.url, err))
 	}
 	return c, nil
 }
@@ -159,7 +159,7 @@ func (f *pubsubTransportFlags) open(ctx context.Context, enc parse.PubSubEncodin
 func (f *pubsubTransportFlags) subscribe(ctx context.Context, c transport.Connection, topic string, h transport.Handler) (func() error, error) {
 	cancel, err := c.Subscribe(ctx, topic, f.qos, h)
 	if err != nil {
-		return nil, exitCodef(2, "subscribing to %s: %v", f.url, transportError(f.url, err))
+		return nil, exitCodef(exitTransport, "subscribing to %s: %v", f.url, transportError(f.url, err))
 	}
 	return cancel, nil
 }

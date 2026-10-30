@@ -131,7 +131,7 @@ func TestE2E_Browse(t *testing.T) {
 			{"find", "node", "-e", ep, "--name", "X", "--start-node", "ns=1;s=NoSuchNode"},
 		} {
 			_, stderr, err := runCLI(t, args...)
-			if ExitCode(err) != 3 {
+			if ExitCode(err) != 6 {
 				t.Errorf("opcuactl %s: %v (exit %d)", strings.Join(args, " "), err, ExitCode(err))
 			}
 			wantContains(t, stderr, "BadNodeIDUnknown")
@@ -219,7 +219,7 @@ func TestE2E_Browse(t *testing.T) {
 			{"browse", "tree", "-e", ep, "-n", "bogus"},
 			{"browse", "tree", "-e", ep, "--node-class", "bogus"},
 		} {
-			wantExit(t, 1, args...)
+			wantExit(t, 2, args...)
 		}
 		for _, args := range [][]string{
 			{"browse", "path", "-e", ep, "--path", "Nope"},
@@ -227,11 +227,11 @@ func TestE2E_Browse(t *testing.T) {
 			{"browse", "path", "-e", ep, "--path", "1:Demo.1:Nope"},
 			{"browse", "path", "-e", ep, "--path", "Nope", "--start-node", demo},
 		} {
-			wantExit(t, 3, args...)
+			wantExit(t, 6, args...)
 		}
 		closed := "opc.tcp://" + freeAddr(t)
 		for _, cmd := range [][]string{{"browse", "children"}, {"browse", "refs"}, {"browse", "tree"}, {"browse", "path", "--path", "Server"}} {
-			wantExit(t, 2, append(cmd, "-e", closed, "--timeout", "2s")...)
+			wantExit(t, 4, append(cmd, "-e", closed, "--timeout", "2s")...)
 		}
 	})
 }
@@ -332,11 +332,11 @@ func TestE2E_Find(t *testing.T) {
 			{"find", "type", "-e", ep, "--data-type", "x", "--start-node", "bogus"},
 			{"find", "type", "-e", ep, "--data-type", "x", "--class", "bogus"},
 		} {
-			wantExit(t, 1, args...)
+			wantExit(t, 2, args...)
 		}
 		closed := "opc.tcp://" + freeAddr(t)
 		for _, cmd := range [][]string{{"find", "namespace"}, {"find", "node", "--name", "x"}, {"find", "type", "--data-type", "x"}} {
-			wantExit(t, 2, append(cmd, "-e", closed, "--timeout", "2s")...)
+			wantExit(t, 4, append(cmd, "-e", closed, "--timeout", "2s")...)
 		}
 	})
 }

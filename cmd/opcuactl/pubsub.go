@@ -120,12 +120,12 @@ func (f *pubsubSecurityFlags) keySource(ctx context.Context) (ks security.KeySou
 	case f.keysFile != "":
 		ring, err := loadKeysFile(f.keysFile, f.group)
 		if err != nil {
-			return nil, closeFn, exitCode(1, err)
+			return nil, closeFn, exitCode(exitUsage, err)
 		}
 		return ring, closeFn, nil
 	case f.group != "":
 		if err := connCfg.RequireEndpoint(); err != nil {
-			return nil, closeFn, exitCodef(1, "--security-group pulls keys from a Security Key Service: %v", err)
+			return nil, closeFn, exitCodef(exitUsage, "--security-group pulls keys from a Security Key Service: %v", err)
 		}
 		src, err := sks.NewKeySource(ctx, sks.Config{
 			SecurityGroupID: f.group,
@@ -138,7 +138,7 @@ func (f *pubsubSecurityFlags) keySource(ctx context.Context) (ks security.KeySou
 			},
 		})
 		if err != nil {
-			return nil, closeFn, exitCodef(2, "getting the keys of SecurityGroup %q: %v", f.group, err)
+			return nil, closeFn, exitCodef(exitTransport, "getting the keys of SecurityGroup %q: %v", f.group, err)
 		}
 		return src, func() { _ = src.Close() }, nil
 	}
@@ -211,7 +211,7 @@ func (f *pubsubMetaFlags) load(ctx context.Context) (*ua.DataSetMetaDataType, er
 		}
 	}
 	if n > 1 {
-		return nil, exitCodef(1, "--field, --metadata and --metadata-node are mutually exclusive")
+		return nil, exitCodef(exitUsage, "--field, --metadata and --metadata-node are mutually exclusive")
 	}
 	switch {
 	case len(f.fields) > 0:
@@ -219,7 +219,7 @@ func (f *pubsubMetaFlags) load(ctx context.Context) (*ua.DataSetMetaDataType, er
 		for i, s := range f.fields {
 			fd, err := parse.PubSubField(s)
 			if err != nil {
-				return nil, exitCode(1, err)
+				return nil, exitCode(exitUsage, err)
 			}
 			fields[i] = fd
 		}
@@ -227,35 +227,35 @@ func (f *pubsubMetaFlags) load(ctx context.Context) (*ua.DataSetMetaDataType, er
 	case f.file != "":
 		b, err := os.ReadFile(f.file)
 		if err != nil {
-			return nil, exitCode(1, err)
+			return nil, exitCode(exitUsage, err)
 		}
 		md, err := decodeMetaData(b)
 		if err != nil {
-			return nil, exitCodef(1, "%s: %v", f.file, err)
+			return nil, exitCodef(exitUsage, "%s: %v", f.file, err)
 		}
 		return md, nil
 	case f.node != "":
 		nid, err := parse.NodeIDWithNamespace(f.node, namespace)
 		if err != nil {
-			return nil, exitCode(1, err)
+			return nil, exitCode(exitUsage, err)
 		}
 		c, err := connCfg.NewClient(ctx)
 		if err != nil {
-			return nil, exitCode(2, err)
+			return nil, exitCode(exitTransport, err)
 		}
 		defer func() { _ = c.Close(ctx) }()
 		opCtx, cancel := connCfg.TimeoutContext(ctx)
 		defer cancel()
 		v, err := remote.New(c).Property(opCtx, nid, "DataSetMetaData")
 		if err != nil {
-			return nil, exitCodef(3, "reading the DataSetMetaData of %s: %v", nid, err)
+			return nil, exitCodef(exitProtocol, "reading the DataSetMetaData of %s: %v", nid, err)
 		}
 		if eo, ok := v.Value().(*ua.ExtensionObject); ok {
 			if md, ok := eo.Value.(*ua.DataSetMetaDataType); ok {
 				return md, nil
 			}
 		}
-		return nil, exitCodef(3, "%s has no DataSetMetaData", nid)
+		return nil, exitCodef(exitProtocol, "%s has no DataSetMetaData", nid)
 	}
 	return nil, nil
 }

@@ -123,15 +123,15 @@ Examples:
 			}
 			status, err := parse.StatusCode(statusStr)
 			if err != nil {
-				return exitCodef(1, "--status: %v", err)
+				return exitCodef(exitUsage, "--status: %v", err)
 			}
 			switch {
 			case delay < 0, interval < 0, duration < 0, maxTimeout < 0:
-				return exitCodef(1, "--delay, --interval, --duration and --max-timeout must not be negative")
+				return exitCodef(exitUsage, "--delay, --interval, --duration and --max-timeout must not be negative")
 			case count < 0, maxConcurrent < 0, burst < 0, rate < 0:
-				return exitCodef(1, "--count, --max-concurrent, --rate and --burst must not be negative")
+				return exitCodef(exitUsage, "--count, --max-concurrent, --rate and --burst must not be negative")
 			case groupID == 0:
-				return exitCodef(1, "--writer-group-id must not be 0")
+				return exitCodef(exitUsage, "--writer-group-id must not be 0")
 			}
 			if len(targetSpecs) == 0 {
 				targetSpecs = []string{"1"}
@@ -141,10 +141,10 @@ Examples:
 			for i, spec := range targetSpecs {
 				id, name, err := parse.ActionTarget(spec)
 				if err != nil {
-					return exitCodef(1, "--target: %v", err)
+					return exitCodef(exitUsage, "--target: %v", err)
 				}
 				if seen[id] {
-					return exitCodef(1, "--target: ActionTargetId %d given twice", id)
+					return exitCodef(exitUsage, "--target: ActionTargetId %d given twice", id)
 				}
 				seen[id] = true
 				targets[i] = pubsub.ActionTargetOf(id, name)
@@ -156,7 +156,7 @@ Examples:
 			}
 			defer closeKeys()
 			if !s.broker && af.requestAddress != "" {
-				return exitCodef(1, "--request-address is the request queue on a broker; over UDP the requests arrive on --url")
+				return exitCodef(exitUsage, "--request-address is the request queue on a broker; over UDP the requests arrive on --url")
 			}
 			if !cmd.Flags().Changed("interval") && !s.broker {
 				interval = defaultDatagramActionInterval

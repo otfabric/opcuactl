@@ -91,7 +91,7 @@ func TestE2E_HTTPSAndWebSocket(t *testing.T) {
 			if err == nil {
 				t.Fatalf("%s: connected without trusting the TLS certificate", ep)
 			}
-			if ExitCode(err) != 2 || !strings.Contains(errOut, "certificate") {
+			if ExitCode(err) != 4 || !strings.Contains(errOut, "certificate") {
 				t.Errorf("%s: exit %d, stderr %s", ep, ExitCode(err), errOut)
 			}
 		}
@@ -181,7 +181,7 @@ func TestE2E_HTTPSAndWebSocket(t *testing.T) {
 			{"--tls-ca", s.cert.keyFile},
 		} {
 			_, _, err := runCLI(t, append([]string{"get", "value", "-e", s.wss, "-n", "i=2258"}, args...)...)
-			if err == nil || ExitCode(err) != 1 {
+			if err == nil || ExitCode(err) != 2 && ExitCode(err) != 3 {
 				t.Errorf("%v: err = %v (exit %d), want a usage error", args, err, ExitCode(err))
 			}
 		}

@@ -29,7 +29,7 @@ func TestE2E_Ping(t *testing.T) {
 	wantContains(t, out, "✓ tcp", "✓ secure", "✓ browse")
 
 	// Nobody listens: the TCP stage fails, exit 2.
-	out, _ = wantExit(t, 2, "ping", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
+	out, _ = wantExit(t, 4, "ping", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
 	wantContains(t, out, "✗ tcp")
 	if strings.Contains(out, "secure") {
 		t.Errorf("ping went on after the TCP stage failed:\n%s", out)
@@ -50,13 +50,13 @@ func TestE2E_Ping(t *testing.T) {
 			_ = c.Close()
 		}
 	}()
-	out, _ = wantExit(t, 2, "ping", "-e", "opc.tcp://"+l.Addr().String(), "--timeout", "2s", "--format", "json")
+	out, _ = wantExit(t, 4, "ping", "-e", "opc.tcp://"+l.Addr().String(), "--timeout", "2s", "--format", "json")
 	var failed []model.PingStep
 	if err := json.Unmarshal([]byte(out), &failed); err != nil || len(failed) != 2 || failed[0].Status != "ok" || failed[1].Stage != "secure" || failed[1].Status != "fail" || failed[1].Error == "" {
 		t.Errorf("ping of a non-OPC UA listener: %v %+v", err, failed)
 	}
 
-	wantExit(t, 1, "ping")
+	wantExit(t, 2, "ping")
 }
 
 // TestE2E_WriteValue writes Demo.Level of `opcuactl serve` and checks the
@@ -92,7 +92,7 @@ func TestE2E_WriteValue(t *testing.T) {
 	}
 
 	// Demo.Int32 is read-only: the write is printed and exits 3.
-	out, errOut := wantExit(t, 3, "write", "value", "-e", ep, "-n", s.node(serve.DemoInt32), "--value", "1", "--type", "int32", "--yes")
+	out, errOut := wantExit(t, 6, "write", "value", "-e", ep, "-n", s.node(serve.DemoInt32), "--value", "1", "--type", "int32", "--yes")
 	wantContains(t, out, "Bad")
 	wantContains(t, errOut, "writing value to "+s.node(serve.DemoInt32))
 
@@ -103,7 +103,7 @@ func TestE2E_WriteValue(t *testing.T) {
 		{"-n", level, "--value", "x", "--type", "double"},
 		{"-n", level, "--value", "{", "--type", "ua-json"},
 	} {
-		wantExit(t, 1, append([]string{"write", "value", "-e", ep, "--yes"}, args...)...)
+		wantExit(t, 2, append([]string{"write", "value", "-e", ep, "--yes"}, args...)...)
 	}
-	wantExit(t, 2, "write", "value", "-e", "opc.tcp://"+freeAddr(t), "-n", level, "--value", "1", "--type", "double", "--yes", "--timeout", "2s")
+	wantExit(t, 4, "write", "value", "-e", "opc.tcp://"+freeAddr(t), "-n", level, "--value", "1", "--type", "double", "--yes", "--timeout", "2s")
 }

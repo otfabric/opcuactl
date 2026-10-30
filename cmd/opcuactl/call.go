@@ -72,20 +72,20 @@ Examples:
   opcuactl call method -e opc.tcp://localhost:4840 --object i=2253 --method "ns=0;i=11492" --introspect`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if objectStr == "" {
-				return exitCodef(1, "--object is required")
+				return exitCodef(exitUsage, "--object is required")
 			}
 			if methodStr == "" {
-				return exitCodef(1, "--method is required")
+				return exitCodef(exitUsage, "--method is required")
 			}
 
 			objectID, err := parse.NodeID(objectStr)
 			if err != nil {
-				return exitCodef(1, "invalid --object: %v", err)
+				return exitCodef(exitUsage, "invalid --object: %v", err)
 			}
 
 			methodID, err := parse.NodeID(methodStr)
 			if err != nil {
-				return exitCodef(1, "invalid --method: %v", err)
+				return exitCodef(exitUsage, "invalid --method: %v", err)
 			}
 
 			// --arg-json / --arg-file: the JSON is checked before
@@ -99,22 +99,22 @@ Examples:
 			case argFile != "":
 				jsonFlag = "--arg-file"
 				if jsonArgs, err = os.ReadFile(argFile); err != nil {
-					return exitCodef(1, "reading --arg-file: %v", err)
+					return exitCodef(exitUsage, "reading --arg-file: %v", err)
 				}
 			}
 			if jsonArgs != nil {
 				if _, err := parse.JSONArguments(jsonArgs, nil); err != nil {
-					return exitCodef(1, "invalid %s: %v", jsonFlag, err)
+					return exitCodef(exitUsage, "invalid %s: %v", jsonFlag, err)
 				}
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -125,7 +125,7 @@ Examples:
 				inputs, outputs, err := methodSignature(opCtx, c, objectID, methodID)
 				if err != nil {
 					format.Errf("reading method arguments: %v", err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 
 				type introspectResult struct {
@@ -208,7 +208,7 @@ Examples:
 				}
 				callArgs, err = parse.JSONArguments(jsonArgs, inputs)
 				if err != nil {
-					return exitCodef(1, "invalid %s: %v", jsonFlag, err)
+					return exitCodef(exitUsage, "invalid %s: %v", jsonFlag, err)
 				}
 			} else {
 				var types []string
@@ -223,7 +223,7 @@ Examples:
 					}
 					v, err := parse.CoerceValue(raw, typeName)
 					if err != nil {
-						return exitCodef(1, "argument %d type coercion failed: %v", i, err)
+						return exitCodef(exitUsage, "argument %d type coercion failed: %v", i, err)
 					}
 					callArgs[i] = v
 				}
@@ -232,7 +232,7 @@ Examples:
 			result, err := callMethod(opCtx, c, objectID, methodID, callArgs)
 			if err != nil {
 				format.Errf("calling method %s on %s: %v", methodID, objectID, err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			var outArgs []interface{}
@@ -269,7 +269,7 @@ Examples:
 			}
 			// A Bad result of the method is a status-code failure (exit 3).
 			if isBadStatus(result.StatusCode) {
-				return exitCodef(3, "calling method %s on %s: %s", methodID, objectID, result.StatusCode.Symbol())
+				return exitCodef(exitProtocol, "calling method %s on %s: %s", methodID, objectID, result.StatusCode.Symbol())
 			}
 			return nil
 		},

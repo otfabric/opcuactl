@@ -95,10 +95,10 @@ func TestE2E_ExportNodes(t *testing.T) {
 	})
 
 	t.Run("errors", func(t *testing.T) {
-		wantExit(t, 1, "export", "nodes", "-e", ep, "-n", "bogus")
-		wantExit(t, 1, "export", "nodes", "-e", ep, "--node-class", "bogus")
-		wantExit(t, 1, "export", "nodes", "-e", ep, "-n", demo, "--depth", "1", "--output", filepath.Join(t.TempDir(), "missing", "nodes.json"))
-		wantExit(t, 2, "export", "nodes", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
+		wantExit(t, 2, "export", "nodes", "-e", ep, "-n", "bogus")
+		wantExit(t, 2, "export", "nodes", "-e", ep, "--node-class", "bogus")
+		wantExit(t, 2, "export", "nodes", "-e", ep, "-n", demo, "--depth", "1", "--output", filepath.Join(t.TempDir(), "missing", "nodes.json"))
+		wantExit(t, 4, "export", "nodes", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
 	})
 }
 
@@ -200,7 +200,7 @@ func TestE2E_ExportValues(t *testing.T) {
 		} {
 			// Demo.Int32 has no history: with Demo.Sine a partial success
 			// (exit 4) that still exports Sine, alone a failure (exit 3).
-			out, errOut := wantExit(t, 4, exportHist(append([]string{"-n", sine, "-n", plain, "--format", "json"}, mode...)...)...)
+			out, errOut := wantExit(t, 7, exportHist(append([]string{"-n", sine, "-n", plain, "--format", "json"}, mode...)...)...)
 			wantContains(t, errOut, plain, "HistoryOperationUnsupported", "1 of 2 node(s) failed")
 			var values []model.ExportedValue
 			if err := json.Unmarshal([]byte(out), &values); err != nil {
@@ -211,7 +211,7 @@ func TestE2E_ExportValues(t *testing.T) {
 					t.Errorf("%v: exported %+v", mode, v)
 				}
 			}
-			wantExit(t, 3, exportHist(append([]string{"-n", plain}, mode...)...)...)
+			wantExit(t, 6, exportHist(append([]string{"-n", plain}, mode...)...)...)
 		}
 	})
 
@@ -233,8 +233,8 @@ func TestE2E_ExportValues(t *testing.T) {
 			exportHist("-n", sine, "--mode", "processed", "--start", from, "--end", to, "--interval", "1m", "--aggregate", "median"),
 			exportHist("-n", sine, "--start", from, "--end", to, "--output", filepath.Join(t.TempDir(), "missing", "out.json")),
 		} {
-			wantExit(t, 1, args...)
+			wantExit(t, 2, args...)
 		}
-		wantExit(t, 2, "export", "values", "-e", "opc.tcp://"+freeAddr(t), "-n", plain, "--timeout", "2s")
+		wantExit(t, 4, "export", "values", "-e", "opc.tcp://"+freeAddr(t), "-n", plain, "--timeout", "2s")
 	})
 }

@@ -123,10 +123,10 @@ func TestE2E_GDSPull(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("register", func(t *testing.T) {
-		fail(t, 3, "SignAndEncrypt", append([]string{"gds", "pull", "register", "--uri", appURI}, open...)...)
-		fail(t, 3, "DiscoveryAdmin", append([]string{"gds", "pull", "register", "--uri", appURI}, anon...)...)
-		fail(t, 1, "--uri is required", append([]string{"gds", "pull", "register"}, admin...)...)
-		fail(t, 1, "invalid --type", append([]string{"gds", "pull", "register", "--uri", appURI, "--type", "plc"}, admin...)...)
+		fail(t, 6, "SignAndEncrypt", append([]string{"gds", "pull", "register", "--uri", appURI}, open...)...)
+		fail(t, 9, "DiscoveryAdmin", append([]string{"gds", "pull", "register", "--uri", appURI}, anon...)...)
+		fail(t, 2, "--uri is required", append([]string{"gds", "pull", "register"}, admin...)...)
+		fail(t, 2, "invalid --type", append([]string{"gds", "pull", "register", "--uri", appURI, "--type", "plc"}, admin...)...)
 		var a model.GDSApplication
 		if err := json.Unmarshal([]byte(run(t, "gds", "pull", "register", "--uri", appURI, "--name", "en:Line 4", "--name", "Linie 4",
 			"--discovery-url", "opc.tcp://line4:4840", "--capability", "DA", "--product-uri", "urn:vendor:plc", "--format", "json")), &a); err != nil {
@@ -156,8 +156,8 @@ func TestE2E_GDSPull(t *testing.T) {
 		out = run(t, "gds", "pull", "get", appID)
 		wantContains(t, out, "Application URI:", appURI, "urn:vendor:plc")
 		wantContains(t, run(t, "gds", "pull", "get", appID, "-q"), appURI)
-		fail(t, 1, "invalid ApplicationId", append([]string{"gds", "pull", "get", "nonsense"}, admin...)...)
-		fail(t, 3, "GetApplication", append([]string{"gds", "pull", "get", "ns=1;g=00000000-0000-0000-0000-000000000001"}, admin...)...)
+		fail(t, 2, "invalid ApplicationId", append([]string{"gds", "pull", "get", "nonsense"}, admin...)...)
+		fail(t, 6, "GetApplication", append([]string{"gds", "pull", "get", "ns=1;g=00000000-0000-0000-0000-000000000001"}, admin...)...)
 
 		out = mustRun(t, append([]string{"gds", "pull", "query"}, open...)...)
 		wantContains(t, out, "APPLICATION URI", appURI, "urn:otfabric:opcuactl:test:hmi")
@@ -175,7 +175,7 @@ func TestE2E_GDSPull(t *testing.T) {
 		if err != nil || !strings.Contains(errOut, "more applications") {
 			t.Errorf("query --max 1: %v %s", err, errOut)
 		}
-		fail(t, 1, "invalid --type", append([]string{"gds", "pull", "query", "--type", "x"}, open...)...)
+		fail(t, 2, "invalid --type", append([]string{"gds", "pull", "query", "--type", "x"}, open...)...)
 
 		out = mustRun(t, append([]string{"gds", "pull", "query-servers"}, open...)...)
 		wantContains(t, out, "DISCOVERY URL", "opc.tcp://line4:4840", "Line 4")
@@ -202,7 +202,7 @@ func TestE2E_GDSPull(t *testing.T) {
 		if err := json.Unmarshal([]byte(run(t, "gds", "pull", "update", appID, "--product-uri", "urn:vendor:plc2", "--format", "json")), &b); err != nil || b.ProductURI != "urn:vendor:plc2" {
 			t.Errorf("update json = %+v %v", b, err)
 		}
-		fail(t, 3, "DiscoveryAdmin", append([]string{"gds", "pull", "update", appID, "--uri", "urn:other"}, anon...)...)
+		fail(t, 9, "DiscoveryAdmin", append([]string{"gds", "pull", "update", appID, "--uri", "urn:other"}, anon...)...)
 	})
 
 	var issuedFile string
@@ -222,7 +222,7 @@ func TestE2E_GDSPull(t *testing.T) {
 		if req.RequestID == "" || req.Kind != "signing-request" || req.ApplicationID != appID {
 			t.Fatalf("request = %+v", req)
 		}
-		fail(t, 3, "waits for approval", append([]string{"gds", "pull", "finish", appID, req.RequestID}, admin...)...)
+		fail(t, 6, "waits for approval", append([]string{"gds", "pull", "finish", appID, req.RequestID}, admin...)...)
 		if err := s.gds.ApproveRequest(context.Background(), s.gds.RequestID(mustNodeID(t, req.RequestID)), true); err != nil {
 			t.Fatal(err)
 		}
@@ -236,8 +236,8 @@ func TestE2E_GDSPull(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, "line4.key")); err == nil {
 			t.Error("a key file was written for a signing request")
 		}
-		fail(t, 3, "FinishRequest", append([]string{"gds", "pull", "finish", appID, req.RequestID}, admin...)...)
-		fail(t, 1, "invalid RequestId", append([]string{"gds", "pull", "finish", appID, "x y"}, admin...)...)
+		fail(t, 6, "FinishRequest", append([]string{"gds", "pull", "finish", appID, req.RequestID}, admin...)...)
+		fail(t, 2, "invalid RequestId", append([]string{"gds", "pull", "finish", appID, "x y"}, admin...)...)
 	})
 
 	s.approve.Store(true)
@@ -271,12 +271,12 @@ func TestE2E_GDSPull(t *testing.T) {
 		wantContains(t, out, "BEGIN CERTIFICATE", "PRIVATE KEY")
 		wantContains(t, errOut, "--key-out")
 
-		fail(t, 1, "--key-password is for a key pair", append([]string{"gds", "pull", "request", appID, "--csr", filepath.Join(dir, "line4.csr"), "--key-password", "x"}, admin...)...)
-		fail(t, 1, "exclude each other", append([]string{"gds", "pull", "request", appID, "--csr", "a", "--private-key", "b"}, admin...)...)
-		fail(t, 1, "no such file", append([]string{"gds", "pull", "request", appID, "--csr", filepath.Join(dir, "missing.csr")}, admin...)...)
-		fail(t, 1, "invalid --group", append([]string{"gds", "pull", "request", appID, "--group", "x y"}, admin...)...)
-		fail(t, 1, "invalid --type", append([]string{"gds", "pull", "request", appID, "--type", "dsa"}, admin...)...)
-		fail(t, 3, "DiscoveryAdmin", append([]string{"gds", "pull", "request", appID}, anon...)...)
+		fail(t, 2, "--key-password is for a key pair", append([]string{"gds", "pull", "request", appID, "--csr", filepath.Join(dir, "line4.csr"), "--key-password", "x"}, admin...)...)
+		fail(t, 2, "exclude each other", append([]string{"gds", "pull", "request", appID, "--csr", "a", "--private-key", "b"}, admin...)...)
+		fail(t, 3, "no such file", append([]string{"gds", "pull", "request", appID, "--csr", filepath.Join(dir, "missing.csr")}, admin...)...)
+		fail(t, 2, "invalid --group", append([]string{"gds", "pull", "request", appID, "--group", "x y"}, admin...)...)
+		fail(t, 2, "invalid --type", append([]string{"gds", "pull", "request", appID, "--type", "dsa"}, admin...)...)
+		fail(t, 9, "DiscoveryAdmin", append([]string{"gds", "pull", "request", appID}, anon...)...)
 	})
 
 	t.Run("request from a key", func(t *testing.T) {
@@ -326,7 +326,7 @@ func TestE2E_GDSPull(t *testing.T) {
 			t.Errorf("status = %+v %v", st, err)
 		}
 		wantContains(t, run(t, "gds", "pull", "status", appID, "--group", group, "--type", "rsa", "-q"), "false")
-		fail(t, 1, "invalid --type", append([]string{"gds", "pull", "status", appID, "--type", "dsa"}, admin...)...)
+		fail(t, 2, "invalid --type", append([]string{"gds", "pull", "status", appID, "--type", "dsa"}, admin...)...)
 	})
 
 	t.Run("revoke and check", func(t *testing.T) {
@@ -338,12 +338,12 @@ func TestE2E_GDSPull(t *testing.T) {
 		}
 		wantContains(t, run(t, "gds", "pull", "revoke", appID, issuedFile, "--yes"), "Revoked")
 		_, _, err := runCLI(t, append([]string{"gds", "pull", "check-revocation", issuedFile, "-q"}, admin...)...)
-		if ExitCode(err) != 4 {
+		if ExitCode(err) != 1 {
 			t.Errorf("check of a revoked certificate: exit %d (%v)", ExitCode(err), err)
 		}
 		wantContains(t, run(t, "gds", "pull", "revoke", appID, filepath.Join(dir, "fromkey.pem"), "--yes", "--format", "json"), `"action":"revoke"`)
-		fail(t, 1, "not a certificate", append([]string{"gds", "pull", "revoke", appID, cli.keyFile, "--yes"}, admin...)...)
-		fail(t, 1, "not a certificate", append([]string{"gds", "pull", "check-revocation", cli.keyFile}, admin...)...)
+		fail(t, 2, "not a certificate", append([]string{"gds", "pull", "revoke", appID, cli.keyFile, "--yes"}, admin...)...)
+		fail(t, 2, "not a certificate", append([]string{"gds", "pull", "check-revocation", cli.keyFile}, admin...)...)
 	})
 
 	t.Run("enroll", func(t *testing.T) {
@@ -385,12 +385,12 @@ func TestE2E_GDSPull(t *testing.T) {
 			t.Errorf("enroll --uri of a registered application = %+v", res)
 		}
 
-		fail(t, 1, "--cert-out is required", append([]string{"gds", "pull", "enroll", "--uri", appURI}, admin...)...)
-		fail(t, 1, "exclude each other", append([]string{"gds", "pull", "enroll", "--uri", appURI, "--cert-out", "x", "--private-key", "a", "--new-key", "rsa"}, admin...)...)
-		fail(t, 1, "invalid --new-key", append([]string{"gds", "pull", "enroll", "--uri", appURI, "--cert-out", "x", "--new-key", "dsa"}, admin...)...)
-		fail(t, 1, "--uri is required", append([]string{"gds", "pull", "enroll", "--cert-out", "x"}, admin...)...)
-		fail(t, 1, "invalid --application-id", append([]string{"gds", "pull", "enroll", "--application-id", "x y", "--cert-out", "x"}, admin...)...)
-		fail(t, 3, "DiscoveryAdmin", append([]string{"gds", "pull", "enroll", "--uri", "urn:new", "--cert-out", filepath.Join(dir, "x.pem")}, anon...)...)
+		fail(t, 2, "--cert-out is required", append([]string{"gds", "pull", "enroll", "--uri", appURI}, admin...)...)
+		fail(t, 2, "exclude each other", append([]string{"gds", "pull", "enroll", "--uri", appURI, "--cert-out", "x", "--private-key", "a", "--new-key", "rsa"}, admin...)...)
+		fail(t, 2, "invalid --new-key", append([]string{"gds", "pull", "enroll", "--uri", appURI, "--cert-out", "x", "--new-key", "dsa"}, admin...)...)
+		fail(t, 2, "--uri is required", append([]string{"gds", "pull", "enroll", "--cert-out", "x"}, admin...)...)
+		fail(t, 2, "invalid --application-id", append([]string{"gds", "pull", "enroll", "--application-id", "x y", "--cert-out", "x"}, admin...)...)
+		fail(t, 9, "DiscoveryAdmin", append([]string{"gds", "pull", "enroll", "--uri", "urn:new", "--cert-out", filepath.Join(dir, "x.pem")}, anon...)...)
 	})
 
 	t.Run("unregister", func(t *testing.T) {
@@ -399,7 +399,7 @@ func TestE2E_GDSPull(t *testing.T) {
 		if err := json.Unmarshal([]byte(mustRun(t, append([]string{"gds", "pull", "find", appURI, "--format", "json"}, open...)...)), &none); err != nil || len(none) != 0 {
 			t.Errorf("after unregister: %v %v", none, err)
 		}
-		fail(t, 3, "UnregisterApplication", append([]string{"gds", "pull", "unregister", appID, "--yes"}, admin...)...)
+		fail(t, 6, "UnregisterApplication", append([]string{"gds", "pull", "unregister", appID, "--yes"}, admin...)...)
 	})
 }
 
@@ -407,7 +407,7 @@ func TestE2E_GDSPull(t *testing.T) {
 func TestE2E_GDSPullNotAGDS(t *testing.T) {
 	s := startServer(t)
 	_, errOut, err := runCLI(t, "gds", "pull", "find", "urn:x", "-e", s.url)
-	if ExitCode(err) != 3 {
+	if ExitCode(err) != 6 {
 		t.Fatalf("exit %d (%v)", ExitCode(err), err)
 	}
 	wantContains(t, errOut, "not a Global Discovery Server")

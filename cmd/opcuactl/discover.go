@@ -65,10 +65,10 @@ Examples:
   opcuactl discover servers --endpoint opc.tcp://localhost:4840 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := connCfg.RequireEndpoint(); err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
-			ctx, cancel := connCfg.TimeoutContext(context.Background())
+			ctx, cancel := connCfg.TimeoutContext(rootContext())
 			defer cancel()
 
 			w := newWriter()
@@ -98,7 +98,7 @@ func discoverServers(ctx context.Context, w *format.Writer, serverURI, locale st
 	apps, err := opcua.FindServers(ctx, connCfg.Endpoint, opts...)
 	if err != nil {
 		format.Errf("discovering servers: %v", err)
-		return exitCode(2, err)
+		return exitCode(exitTransport, err)
 	}
 
 	var servers []model.DiscoveredServer
@@ -163,18 +163,18 @@ func discoverServersOnNetwork(ctx context.Context, w *format.Writer, startRecord
 	// opcua.FindServersOnNetwork has no paging or capability filter.
 	c, err := opcua.NewClient(connCfg.Endpoint, append(connCfg.DiscoveryOptions(), opcua.AutoReconnect(false), opcua.InsecureNoSecurity())...)
 	if err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
 	if err := c.Dial(ctx); err != nil {
 		format.Errf("discovering servers on network: %v", err)
-		return exitCode(2, err)
+		return exitCode(exitTransport, err)
 	}
 	defer func() { _ = c.Close(ctx) }()
 
 	resp, err := c.FindServersOnNetworkWithFilter(ctx, startRecord, maxRecords, capabilities)
 	if err != nil {
 		format.Errf("discovering servers on network: %v", err)
-		return exitCode(2, err)
+		return exitCode(exitTransport, err)
 	}
 
 	results := make([]model.ServerOnNetwork, 0, len(resp.Servers))
@@ -214,16 +214,16 @@ Examples:
 				target = connCfg.Endpoint
 			}
 			if target == "" {
-				return exitCodef(1, "--host or --endpoint is required")
+				return exitCodef(exitUsage, "--host or --endpoint is required")
 			}
 
-			ctx, cancel := connCfg.TimeoutContext(context.Background())
+			ctx, cancel := connCfg.TimeoutContext(rootContext())
 			defer cancel()
 
 			res, err := opcua.DiscoverServers(ctx, target, connCfg.DiscoveryOptions()...)
 			if err != nil {
 				format.Errf("querying discovery server: %v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 
 			result := model.DiscoveryResult{
@@ -303,21 +303,21 @@ Examples:
   opcuactl discover endpoints --endpoint opc.tcp://localhost:4840 --policy Basic256Sha256 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := connCfg.RequireEndpoint(); err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
-			ctx, cancel := connCfg.TimeoutContext(context.Background())
+			ctx, cancel := connCfg.TimeoutContext(rootContext())
 			defer cancel()
 
 			eps, err := opcua.GetEndpoints(ctx, connCfg.Endpoint, connCfg.DiscoveryOptions()...)
 			if err != nil {
 				format.Errf("getting endpoints: %v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 
 			transport, err := conn.ParseTransport(transportFilter)
 			if err != nil {
-				return exitCodef(1, "invalid --transport-profile: %v", err)
+				return exitCodef(exitUsage, "invalid --transport-profile: %v", err)
 			}
 			if best {
 				return selectBestEndpoint(eps, policyFilter, modeFilter, transport)
@@ -421,7 +421,7 @@ func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter,
 	w := newWriter()
 
 	if len(eps) == 0 {
-		return exitCodef(3, "no endpoints returned by server")
+		return exitCodef(exitProtocol, "no endpoints returned by server")
 	}
 	// One transport: the one asked for, or else the one of the endpoint URL.
 	if transport == "" {
@@ -430,7 +430,7 @@ func selectBestEndpoint(eps []*ua.EndpointDescription, policyFilter, modeFilter,
 	if transport != "" {
 		eps = conn.EndpointsForTransport(eps, transport)
 		if len(eps) == 0 {
-			return exitCodef(3, "the server offers no %s endpoint", conn.TransportName(transport))
+			return exitCodef(exitProtocol, "the server offers no %s endpoint", conn.TransportName(transport))
 		}
 	}
 

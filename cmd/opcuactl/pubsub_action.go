@@ -105,11 +105,11 @@ func (f *pubsubActionFlags) setup(ctx context.Context) (*pubsubActionSetup, func
 	noop := func() {}
 	enc, err := parse.ParsePubSubEncoding(f.encoding, false)
 	if err != nil {
-		return nil, noop, exitCode(1, err)
+		return nil, noop, exitCode(exitUsage, err)
 	}
 	mode, err := parse.MessageSecurity(f.sf.mode)
 	if err != nil {
-		return nil, noop, exitCode(1, err)
+		return nil, noop, exitCode(exitUsage, err)
 	}
 	if err := f.gf.validate(); err != nil {
 		return nil, noop, err
@@ -120,10 +120,10 @@ func (f *pubsubActionFlags) setup(ctx context.Context) (*pubsubActionSetup, func
 	}
 	pid, err := parse.PublisherID(f.publisherID)
 	if err != nil {
-		return nil, noop, exitCode(1, err)
+		return nil, noop, exitCode(exitUsage, err)
 	}
 	if f.writerID == 0 {
-		return nil, noop, exitCodef(1, "--writer-id must not be 0")
+		return nil, noop, exitCodef(exitUsage, "--writer-id must not be 0")
 	}
 	scheme, _ := transport.Scheme(tcfg.URL)
 	s := &pubsubActionSetup{enc: enc, mapping: pubsub.MappingUADP, transport: tcfg, broker: isBrokerScheme(scheme),
@@ -136,11 +136,11 @@ func (f *pubsubActionFlags) setup(ctx context.Context) (*pubsubActionSetup, func
 	}
 	switch {
 	case mode > ua.MessageSecurityModeNone && enc == parse.EncodingJSON:
-		return nil, noop, exitCodef(1, "--message-security is only available with the UADP encoding")
+		return nil, noop, exitCodef(exitUsage, "--message-security is only available with the UADP encoding")
 	case mode == ua.MessageSecurityModeNone && (f.sf.group != "" || f.sf.keysFile != ""):
-		return nil, noop, exitCodef(1, "--security-group/--keys-file need --message-security sign or sign-and-encrypt")
+		return nil, noop, exitCodef(exitUsage, "--security-group/--keys-file need --message-security sign or sign-and-encrypt")
 	case mode > ua.MessageSecurityModeNone && f.sf.group == "" && f.sf.keysFile == "":
-		return nil, noop, exitCodef(1, "--message-security %s needs --security-group or --keys-file", f.sf.mode)
+		return nil, noop, exitCodef(exitUsage, "--message-security %s needs --security-group or --keys-file", f.sf.mode)
 	}
 	if s.broker {
 		if s.requestAddress == "" {
@@ -148,7 +148,7 @@ func (f *pubsubActionFlags) setup(ctx context.Context) (*pubsubActionSetup, func
 		}
 	} else if s.requestAddress != "" {
 		if rs, err := transport.Scheme(s.requestAddress); err != nil || rs != scheme {
-			return nil, noop, exitCodef(1, "--request-address %q must be a %s:// address like --url", s.requestAddress, scheme)
+			return nil, noop, exitCodef(exitUsage, "--request-address %q must be a %s:// address like --url", s.requestAddress, scheme)
 		}
 	}
 	closeKeys := noop
@@ -216,10 +216,10 @@ func (s *pubsubActionSetup) options() []pubsub.Option {
 func startActionRuntime(ctx context.Context, cfg *ua.PubSubConfigurationDataType, url string, opts []pubsub.Option) (*pubsub.PubSub, error) {
 	ps, err := pubsub.New(cfg, opts...)
 	if err != nil {
-		return nil, exitCode(1, err)
+		return nil, exitCode(exitUsage, err)
 	}
 	if err := ps.Start(ctx); err != nil {
-		return nil, exitCode(2, err)
+		return nil, exitCode(exitTransport, err)
 	}
 	wctx, cancel := connCfg.TimeoutContext(ctx)
 	defer cancel()
@@ -231,9 +231,9 @@ func startActionRuntime(ctx context.Context, cfg *ua.PubSubConfigurationDataType
 		}
 		_ = ps.Close()
 		if ctx.Err() != nil {
-			return nil, exitCode(2, ctx.Err())
+			return nil, exitCode(exitTransport, ctx.Err())
 		}
-		return nil, exitCodef(2, "connecting to %s: %s", url, reason)
+		return nil, exitCodef(exitTransport, "connecting to %s: %s", url, reason)
 	}
 	return ps, nil
 }

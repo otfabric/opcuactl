@@ -46,11 +46,11 @@ func TestE2E_GetNode(t *testing.T) {
 		t.Errorf("-q printed %q", got)
 	}
 
-	wantExit(t, 1, "get", "node", "-e", ep)
-	wantExit(t, 1, "get", "node", "-e", ep, "-n", "bogus")
-	_, errOut := wantExit(t, 3, "get", "node", "-e", ep, "-n", s.node("Demo.Nope"))
+	wantExit(t, 2, "get", "node", "-e", ep)
+	wantExit(t, 2, "get", "node", "-e", ep, "-n", "bogus")
+	_, errOut := wantExit(t, 6, "get", "node", "-e", ep, "-n", s.node("Demo.Nope"))
 	wantContains(t, errOut, "BadNodeIDUnknown")
-	wantExit(t, 2, "get", "node", "-e", "opc.tcp://"+freeAddr(t), "-n", level, "--timeout", "2s")
+	wantExit(t, 4, "get", "node", "-e", "opc.tcp://"+freeAddr(t), "-n", level, "--timeout", "2s")
 }
 
 // TestE2E_GetAttr reads attributes by name, by number and all of them.
@@ -101,12 +101,12 @@ func TestE2E_GetAttr(t *testing.T) {
 	out := mustRun(t, "get", "attr", "-e", ep, "-n", level, "--attr", "BrowseName", "--attr", "AccessLevel")
 	wantContains(t, out, "ATTRIBUTE", "BrowseName", "1:Level", "AccessLevel", "Good")
 
-	wantExit(t, 1, "get", "attr", "-e", ep, "--attr", "Value")
-	wantExit(t, 1, "get", "attr", "-e", ep, "-n", level)
-	wantExit(t, 1, "get", "attr", "-e", ep, "-n", "bogus", "--attr", "Value")
-	_, errOut := wantExit(t, 1, "get", "attr", "-e", ep, "-n", level, "--attr", "Colour")
+	wantExit(t, 2, "get", "attr", "-e", ep, "--attr", "Value")
+	wantExit(t, 2, "get", "attr", "-e", ep, "-n", level)
+	wantExit(t, 2, "get", "attr", "-e", ep, "-n", "bogus", "--attr", "Value")
+	_, errOut := wantExit(t, 2, "get", "attr", "-e", ep, "-n", level, "--attr", "Colour")
 	wantContains(t, errOut, `invalid --attr "Colour"`)
-	wantExit(t, 2, "get", "attr", "-e", "opc.tcp://"+freeAddr(t), "-n", level, "--attr", "Value", "--timeout", "2s")
+	wantExit(t, 4, "get", "attr", "-e", "opc.tcp://"+freeAddr(t), "-n", level, "--attr", "Value", "--timeout", "2s")
 }
 
 // TestE2E_GetExtensionObjectTable reads ServerStatus (i=2256), an
@@ -161,7 +161,7 @@ func TestE2E_GetServer(t *testing.T) {
 	out := mustRun(t, "get", "server", "-e", ep)
 	wantContains(t, out, "Server Status\n", "State:          ServerStateRunning", "Security:       None / MessageSecurityModeNone", "Manufacturer:   otfabric")
 
-	wantExit(t, 2, "get", "server", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
+	wantExit(t, 4, "get", "server", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
 }
 
 // TestE2E_GetVars collects the variables under Demo.
@@ -239,8 +239,8 @@ func TestE2E_GetVars(t *testing.T) {
 		t.Errorf("--no-read table has values:\n%s", out)
 	}
 
-	wantExit(t, 1, "get", "vars", "-e", ep, "-n", "bogus")
-	wantExit(t, 2, "get", "vars", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
+	wantExit(t, 2, "get", "vars", "-e", ep, "-n", "bogus")
+	wantExit(t, 4, "get", "vars", "-e", "opc.tcp://"+freeAddr(t), "--timeout", "2s")
 }
 
 // TestVersionCommand prints the build information.
@@ -264,7 +264,7 @@ func TestVersionCommand(t *testing.T) {
 	if out := mustRun(t, "version"); strings.Contains(out, "tag:") {
 		t.Errorf("a build without tag printed one:\n%s", out)
 	}
-	wantExit(t, 1, "version", "extra")
+	wantExit(t, 2, "version", "extra")
 }
 
 // TestCompletionCommand generates the completion scripts.
@@ -277,8 +277,8 @@ func TestCompletionCommand(t *testing.T) {
 	} {
 		wantContains(t, mustRun(t, "completion", shell), want)
 	}
-	wantExit(t, 1, "completion", "tcsh")
-	wantExit(t, 1, "completion")
+	wantExit(t, 2, "completion", "tcsh")
+	wantExit(t, 2, "completion")
 
 	// The values of a flag come from fixedCompletion.
 	out := mustRun(t, "__complete", "browse", "refs", "--direction", "")

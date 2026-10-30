@@ -204,7 +204,7 @@ func TestE2E_Alarms(t *testing.T) {
 
 	t.Run("method a ConditionType does not have", func(t *testing.T) {
 		_, _, err := runCLI(t, append([]string{"alarms", "ack", a.id(a.info)}, ep...)...)
-		if err == nil || ExitCode(err) != 3 {
+		if err == nil || ExitCode(err) != 6 {
 			t.Errorf("ack of a ConditionType: %v (exit %d)", err, ExitCode(err))
 		}
 		fail(t, "cannot be shelved", "alarms", "shelve", a.id(a.info), "--one-shot")

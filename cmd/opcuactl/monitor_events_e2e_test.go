@@ -119,12 +119,12 @@ func TestE2E_MonitorEvent(t *testing.T) {
 	})
 
 	t.Run("errors", func(t *testing.T) {
-		wantExit(t, 1, "monitor", "event", "-e", s.url)
-		wantExit(t, 1, "monitor", "event", "-e", s.url, "-n", "bogus")
-		wantExit(t, 1, "monitor", "event", "-e", s.url, "-n", "i=2253", "--of-type", "bogus")
-		_, errOut := wantExit(t, 3, "monitor", "event", "-e", s.url, "-n", s.node("Nope"), "--duration", "5s")
+		wantExit(t, 2, "monitor", "event", "-e", s.url)
+		wantExit(t, 2, "monitor", "event", "-e", s.url, "-n", "bogus")
+		wantExit(t, 2, "monitor", "event", "-e", s.url, "-n", "i=2253", "--of-type", "bogus")
+		_, errOut := wantExit(t, 6, "monitor", "event", "-e", s.url, "-n", s.node("Nope"), "--duration", "5s")
 		wantContains(t, errOut, "BadNodeIDUnknown")
-		wantExit(t, 2, "monitor", "event", "-e", "opc.tcp://"+freeAddr(t), "-n", "i=2253", "--timeout", "2s")
+		wantExit(t, 4, "monitor", "event", "-e", "opc.tcp://"+freeAddr(t), "-n", "i=2253", "--timeout", "2s")
 	})
 }
 
@@ -181,9 +181,9 @@ func TestE2E_MonitorAlarm(t *testing.T) {
 	wantContains(t, r.stdout, demo+"  SourceName=Demo  Severity=700")
 	wantContains(t, r.stderr, "monitoring alarms on "+demo)
 
-	wantExit(t, 1, "monitor", "alarm", "-e", ep)
-	wantExit(t, 1, "monitor", "alarm", "-e", ep, "-n", "bogus")
-	_, errOut := wantExit(t, 3, "monitor", "alarm", "-e", ep, "-n", s.node("Demo.Nope"), "--duration", "5s")
+	wantExit(t, 2, "monitor", "alarm", "-e", ep)
+	wantExit(t, 2, "monitor", "alarm", "-e", ep, "-n", "bogus")
+	_, errOut := wantExit(t, 6, "monitor", "alarm", "-e", ep, "-n", s.node("Demo.Nope"), "--duration", "5s")
 	wantContains(t, errOut, "BadNodeIDUnknown")
-	wantExit(t, 2, "monitor", "alarm", "-e", "opc.tcp://"+freeAddr(t), "-n", "i=2253", "--timeout", "2s")
+	wantExit(t, 4, "monitor", "alarm", "-e", "opc.tcp://"+freeAddr(t), "-n", "i=2253", "--timeout", "2s")
 }

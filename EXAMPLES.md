@@ -1037,7 +1037,7 @@ $ opcuactl pubsub config diagnostics -e opc.tcp://localhost:48400 --node "ns=2;i
 $ opcuactl pubsub respond --url opc.udp://127.0.0.1:4840 --target 1:Echo --input A:Int32 --input B:String --count 3 --diagnostics
 ```
 
-The calls: text and JSON results, a request with an input of the wrong type (answered by the runtime, exit code 3), a target the Responder does not have (rejected without a response, exit code 2 after `--timeout`), and `--quiet`:
+The calls: text and JSON results, a request with an input of the wrong type (answered by the runtime, exit code 6), a target the Responder does not have (rejected without a response, exit code 5 after `--timeout`), and `--quiet`:
 
 ```console
 $ opcuactl pubsub call --url opc.udp://127.0.0.1:4841 --request-address opc.udp://127.0.0.1:4840 --resend-interval 200ms --input A:Int32=2 --input B:String=pump --output A:Int32 --output B:String
@@ -1438,7 +1438,7 @@ $ opcuactl monitor value -e opc.tcp://localhost:52812 -n "ns=1;s=String" -n "ns=
 Error: monitoring ns=1;s=String: BadFilterNotAllowed
 ```
 
-A percent deadband needs an `EURange` property; without one nothing can be monitored and the command exits with code 3:
+A percent deadband needs an `EURange` property; without one nothing can be monitored and the command exits with code 6:
 
 ```console
 $ opcuactl monitor value -e opc.tcp://localhost:52812 -n "ns=1;s=Double" \

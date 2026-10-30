@@ -26,10 +26,10 @@ func checkJSONCompression(v string, enc parse.PubSubEncoding, url string) (bool,
 		return false, nil
 	case mqtttransport.CompressionGzip:
 	default:
-		return false, exitCodef(1, "--json-compression must be %s", strings.Join(pubsubJSONCompressionValues, " or "))
+		return false, exitCodef(exitUsage, "--json-compression must be %s", strings.Join(pubsubJSONCompressionValues, " or "))
 	}
 	if scheme, _ := transport.Scheme(url); !isMQTTScheme(scheme) || enc != parse.EncodingJSON {
-		return false, exitCodef(1, "--json-compression gzip needs --encoding json and an MQTT broker (mqtt://, mqtts://)")
+		return false, exitCodef(exitUsage, "--json-compression gzip needs --encoding json and an MQTT broker (mqtt://, mqtts://)")
 	}
 	return true, nil
 }

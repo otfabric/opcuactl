@@ -163,10 +163,10 @@ func (f *pubsubDiagnosticsFlags) register(fs *pflag.FlagSet) {
 func (f *pubsubDiagnosticsFlags) validate() error {
 	l, err := parse.DiagnosticsLevel(f.level)
 	if err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
 	if f.interval < 0 {
-		return exitCodef(1, "--diagnostics-interval must not be negative")
+		return exitCodef(exitUsage, "--diagnostics-interval must not be negative")
 	}
 	f.parsed = l
 	if f.interval > 0 {

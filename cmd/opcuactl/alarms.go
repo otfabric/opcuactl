@@ -119,7 +119,7 @@ func (f *notifierFlags) register(cmd *cobra.Command) {
 func (f *notifierFlags) notifier() (*ua.NodeID, error) {
 	n, err := parse.NodeID(f.node)
 	if err != nil {
-		return nil, exitCodef(1, "invalid --node: %v", err)
+		return nil, exitCodef(exitUsage, "invalid --node: %v", err)
 	}
 	return n, nil
 }
@@ -139,7 +139,7 @@ func eventSubscription(ctx context.Context, c *opcua.Client, f *notifierFlags, f
 	ch := make(chan *opcua.PublishNotificationData, 256)
 	sub, err := c.Subscribe(ctx, &opcua.SubscriptionParameters{Interval: f.interval}, ch)
 	if err != nil {
-		return nil, nil, exitCodef(3, "starting subscription: %w", err)
+		return nil, nil, exitCodef(exitProtocol, "starting subscription: %w", err)
 	}
 	res, err := sub.Monitor(ctx, ua.TimestampsToReturnBoth, &ua.MonitoredItemCreateRequest{
 		ItemToMonitor: &ua.ReadValueID{
@@ -162,7 +162,7 @@ func eventSubscription(ctx context.Context, c *opcua.Client, f *notifierFlags, f
 	}
 	if err != nil {
 		_ = sub.Cancel(context.WithoutCancel(ctx))
-		return nil, nil, exitCodef(3, "monitoring the events of %s: %w", notifier, err)
+		return nil, nil, exitCodef(exitProtocol, "monitoring the events of %s: %w", notifier, err)
 	}
 	return sub, ch, nil
 }
@@ -201,14 +201,14 @@ func conditionKey(ev *opcua.ConditionEvent) string {
 // ConditionId and BranchId (the condition before its branches).
 func refreshConditions(ctx context.Context, sub *opcua.Subscription, ch chan *opcua.PublishNotificationData) ([]*opcua.ConditionEvent, error) {
 	if err := sub.ConditionRefresh(ctx); err != nil {
-		return nil, exitCodef(3, "ConditionRefresh: %w", err)
+		return nil, exitCodef(exitProtocol, "ConditionRefresh: %w", err)
 	}
 	started := false
 	latest := map[string]*opcua.ConditionEvent{}
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, exitCodef(3, "waiting for the end of the ConditionRefresh: %w", ctx.Err())
+			return nil, exitCodef(exitProtocol, "waiting for the end of the ConditionRefresh: %w", ctx.Err())
 		case notif := <-ch:
 			evs, err := conditionEvents(notif)
 			if err != nil {
@@ -508,7 +508,7 @@ func withClientTimeout(timeout time.Duration, fn func(ctx context.Context, c *op
 	c, err := connCfg.NewClient(ctx)
 	if err != nil {
 		format.Errf("%v", err)
-		return exitCode(2, err)
+		return exitCode(exitTransport, err)
 	}
 	defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 	opCtx, cancel := ctx, context.CancelFunc(func() {})
@@ -560,7 +560,7 @@ Examples:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, err := conditionMatches(&model.Condition{}, states, 0); err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			if _, err := nf.notifier(); err != nil {
 				return err
@@ -626,9 +626,9 @@ func latestEventID(ctx context.Context, c *opcua.Client, nf *notifierFlags, cond
 		if len(branches) == 0 {
 			branches = []string{"none"}
 		}
-		return nil, exitCodef(3, "condition %s has no retained branch %s (retained branches: %s)", want, branch, strings.Join(branches, ", "))
+		return nil, exitCodef(exitProtocol, "condition %s has no retained branch %s (retained branches: %s)", want, branch, strings.Join(branches, ", "))
 	}
-	return nil, exitCodef(3, "condition %s is not retained by the server (or not visible from %s): no event to refer to; pass --event-id", want, nf.node)
+	return nil, exitCodef(exitProtocol, "condition %s is not retained by the server (or not visible from %s): no event to refer to; pass --event-id", want, nf.node)
 }
 
 // alarmHint explains the status codes the condition methods refuse with.
@@ -667,7 +667,7 @@ func alarmFailed(action string, conditionID *ua.NodeID, err error) error {
 		msg += " (" + h + ")"
 	}
 	format.Errf("%s", msg)
-	return exitCode(3, err)
+	return exitCode(exitProtocol, err)
 }
 
 func writeAlarmAction(a model.AlarmAction) error {
@@ -696,7 +696,7 @@ func writeAlarmAction(a model.AlarmAction) error {
 func conditionArg(args []string) (*ua.NodeID, error) {
 	n, err := parse.NodeID(args[0])
 	if err != nil {
-		return nil, exitCodef(1, "invalid ConditionId: %v", err)
+		return nil, exitCodef(exitUsage, "invalid ConditionId: %v", err)
 	}
 	return n, nil
 }
@@ -736,18 +736,18 @@ Examples:
 				return err
 			}
 			if commentRequired && comment == "" {
-				return exitCodef(1, "-m/--message is required")
+				return exitCodef(exitUsage, "-m/--message is required")
 			}
 			eid, latest, err := parse.EventID(eventID)
 			if err != nil {
-				return exitCodef(1, "invalid --event-id: %v", err)
+				return exitCodef(exitUsage, "invalid --event-id: %v", err)
 			}
 			if branch != "" {
 				if !latest {
-					return exitCodef(1, "--branch and --event-id exclude each other")
+					return exitCodef(exitUsage, "--branch and --event-id exclude each other")
 				}
 				if _, err := parse.NodeID(branch); err != nil {
-					return exitCodef(1, "invalid --branch: %v", err)
+					return exitCodef(exitUsage, "invalid --branch: %v", err)
 				}
 			}
 			if _, err := nf.notifier(); err != nil {
@@ -851,9 +851,9 @@ Examples:
 			}
 			switch {
 			case oneShot && cmd.Flags().Changed("for"):
-				return exitCodef(1, "--for and --one-shot exclude each other")
+				return exitCodef(exitUsage, "--for and --one-shot exclude each other")
 			case !oneShot && forDur <= 0:
-				return exitCodef(1, "--for <duration> (> 0) or --one-shot is required")
+				return exitCodef(exitUsage, "--for <duration> (> 0) or --one-shot is required")
 			}
 			return withClient(func(ctx context.Context, c *opcua.Client) error {
 				a := model.AlarmAction{ConditionID: conditionID.String(), Comment: comment, Status: ua.StatusOK.Symbol()}
@@ -958,7 +958,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
@@ -967,7 +967,7 @@ Examples:
 			if err == nil && !noRefresh {
 				if rerr := sub.ConditionRefresh(opCtx); rerr != nil {
 					_ = sub.Cancel(context.WithoutCancel(ctx))
-					err = exitCodef(3, "ConditionRefresh: %w", rerr)
+					err = exitCodef(exitProtocol, "ConditionRefresh: %w", rerr)
 				}
 			}
 			cancel()

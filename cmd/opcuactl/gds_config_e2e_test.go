@@ -111,7 +111,7 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 			t.Errorf("certs = %+v", entries)
 		}
 		wantContains(t, run(t, "gds", "certs", "-q"), gds.Thumbprint(srvID.der))
-		fail(t, 1, "invalid --group", "gds", "certs", "--group", "bad group")
+		fail(t, 2, "invalid --group", "gds", "certs", "--group", "bad group")
 	})
 
 	t.Run("trust lists of the https and usertoken groups", func(t *testing.T) {
@@ -128,14 +128,14 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 		}
 		// A group by its NodeId.
 		wantContains(t, run(t, "gds", "trustlist", "get", "--group", gds.DefaultHTTPSGroup.String()), gds.Thumbprint(ca.der))
-		fail(t, 3, "certificate group", "gds", "trustlist", "get", "--group", "ns=1;s=Int32")
-		fail(t, 1, "invalid --group", "gds", "trustlist", "set", "--group", "bad group", ca.certFile)
+		fail(t, 6, "certificate group", "gds", "trustlist", "get", "--group", "ns=1;s=Int32")
+		fail(t, 2, "invalid --group", "gds", "trustlist", "set", "--group", "bad group", ca.certFile)
 	})
 
 	t.Run("csr of the https group", func(t *testing.T) {
 		out := run(t, "gds", "csr", "--group", "https", "--type", "https", "--regenerate")
 		wantContains(t, out, "CERTIFICATE REQUEST")
-		fail(t, 1, "invalid --group", "gds", "csr", "--group", "bad group")
+		fail(t, 2, "invalid --group", "gds", "csr", "--group", "bad group")
 	})
 
 	t.Run("update-cert with a PFX key", func(t *testing.T) {
@@ -154,7 +154,7 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 		writePEM(t, keyFile, "PRIVATE KEY", keyDER)
 
 		// The wrong password: the server cannot open the PFX.
-		fail(t, 3, "UpdateCertificate", "gds", "update-cert", certFile, "--private-key", keyFile, "--key-format", "pfx", "--pfx-password", "wrong", "--issuer", ca.certFile, "--yes")
+		fail(t, 6, "UpdateCertificate", "gds", "update-cert", certFile, "--private-key", keyFile, "--key-format", "pfx", "--pfx-password", "wrong", "--issuer", ca.certFile, "--yes")
 		out := run(t, "gds", "update-cert", certFile, "--private-key", keyFile, "--key-format", "pfx", "--pfx-password", "pfx-secret", "--issuer", ca.certFile, "--yes")
 		wantContains(t, out, "Installed the certificate "+gds.Thumbprint(issued))
 		if !serverOffers(s.srv, issued) {
@@ -181,9 +181,9 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 		if !serverOffers(s.srv, issued2) {
 			t.Fatal("the endpoints do not carry the PFX certificate")
 		}
-		fail(t, 1, "--pfx-password", "gds", "update-cert", cert2, "--private-key", pfxFile, "--pfx-password", "nope", "--yes")
-		fail(t, 1, "need --private-key", "gds", "update-cert", cert2, "--key-format", "pfx", "--yes")
-		fail(t, 1, "unknown --key-format", "gds", "update-cert", cert2, "--private-key", pfxFile, "--pfx-password", "pfx-secret", "--key-format", "jks", "--yes")
+		fail(t, 2, "--pfx-password", "gds", "update-cert", cert2, "--private-key", pfxFile, "--pfx-password", "nope", "--yes")
+		fail(t, 2, "need --private-key", "gds", "update-cert", cert2, "--key-format", "pfx", "--yes")
+		fail(t, 2, "unknown --key-format", "gds", "update-cert", cert2, "--private-key", pfxFile, "--pfx-password", "pfx-secret", "--key-format", "jks", "--yes")
 	})
 
 	t.Run("transaction", func(t *testing.T) {
@@ -229,16 +229,16 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 		if b, _ := os.ReadFile(der); len(b) == 0 || b[0] != 0x30 {
 			t.Error("--out .der is not DER")
 		}
-		fail(t, 1, "invalid --type", "gds", "self-signed", "--type", "dsa", "--yes")
-		fail(t, 1, "invalid --group", "gds", "self-signed", "--group", "bad group", "--yes")
+		fail(t, 2, "invalid --type", "gds", "self-signed", "--type", "dsa", "--yes")
+		fail(t, 2, "invalid --group", "gds", "self-signed", "--group", "bad group", "--yes")
 	})
 
 	t.Run("delete-cert", func(t *testing.T) {
-		fail(t, 1, "--type is required", "gds", "delete-cert", "--yes")
-		fail(t, 1, "invalid --type", "gds", "delete-cert", "--type", "dsa", "--yes")
-		fail(t, 1, "invalid --group", "gds", "delete-cert", "--group", "bad group", "--type", "rsa", "--yes")
+		fail(t, 2, "--type is required", "gds", "delete-cert", "--yes")
+		fail(t, 2, "invalid --type", "gds", "delete-cert", "--type", "dsa", "--yes")
+		fail(t, 2, "invalid --group", "gds", "delete-cert", "--group", "bad group", "--type", "rsa", "--yes")
 		// The server refuses to delete the certificate its endpoints use.
-		fail(t, 3, "endpoints still use", "gds", "delete-cert", "--type", "rsa", "--yes")
+		fail(t, 6, "endpoints still use", "gds", "delete-cert", "--type", "rsa", "--yes")
 		// The HTTPS certificate of a server without opc.https endpoints goes.
 		run(t, "gds", "self-signed", "--group", "https", "--type", "https", "--yes")
 		wantContains(t, run(t, "gds", "certs", "--group", "https"), "https")
@@ -246,7 +246,7 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 		if out := run(t, "gds", "certs", "--group", "https", "-q"); strings.TrimSpace(out) != "" {
 			t.Errorf("certs of the https group after the delete = %q", out)
 		}
-		fail(t, 3, "DeleteCertificate", "gds", "delete-cert", "--group", "https", "--type", "https", "--yes")
+		fail(t, 6, "DeleteCertificate", "gds", "delete-cert", "--group", "https", "--type", "https", "--yes")
 	})
 
 	t.Run("reset", func(t *testing.T) {

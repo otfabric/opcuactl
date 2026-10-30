@@ -38,10 +38,10 @@ Examples:
   opcuactl ping -e opc.tcp://localhost:4840 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := connCfg.RequireEndpoint(); err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			var steps []model.PingStep
@@ -58,7 +58,7 @@ Examples:
 						Latency: tcpDur.String(),
 						Error:   err.Error(),
 					})
-					return pingFailed(steps, 2)
+					return pingFailed(steps, exitTransport)
 				}
 				_ = conn.Close()
 				steps = append(steps, model.PingStep{
@@ -79,7 +79,7 @@ Examples:
 					Latency: secDur.String(),
 					Error:   err.Error(),
 				})
-				return pingFailed(steps, 2)
+				return pingFailed(steps, exitTransport)
 			}
 			defer func() { _ = c.Close(ctx) }()
 			steps = append(steps, model.PingStep{
@@ -102,7 +102,7 @@ Examples:
 					Latency: browseDur.String(),
 					Error:   browseErr.Error(),
 				})
-				return pingFailed(steps, 3)
+				return pingFailed(steps, exitProtocol)
 			}
 			steps = append(steps, model.PingStep{
 				Stage:   "browse",
@@ -139,8 +139,9 @@ func dialTCP(ctx context.Context, endpoint string) (net.Conn, error) {
 	return (&net.Dialer{Timeout: uacp.DefaultDialTimeout}).DialContext(ctx, "tcp", net.JoinHostPort(u.Hostname(), port))
 }
 
-// pingFailed prints the stages and fails with code for the last one: 2 when
-// the server cannot be reached (tcp, secure), 3 when it cannot be browsed.
+// pingFailed prints the stages and fails with code for the last one:
+// exitTransport when the server cannot be reached (tcp, secure),
+// exitProtocol when it cannot be browsed.
 func pingFailed(steps []model.PingStep, code int) error {
 	if err := outputPing(steps); err != nil {
 		return err

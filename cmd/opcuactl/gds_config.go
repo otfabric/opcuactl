@@ -89,7 +89,7 @@ Examples:
 					e.CertificateType = parse.CertificateTypeName(types[i])
 					if out != "" {
 						if err := writeEntry(out, &e, der); err != nil {
-							return exitCode(1, err)
+							return exitCode(exitUsage, err)
 						}
 					}
 					entries = append(entries, e)
@@ -141,7 +141,7 @@ Examples:
 				return err
 			}
 			if req.CertificateType, err = parse.CertificateType(certType); err != nil {
-				return exitCodef(1, "invalid --type: %v", err)
+				return exitCodef(exitUsage, "invalid --type: %v", err)
 			}
 			if !confirmed(yes, os.Stdin, fmt.Sprintf("Replace the %s certificate%s of %s with a new self-signed one?", typeOrDefault(req.CertificateType), groupSuffix(req.CertificateGroup), connCfg.Endpoint)) {
 				return nil
@@ -158,7 +158,7 @@ Examples:
 						data = der
 					}
 					if err := os.WriteFile(out, data, 0o644); err != nil { //nolint:gosec // a certificate is public
-						return exitCode(1, err)
+						return exitCode(exitUsage, err)
 					}
 				}
 				res := model.GDSResult{Action: "self-signed", ApplyChangesRequired: true, Thumbprints: []string{e.Thumbprint}}
@@ -215,10 +215,10 @@ Examples:
 			}
 			typ, err := parse.CertificateType(certType)
 			if err != nil {
-				return exitCodef(1, "invalid --type: %v", err)
+				return exitCodef(exitUsage, "invalid --type: %v", err)
 			}
 			if typ == nil {
-				return exitCodef(1, "--type is required")
+				return exitCodef(exitUsage, "--type is required")
 			}
 			if !confirmed(yes, os.Stdin, fmt.Sprintf("Delete the %s certificate%s of %s?", parse.CertificateTypeName(typ), groupSuffix(grp), connCfg.Endpoint)) {
 				return nil

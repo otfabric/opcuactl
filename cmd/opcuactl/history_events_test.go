@@ -58,8 +58,8 @@ func TestHistoryUpdateExit(t *testing.T) {
 	}{
 		{nil, 0},
 		{[]model.HistoryEventUpdate{good, good}, 0},
-		{[]model.HistoryEventUpdate{good, bad}, 4},
-		{[]model.HistoryEventUpdate{bad, bad}, 3},
+		{[]model.HistoryEventUpdate{good, bad}, 7},
+		{[]model.HistoryEventUpdate{bad, bad}, 6},
 	} {
 		if got := ExitCode(historyUpdateExit(tt.in, "x")); got != tt.want {
 			t.Errorf("historyUpdateExit(%v) exit %d, want %d", tt.in, got, tt.want)

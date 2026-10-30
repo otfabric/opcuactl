@@ -215,7 +215,7 @@ Examples:
 						err = fmt.Errorf("%w; reading the ResponseOptionSet: %v", err, oerr)
 					}
 					format.Errf("respond %s: %v", conditionID, err)
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				if comment != "" {
 					err = c.Respond2(ctx, conditionID, sel, comment)
@@ -326,13 +326,13 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			n, err := parse.NodeID(args[0])
 			if err != nil {
-				return exitCodef(1, "invalid NodeId: %v", err)
+				return exitCodef(exitUsage, "invalid NodeId: %v", err)
 			}
 			return withClient(func(ctx context.Context, c *opcua.Client) error {
 				m, err := c.ReadAlarmMetrics(ctx, n)
 				if err != nil {
 					format.Errf("reading the alarm metrics of %s: %v", n, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				out := alarmMetricsModel(n, m)
 				if format.ParseFormat(outputFormat) != format.Table {
@@ -369,7 +369,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			n, err := parse.NodeID(args[0])
 			if err != nil {
-				return exitCodef(1, "invalid NodeId: %v", err)
+				return exitCodef(exitUsage, "invalid NodeId: %v", err)
 			}
 			return withClient(func(ctx context.Context, c *opcua.Client) error {
 				if err := c.ResetAlarmMetrics(ctx, n); err != nil {
@@ -545,7 +545,7 @@ Examples:
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
