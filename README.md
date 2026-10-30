@@ -611,6 +611,8 @@ opcuactl monitor event -e opc.tcp://localhost:4840 -n i=2253 \
 opcuactl monitor alarm -e opc.tcp://localhost:4840 -n i=2253
 ```
 
+`monitor` does not reconnect: a lost connection ends it with exit 4, after what arrived before it.
+
 ### Alarms and Conditions
 
 ```sh
@@ -1031,7 +1033,7 @@ In `table` output (and `--quiet`), values are printed as `json` prints them: arr
 | `1` | `gds pull check-revocation`: the certificate is not valid |
 | `2` | Usage or validation error |
 | `3` | Input file that cannot be read |
-| `4` | Connection or transport failure, also a connection lost during a service or `alarms watch` |
+| `4` | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch` |
 | `5` | Timeout |
 | `6` | OPC UA service or status-code failure |
 | `7` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events) |

@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -957,16 +956,7 @@ Examples:
 			}
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			// A lost connection ends the stream. Reconnecting would hide it:
-			// the client retries forever while the notification channel
-			// stays silent, and events of the gap could go unseen.
-			lost := make(chan struct{})
-			var lostOnce sync.Once
-			c, err := connCfg.NewClient(ctx, opcua.AutoReconnect(false), opcua.WithConnStateHandler(func(s opcua.ConnState) {
-				if s == opcua.Disconnected {
-					lostOnce.Do(func() { close(lost) })
-				}
-			}))
+			c, lost, err := newStreamClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
 				return exitCode(exitTransport, err)
@@ -1039,32 +1029,7 @@ func watchConditions(ctx context.Context, deadline <-chan time.Time, lost <-chan
 		}
 		return false
 	}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-deadline:
-			return nil
-		case <-lost:
-			// What arrived before the connection went comes first.
-			for {
-				select {
-				case notif := <-ch:
-					if handle(notif) {
-						return nil
-					}
-				default:
-					err := exitCodef(exitTransport, "watching conditions on %s: connection lost", node)
-					format.Errf("%v", err)
-					return err
-				}
-			}
-		case notif := <-ch:
-			if handle(notif) {
-				return nil
-			}
-		}
-	}
+	return streamNotifications(ctx, deadline, lost, ch, "watching conditions on "+node, handle)
 }
 
 func conditionNotification(ev *opcua.ConditionEvent, now time.Time) *model.ConditionNotification {

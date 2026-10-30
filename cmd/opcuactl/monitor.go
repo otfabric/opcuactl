@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -58,6 +59,7 @@ func newMonitorValueCmd() *cobra.Command {
 
 Output streams line-by-line to stdout. Use --jsonl for newline-delimited JSON.
 Cancel with Ctrl+C. Optionally limit by --duration or --count.
+A lost connection ends the stream with exit 4; opcuactl does not reconnect.
 
 --queue-size and --discard-oldest control the server-side monitored-item queue
 (Part 4 window semantics). Overflow is reported when the queue drops samples.
@@ -127,12 +129,12 @@ Examples:
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			c, err := connCfg.NewClient(ctx)
+			c, lost, err := newStreamClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
 				return exitCode(exitTransport, err)
 			}
-			defer func() { _ = c.Close(ctx) }()
+			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
 			items := make([]*ua.MonitoredItemCreateRequest, len(nodeIDs))
 			samplingMs := 0.0
@@ -155,7 +157,7 @@ Examples:
 				format.Errf("starting subscription: %v", err)
 				return exitCode(exitProtocol, err)
 			}
-			defer func() { _ = sub.Cancel(context.Background()) }()
+			defer func() { _ = sub.Cancel(context.WithoutCancel(ctx)) }()
 
 			// The server answers per item: a filter it cannot apply (deadband
 			// on a non-numeric value, percent deadband without EURange) or a
@@ -202,73 +204,9 @@ Examples:
 				deadline = timer.C
 			}
 
-			received := 0
 			useJSON := jsonl || format.ParseFormat(outputFormat) != format.Table
-
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-deadline:
-					return nil
-				case notif, ok := <-notifyCh:
-					if !ok {
-						return nil
-					}
-					if notif.Error != nil {
-						format.Errf("notification error: %v", notif.Error)
-						continue
-					}
-
-					dcn, ok := notif.Value.(*ua.DataChangeNotification)
-					if !ok {
-						continue
-					}
-
-					for _, item := range dcn.MonitoredItems {
-						nodeStr := handleMap[item.ClientHandle]
-						if nodeStr == "" {
-							nodeStr = fmt.Sprintf("handle:%d", item.ClientHandle)
-						}
-
-						overflow := item.Value != nil && item.Value.Status.HasOverflow()
-						mv := model.MonitoredValue{
-							Timestamp:       model.FormatTimestamp(time.Now()),
-							NodeID:          nodeStr,
-							Status:          item.Value.Status.Symbol(),
-							StatusCode:      item.Value.Status.Uint32(),
-							Overflow:        overflow,
-							SourceTimestamp: model.FormatTimestamp(item.Value.SourceTimestamp),
-							ServerTimestamp: model.FormatTimestamp(item.Value.ServerTimestamp),
-						}
-
-						if item.Value.Value != nil {
-							mv.Value = item.Value.Value.Value()
-							mv.Type = item.Value.Value.Type().String()
-						}
-
-						if useJSON {
-							data, _ := json.Marshal(mv)
-							fmt.Println(string(data))
-						} else {
-							outTS := mv.SourceTimestamp
-							if outTS == "" {
-								outTS = mv.Timestamp
-							}
-							overflowMark := ""
-							if overflow {
-								overflowMark = "  [OVERFLOW]"
-							}
-							fmt.Printf("%s  %s  %s  [%s]%s\n", outTS, mv.NodeID, format.FormatValue(mv.Value), mv.Status, overflowMark)
-						}
-
-						received++
-						if count > 0 && received >= count {
-							return nil
-						}
-					}
-				}
-			}
+			what := "monitoring " + strings.Join(nodes, ", ")
+			return streamNotifications(ctx, deadline, lost, notifyCh, what, valuePrinter(handleMap, count, useJSON))
 		},
 	}
 
@@ -289,6 +227,166 @@ Examples:
 	_ = cmd.RegisterFlagCompletionFunc("trigger", fixedCompletion(triggerValues))
 	_ = cmd.RegisterFlagCompletionFunc("deadband-type", fixedCompletion(deadbandTypeValues))
 	return cmd
+}
+
+// newStreamClient connects a client for a stream, and returns a channel closed
+// when its connection is lost. A lost connection ends the stream. Reconnecting
+// would hide it: the client retries forever while the notification channel
+// stays silent, and events of the gap could go unseen.
+func newStreamClient(ctx context.Context) (*opcua.Client, <-chan struct{}, error) {
+	lost := make(chan struct{})
+	var once sync.Once
+	c, err := connCfg.NewClient(ctx, opcua.AutoReconnect(false), opcua.WithConnStateHandler(func(s opcua.ConnState) {
+		if s == opcua.Disconnected {
+			once.Do(func() { close(lost) })
+		}
+	}))
+	return c, lost, err
+}
+
+// streamNotifications passes the notifications of ch to handle until ctx ends,
+// deadline passes, handle reports it is done (count reached) or lost is closed,
+// which fails with exitTransport after what arrived before it. what names the
+// stream in that failure.
+func streamNotifications(ctx context.Context, deadline <-chan time.Time, lost <-chan struct{}, ch <-chan *opcua.PublishNotificationData, what string, handle func(*opcua.PublishNotificationData) bool) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-deadline:
+			return nil
+		case <-lost:
+			// What arrived before the connection went comes first.
+			for {
+				select {
+				case notif := <-ch:
+					if handle(notif) {
+						return nil
+					}
+				default:
+					err := exitCodef(exitTransport, "%s: connection lost", what)
+					format.Errf("%v", err)
+					return err
+				}
+			}
+		case notif := <-ch:
+			if handle(notif) {
+				return nil
+			}
+		}
+	}
+}
+
+// valuePrinter returns the handler of monitor value: it prints the data
+// changes of a notification and reports whether count is reached (0: no limit).
+func valuePrinter(handleMap map[uint32]string, count int, useJSON bool) func(*opcua.PublishNotificationData) bool {
+	received := 0
+	return func(notif *opcua.PublishNotificationData) bool {
+		if notif.Error != nil {
+			format.Errf("notification error: %v", notif.Error)
+			return false
+		}
+		dcn, ok := notif.Value.(*ua.DataChangeNotification)
+		if !ok {
+			return false
+		}
+		for _, item := range dcn.MonitoredItems {
+			nodeStr := handleMap[item.ClientHandle]
+			if nodeStr == "" {
+				nodeStr = fmt.Sprintf("handle:%d", item.ClientHandle)
+			}
+
+			overflow := item.Value != nil && item.Value.Status.HasOverflow()
+			mv := model.MonitoredValue{
+				Timestamp:       model.FormatTimestamp(time.Now()),
+				NodeID:          nodeStr,
+				Status:          item.Value.Status.Symbol(),
+				StatusCode:      item.Value.Status.Uint32(),
+				Overflow:        overflow,
+				SourceTimestamp: model.FormatTimestamp(item.Value.SourceTimestamp),
+				ServerTimestamp: model.FormatTimestamp(item.Value.ServerTimestamp),
+			}
+
+			if item.Value.Value != nil {
+				mv.Value = item.Value.Value.Value()
+				mv.Type = item.Value.Value.Type().String()
+			}
+
+			if useJSON {
+				data, _ := json.Marshal(mv)
+				fmt.Println(string(data))
+			} else {
+				outTS := mv.SourceTimestamp
+				if outTS == "" {
+					outTS = mv.Timestamp
+				}
+				overflowMark := ""
+				if overflow {
+					overflowMark = "  [OVERFLOW]"
+				}
+				fmt.Printf("%s  %s  %s  [%s]%s\n", outTS, mv.NodeID, format.FormatValue(mv.Value), mv.Status, overflowMark)
+			}
+
+			received++
+			if count > 0 && received >= count {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// eventPrinter returns the handler of monitor event and monitor alarm: it
+// prints the events of a notification and reports whether count is reached
+// (0: no limit).
+func eventPrinter(node string, fields []string, count int, useJSON bool) func(*opcua.PublishNotificationData) bool {
+	received := 0
+	return func(notif *opcua.PublishNotificationData) bool {
+		if notif.Error != nil {
+			format.Errf("notification error: %v", notif.Error)
+			return false
+		}
+		evtList, ok := notif.Value.(*ua.EventNotificationList)
+		if !ok {
+			return false
+		}
+		for _, evt := range evtList.Events {
+			me := model.MonitoredEvent{
+				Timestamp: model.FormatTimestamp(time.Now()),
+				NodeID:    node,
+				Fields:    make(map[string]interface{}),
+			}
+
+			for i, field := range evt.EventFields {
+				name := "unknown"
+				if i < len(fields) {
+					name = fields[i]
+				}
+				if field != nil {
+					me.Fields[name] = field.Value()
+				}
+			}
+
+			if useJSON {
+				data, _ := json.Marshal(me)
+				fmt.Println(string(data))
+			} else {
+				var parts []string
+				for _, name := range fields {
+					if v, ok := me.Fields[name]; ok {
+						parts = append(parts, fmt.Sprintf("%s=%s", name, format.FormatValue(v)))
+					}
+				}
+				fmt.Printf("%s  %s  %s\n", me.Timestamp, me.NodeID, strings.Join(parts, "  "))
+			}
+
+			received++
+			if count > 0 && received >= count {
+				return true
+			}
+		}
+		return false
+	}
 }
 
 // eventQueueSize is the queue size of the event monitored item of monitor
@@ -364,12 +462,12 @@ Examples:
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			c, err := connCfg.NewClient(ctx)
+			c, lost, err := newStreamClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
 				return exitCode(exitTransport, err)
 			}
-			defer func() { _ = c.Close(ctx) }()
+			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
 			// A notifier the server rejects (an unknown node, one that is
 			// no event notifier) exits 3.
@@ -377,7 +475,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			defer func() { _ = sub.Cancel(ctx) }()
+			defer func() { _ = sub.Cancel(context.WithoutCancel(ctx)) }()
 
 			if sub.RevisedPublishingInterval != interval {
 				format.Infof("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
@@ -394,66 +492,9 @@ Examples:
 				deadline = timer.C
 			}
 
-			received := 0
 			useJSON := jsonl || format.ParseFormat(outputFormat) != format.Table
-
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-deadline:
-					return nil
-				case notif, ok := <-notifyCh:
-					if !ok {
-						return nil
-					}
-					if notif.Error != nil {
-						format.Errf("notification error: %v", notif.Error)
-						continue
-					}
-
-					evtList, ok := notif.Value.(*ua.EventNotificationList)
-					if !ok {
-						continue
-					}
-
-					for _, evt := range evtList.Events {
-						me := model.MonitoredEvent{
-							Timestamp: model.FormatTimestamp(time.Now()),
-							NodeID:    nodeID.String(),
-							Fields:    make(map[string]interface{}),
-						}
-
-						for i, field := range evt.EventFields {
-							name := "unknown"
-							if i < len(fields) {
-								name = fields[i]
-							}
-							if field != nil {
-								me.Fields[name] = field.Value()
-							}
-						}
-
-						if useJSON {
-							data, _ := json.Marshal(me)
-							fmt.Println(string(data))
-						} else {
-							var parts []string
-							for _, name := range fields {
-								if v, ok := me.Fields[name]; ok {
-									parts = append(parts, fmt.Sprintf("%s=%s", name, format.FormatValue(v)))
-								}
-							}
-							fmt.Printf("%s  %s  %s\n", me.Timestamp, me.NodeID, strings.Join(parts, "  "))
-						}
-
-						received++
-						if count > 0 && received >= count {
-							return nil
-						}
-					}
-				}
-			}
+			what := "monitoring events on " + nodeID.String()
+			return streamNotifications(ctx, deadline, lost, notifyCh, what, eventPrinter(nodeID.String(), fields, count, useJSON))
 		},
 	}
 
@@ -524,12 +565,12 @@ Examples:
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			c, err := connCfg.NewClient(ctx)
+			c, lost, err := newStreamClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
 				return exitCode(exitTransport, err)
 			}
-			defer func() { _ = c.Close(ctx) }()
+			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
 			// A notifier the server rejects (an unknown node, one that is
 			// no event notifier) exits 3.
@@ -537,7 +578,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			defer func() { _ = sub.Cancel(ctx) }()
+			defer func() { _ = sub.Cancel(context.WithoutCancel(ctx)) }()
 
 			if sub.RevisedPublishingInterval != interval {
 				format.Infof("server revised publishing interval: %s → %s", interval, sub.RevisedPublishingInterval)
@@ -554,66 +595,9 @@ Examples:
 				deadline = timer.C
 			}
 
-			received := 0
 			useJSON := jsonl || format.ParseFormat(outputFormat) != format.Table
-
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-deadline:
-					return nil
-				case notif, ok := <-notifyCh:
-					if !ok {
-						return nil
-					}
-					if notif.Error != nil {
-						format.Errf("notification error: %v", notif.Error)
-						continue
-					}
-
-					evtList, ok := notif.Value.(*ua.EventNotificationList)
-					if !ok {
-						continue
-					}
-
-					for _, evt := range evtList.Events {
-						me := model.MonitoredEvent{
-							Timestamp: model.FormatTimestamp(time.Now()),
-							NodeID:    nodeID.String(),
-							Fields:    make(map[string]interface{}),
-						}
-
-						for i, field := range evt.EventFields {
-							name := "unknown"
-							if i < len(fields) {
-								name = fields[i]
-							}
-							if field != nil {
-								me.Fields[name] = field.Value()
-							}
-						}
-
-						if useJSON {
-							data, _ := json.Marshal(me)
-							fmt.Println(string(data))
-						} else {
-							var parts []string
-							for _, name := range fields {
-								if v, ok := me.Fields[name]; ok {
-									parts = append(parts, fmt.Sprintf("%s=%s", name, format.FormatValue(v)))
-								}
-							}
-							fmt.Printf("%s  %s  %s\n", me.Timestamp, me.NodeID, strings.Join(parts, "  "))
-						}
-
-						received++
-						if count > 0 && received >= count {
-							return nil
-						}
-					}
-				}
-			}
+			what := "monitoring events on " + nodeID.String()
+			return streamNotifications(ctx, deadline, lost, notifyCh, what, eventPrinter(nodeID.String(), fields, count, useJSON))
 		},
 	}
 
