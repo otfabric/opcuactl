@@ -998,56 +998,7 @@ Examples:
 				deadline = timer.C
 			}
 			useJSON := jsonl || format.ParseFormat(outputFormat) != format.Table
-			received := 0
-			// handle prints the events of a notification and reports whether
-			// --count is reached.
-			handle := func(notif *opcua.PublishNotificationData) bool {
-				evs, err := conditionEvents(notif)
-				if err != nil {
-					format.Errf("condition event: %v", err)
-				}
-				for _, ev := range evs {
-					line := conditionNotification(ev, time.Now())
-					if line == nil {
-						continue
-					}
-					printConditionNotification(line, useJSON)
-					if line.Condition == nil {
-						continue
-					}
-					received++
-					if count > 0 && received >= count {
-						return true
-					}
-				}
-				return false
-			}
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-deadline:
-					return nil
-				case <-lost:
-					// What arrived before the connection went comes first.
-					for {
-						select {
-						case notif := <-ch:
-							if handle(notif) {
-								return nil
-							}
-						default:
-							err := exitCodef(exitTransport, "watching conditions on %s: connection lost", nf.node)
-							format.Errf("%v", err)
-							return err
-						}
-					}
-				case notif := <-ch:
-					if handle(notif) {
-						return nil
-					}
-				}
-			}
+			return watchConditions(ctx, deadline, lost, ch, count, useJSON, nf.node)
 		},
 	}
 	nf.register(cmd)
@@ -1060,6 +1011,62 @@ Examples:
 
 // conditionNotification converts an event for alarms watch: a refresh
 // marker, a condition event, or nil for an event of no condition.
+// watchConditions prints the condition events of ch until ctx ends, deadline
+// passes, count condition events are seen (0: no limit) or lost is closed,
+// which fails with exitTransport after what arrived before it.
+func watchConditions(ctx context.Context, deadline <-chan time.Time, lost <-chan struct{}, ch <-chan *opcua.PublishNotificationData, count int, useJSON bool, node string) error {
+	received := 0
+	// handle prints the events of a notification and reports whether
+	// count is reached.
+	handle := func(notif *opcua.PublishNotificationData) bool {
+		evs, err := conditionEvents(notif)
+		if err != nil {
+			format.Errf("condition event: %v", err)
+		}
+		for _, ev := range evs {
+			line := conditionNotification(ev, time.Now())
+			if line == nil {
+				continue
+			}
+			printConditionNotification(line, useJSON)
+			if line.Condition == nil {
+				continue
+			}
+			received++
+			if count > 0 && received >= count {
+				return true
+			}
+		}
+		return false
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-deadline:
+			return nil
+		case <-lost:
+			// What arrived before the connection went comes first.
+			for {
+				select {
+				case notif := <-ch:
+					if handle(notif) {
+						return nil
+					}
+				default:
+					err := exitCodef(exitTransport, "watching conditions on %s: connection lost", node)
+					format.Errf("%v", err)
+					return err
+				}
+			}
+		case notif := <-ch:
+			if handle(notif) {
+				return nil
+			}
+		}
+	}
+}
+
 func conditionNotification(ev *opcua.ConditionEvent, now time.Time) *model.ConditionNotification {
 	n := &model.ConditionNotification{Timestamp: model.FormatTimestamp(now)}
 	switch {

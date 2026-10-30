@@ -1,39 +1,5 @@
 # opcuactl Releases
 
-## v0.13.0
-
-**Date:** 2026-10-30  
-**Previous release:** v0.12.0
-
-### Summary
-
-A connection lost after the session is up exits 4 (transport), as the organisation table says, and ends `alarms watch` instead of leaving it waiting silently. **Scripts that test for exit 6 on a lost connection must change.**
-
-### Breaking
-
-- **A connection lost during a service exits 4, not 6.** v0.11.0 gave such failures the code of the service, so EOF from a dropped connection read as a protocol error. A Bad status from the server stays 6. Applies to `ping` too, whose browse stage now also reports timeout (5), unsupported (8) and permission (9).
-- **`alarms watch` ends with exit 4 when the connection is lost**, after printing what arrived before it. It no longer reconnects: the client retried forever with nothing on stderr, and `--duration` then exited 0 as if the watch had seen everything. Restart it, with a refresh, to continue.
-
----
-
-## v0.12.0
-
-**Date:** 2026-10-30  
-**Previous release:** v0.11.0
-
-### Summary
-
-Built on go-opcua v1.29.0, whose defaults are secure. Running without message security is now a choice made by name. **Scripts that connect to servers without security must add the opt-in.**
-
-### Breaking
-
-- **`--insecure-no-security`** (`OPCUACTL_INSECURE_NO_SECURITY=true`) is required to connect over `opc.tcp` without message security. Without it opcuactl refuses, and the error names the choices. Discovery (`discover`) and `opc.wss` / `opc.https` need no opt-in.
-- **`--trusted-cert` is the trust list.** Server certificates are checked against it only; the system CA pool is not used. A secure channel needs it, or `--insecure-skip-verify` for development.
-- **A server that presents no certificate is refused** under Sign and SignAndEncrypt.
-- **`serve` offers `Basic256Sha256` by default**, no longer None. `--insecure-no-security` adds None to the default, and `--security-policy None` needs it.
-
----
-
 ## v0.11.0
 
 **Date:** 2026-10-30  
@@ -42,6 +8,10 @@ Built on go-opcua v1.29.0, whose defaults are secure. Running without message se
 ### Summary
 
 Exit codes converge on the organisation table (ADR-0006). **Every script that tests an exit code must change.**
+
+Built on go-opcua v1.29.0, whose defaults are secure. Running without message security is now a choice made by name. **Scripts that connect to servers without security must add the opt-in.**
+
+A connection lost after the session is up exits 4 (transport), as the organisation table says, and ends `alarms watch` instead of leaving it waiting silently.
 
 | Case | Old | New |
 |---|---|---|
@@ -55,6 +25,15 @@ Exit codes converge on the organisation table (ADR-0006). **Every script that te
 | Service unsupported | 3 | 8 |
 | Access denied | 3 | 9 |
 | Interrupted | killed by the signal | 130 |
+
+### Breaking
+
+- **`--insecure-no-security`** (`OPCUACTL_INSECURE_NO_SECURITY=true`) is required to connect over `opc.tcp` without message security. Without it opcuactl refuses, and the error names the choices. Discovery (`discover`) and `opc.wss` / `opc.https` need no opt-in.
+- **`--trusted-cert` is the trust list.** Server certificates are checked against it only; the system CA pool is not used. A secure channel needs it, or `--insecure-skip-verify` for development.
+- **A server that presents no certificate is refused** under Sign and SignAndEncrypt.
+- **`serve` offers `Basic256Sha256` by default**, no longer None. `--insecure-no-security` adds None to the default, and `--security-policy None` needs it.
+- **A connection lost during a service exits 4, not the code of a service failure.** EOF from a dropped connection no longer reads as a protocol error. A Bad status from the server stays 6. Applies to `ping` too, whose browse stage now also reports timeout (5), unsupported (8) and permission (9).
+- **`alarms watch` ends with exit 4 when the connection is lost**, after printing what arrived before it. It no longer reconnects: the client retried forever with nothing on stderr, and `--duration` then exited 0 as if the watch had seen everything. Restart it, with a refresh, to continue.
 
 ### Changed
 

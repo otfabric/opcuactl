@@ -3,6 +3,10 @@
 package opcuactl
 
 import (
+	"context"
+	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -203,4 +207,168 @@ func TestAuditModel(t *testing.T) {
 	if _, err := auditEvents(&opcua.PublishNotificationData{Value: &ua.EventNotificationList{Events: []*ua.EventFieldList{{}}}}); err == nil {
 		t.Error("a short event list parsed")
 	}
+}
+
+// watchEvent builds the EventFieldList of a condition event; a nil condition
+// and a nil eventType leave the field empty.
+func watchEvent(condition, eventType *ua.NodeID) *ua.EventFieldList {
+	fields := make([]*ua.Variant, len(opcua.NewConditionEventFilter().SelectClauses))
+	if condition != nil {
+		fields[0] = ua.MustVariant(condition)
+	}
+	if eventType != nil {
+		fields[2] = ua.MustVariant(eventType)
+	}
+	return &ua.EventFieldList{EventFields: fields}
+}
+
+func watchNotification(events ...*ua.EventFieldList) *opcua.PublishNotificationData {
+	return &opcua.PublishNotificationData{Value: &ua.EventNotificationList{Events: events}}
+}
+
+// runWatchConditions runs watchConditions with notifs queued and returns what
+// it printed.
+func runWatchConditions(t *testing.T, ctx context.Context, deadline <-chan time.Time, lost <-chan struct{}, count int, notifs ...*opcua.PublishNotificationData) (stdout, stderr string, err error) {
+	t.Helper()
+	// A watch that misses its end fails the assertions instead of hanging.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ch := make(chan *opcua.PublishNotificationData, len(notifs))
+	for _, n := range notifs {
+		ch <- n
+	}
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatal(pipeErr)
+	}
+	stdout = captureStdout(t, func() {
+		orig := os.Stderr
+		os.Stderr = w
+		defer func() { os.Stderr = orig }()
+		err = watchConditions(ctx, deadline, lost, ch, count, true, "i=2253")
+	})
+	_ = w.Close()
+	b, readErr := io.ReadAll(r)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return stdout, string(b), err
+}
+
+func TestWatchConditions(t *testing.T) {
+	a, b, c := ua.NewStringNodeID(2, "A"), ua.NewStringNodeID(2, "B"), ua.NewStringNodeID(2, "C")
+	start := ua.NewNumericNodeID(0, id.RefreshStartEventType)
+	closed := make(chan struct{})
+	close(closed)
+	ended := make(chan time.Time)
+	close(ended)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Enough queued notifications that the select of the loop, which picks
+	// at random, comes to the closed lost channel with some still queued.
+	const queued = 32
+	var burst []*opcua.PublishNotificationData
+	for i := 0; i < queued; i++ {
+		burst = append(burst, watchNotification(watchEvent(ua.NewNumericNodeID(2, uint32(i)), nil)))
+	}
+
+	t.Run("count ends it inside a notification", func(t *testing.T) {
+		out, errOut, err := runWatchConditions(t, context.Background(), nil, nil, 2,
+			watchNotification(watchEvent(a, nil), watchEvent(b, nil), watchEvent(c, nil)))
+		if err != nil || errOut != "" {
+			t.Fatalf("err %v, stderr %q", err, errOut)
+		}
+		if !strings.Contains(out, a.String()) || !strings.Contains(out, b.String()) || strings.Contains(out, c.String()) {
+			t.Errorf("stdout %q", out)
+		}
+	})
+
+	t.Run("a refresh marker does not count", func(t *testing.T) {
+		out, _, err := runWatchConditions(t, context.Background(), nil, nil, 1,
+			watchNotification(watchEvent(nil, start), watchEvent(a, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) != 2 || !strings.Contains(lines[0], `"refresh":"start"`) || !strings.Contains(lines[1], a.String()) {
+			t.Errorf("stdout %q", out)
+		}
+	})
+
+	t.Run("an event without a condition is left out", func(t *testing.T) {
+		out, _, err := runWatchConditions(t, context.Background(), nil, nil, 1,
+			watchNotification(watchEvent(nil, nil), watchEvent(a, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := strings.Count(strings.TrimSpace(out), "\n"); n != 0 || !strings.Contains(out, a.String()) {
+			t.Errorf("stdout %q", out)
+		}
+	})
+
+	t.Run("a bad notification is reported and the watch goes on", func(t *testing.T) {
+		out, errOut, err := runWatchConditions(t, context.Background(), nil, nil, 1,
+			&opcua.PublishNotificationData{Error: errors.New("publish failed")},
+			watchNotification(&ua.EventFieldList{}),
+			watchNotification(watchEvent(a, nil)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(errOut, "condition event: publish failed") || !strings.Contains(errOut, "condition event: opcua: condition event: 0 fields") {
+			t.Errorf("stderr %q", errOut)
+		}
+		if !strings.Contains(out, a.String()) {
+			t.Errorf("stdout %q", out)
+		}
+	})
+
+	t.Run("lost prints what arrived, then exits 4", func(t *testing.T) {
+		out, errOut, err := runWatchConditions(t, context.Background(), nil, closed, 0, burst...)
+		if got := ExitCode(err); got != exitTransport {
+			t.Fatalf("exit %d, want %d (%v)", got, exitTransport, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "watching conditions on i=2253: connection lost") {
+			t.Errorf("err %v", err)
+		}
+		if !strings.Contains(errOut, "connection lost") {
+			t.Errorf("stderr %q", errOut)
+		}
+		if n := strings.Count(out, "\n"); n != queued {
+			t.Errorf("%d lines, want %d: %q", n, queued, out)
+		}
+	})
+
+	t.Run("lost with nothing queued", func(t *testing.T) {
+		out, _, err := runWatchConditions(t, context.Background(), nil, closed, 0)
+		if got := ExitCode(err); got != exitTransport {
+			t.Fatalf("exit %d, want %d (%v)", got, exitTransport, err)
+		}
+		if out != "" {
+			t.Errorf("stdout %q", out)
+		}
+	})
+
+	t.Run("count reached in what arrived before lost is a success", func(t *testing.T) {
+		out, errOut, err := runWatchConditions(t, context.Background(), nil, closed, queued, burst...)
+		if err != nil || strings.Contains(errOut, "connection lost") {
+			t.Fatalf("err %v, stderr %q", err, errOut)
+		}
+		if n := strings.Count(out, "\n"); n != queued {
+			t.Errorf("%d lines, want %d: %q", n, queued, out)
+		}
+	})
+
+	t.Run("cancelled", func(t *testing.T) {
+		out, _, err := runWatchConditions(t, cancelled, nil, nil, 0)
+		if err != nil || out != "" {
+			t.Errorf("err %v, stdout %q", err, out)
+		}
+	})
+
+	t.Run("deadline", func(t *testing.T) {
+		out, _, err := runWatchConditions(t, context.Background(), ended, nil, 0)
+		if err != nil || out != "" {
+			t.Errorf("err %v, stdout %q", err, out)
+		}
+	})
 }
