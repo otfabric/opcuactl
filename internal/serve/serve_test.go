@@ -100,7 +100,7 @@ func connect(t *testing.T, endpoint string, opts ...opcua.Option) *opcua.Client 
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	c, err := opcua.NewClient(endpoint, append([]opcua.Option{opcua.SecurityMode(ua.MessageSecurityModeNone)}, opts...)...)
+	c, err := opcua.NewClient(endpoint, append([]opcua.Option{opcua.InsecureNoSecurity()}, opts...)...)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

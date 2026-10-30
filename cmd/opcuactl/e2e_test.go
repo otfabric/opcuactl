@@ -117,7 +117,7 @@ func startServerWith(t *testing.T, beforeStart func(*server.Server), opts ...ser
 	t.Helper()
 	all := append([]server.Option{
 		server.EndPoint("localhost", 0),
-		server.EnableSecurity("None", ua.MessageSecurityModeNone),
+		server.InsecureNoSecurity(),
 		server.EnableAuthMode(ua.UserTokenTypeAnonymous),
 	}, opts...)
 	srv, err := server.New(all...)
@@ -497,7 +497,7 @@ func TestE2E_Discovery(t *testing.T) {
 func TestE2E_DiscoveryOnNetwork(t *testing.T) {
 	opts := []server.Option{
 		server.EndPoint("localhost", 0),
-		server.EnableSecurity("None", ua.MessageSecurityModeNone),
+		server.InsecureNoSecurity(),
 		server.EnableAuthMode(ua.UserTokenTypeAnonymous),
 		server.ApplicationURI("urn:otfabric:opcuactl:test:ldsme"),
 		server.ServerName("LDSME"),
@@ -541,7 +541,7 @@ func TestE2E_DiscoveryOnNetwork(t *testing.T) {
 func writeLoop(t *testing.T, s *testServer, name string, interval time.Duration, values ...any) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	c, err := opcua.NewClient(s.url, opcua.SecurityMode(ua.MessageSecurityModeNone))
+	c, err := opcua.NewClient(s.url, opcua.InsecureNoSecurity())
 	if err != nil {
 		t.Fatalf("writer client: %v", err)
 	}

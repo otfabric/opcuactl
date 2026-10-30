@@ -53,7 +53,7 @@ func startServe(t *testing.T, args ...string) *servedServer {
 func startServeOutput(t *testing.T, out serveOutput, args ...string) *servedServer {
 	t.Helper()
 	f := &serveFlags{}
-	if err := serveCommand(f).ParseFlags(args); err != nil {
+	if err := serveCommand(f).ParseFlags(append([]string{"--insecure-no-security"}, args...)); err != nil {
 		t.Fatalf("serve %v: %v", args, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -497,7 +497,7 @@ func TestE2E_ServeSignals(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			c, err := opcua.NewClient(endpoint, opcua.SecurityMode(ua.MessageSecurityModeNone))
+			c, err := opcua.NewClient(endpoint, opcua.InsecureNoSecurity())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -535,5 +535,32 @@ func TestServeParseLogLevel(t *testing.T) {
 	}
 	if got := certificateURI([]byte("nope")); got != "" {
 		t.Errorf("certificateURI of no certificate = %q", got)
+	}
+}
+
+// Without --insecure-no-security serve offers no None endpoint, a client
+// connects to a None endpoint only with it, and discovery needs no opt-in.
+func TestE2E_NoSecurityIsAChoice(t *testing.T) {
+	t.Setenv("OPCUACTL_INSECURE_NO_SECURITY", "")
+	if got, err := servePolicies(nil, false); err != nil || len(got) != 1 || got[0] == ua.SecurityPolicyURINone {
+		t.Errorf("default policies: %v, %v", got, err)
+	}
+	if got, err := servePolicies(nil, true); err != nil || len(got) != 2 || got[0] != ua.SecurityPolicyURINone {
+		t.Errorf("default policies with --insecure-no-security: %v, %v", got, err)
+	}
+	if _, err := servePolicies([]string{"None"}, false); err == nil || !strings.Contains(err.Error(), "--insecure-no-security") {
+		t.Errorf("--security-policy None: %v", err)
+	}
+
+	s := startServe(t, "--security-policy", "None", "--log-level", "off")
+	ep := s.url(t, ua.TransportProfileUATCP)
+	if _, errOut, err := runCLI(t, "get", "value", "-e", ep, "-n", "i=2258"); err == nil || !strings.Contains(errOut, "--insecure-no-security") {
+		t.Errorf("connect without the opt-in: %v, %s", err, errOut)
+	}
+	if _, errOut, err := runCLI(t, "discover", "endpoints", "-e", ep); err != nil {
+		t.Errorf("discovery without the opt-in: %v, %s", err, errOut)
+	}
+	if _, errOut, err := runCLI(t, "get", "value", "-e", ep, "-n", "i=2258", "--insecure-no-security"); err != nil {
+		t.Errorf("connect with the opt-in: %v, %s", err, errOut)
 	}
 }
