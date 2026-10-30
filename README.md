@@ -664,7 +664,7 @@ opcuactl alarms ack -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --audit
 opcuactl alarms audit -e opc.tcp://localhost:4840 --entry-id ticket-4711 --jsonl
 ```
 
-`--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A BRANCH column appears when the server reports branches; `-v` adds the optional states (suppressed, out of service, silenced, latched, dialog). `-m` (also `--comment`) on `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `reset` and `respond` calls the Part 9 1.05 method variant that takes a comment. A refused method exits with code 6 (9 for `the user may not call this method`) and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
+`alarms watch` does not reconnect: a lost connection ends it with exit 4, after what arrived before it. `--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A BRANCH column appears when the server reports branches; `-v` adds the optional states (suppressed, out of service, silenced, latched, dialog). `-m` (also `--comment`) on `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `reset` and `respond` calls the Part 9 1.05 method variant that takes a comment. A refused method exits with code 6 (9 for `the user may not call this method`) and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
 
 ### Server Diagnostics
 
@@ -1031,7 +1031,7 @@ In `table` output (and `--quiet`), values are printed as `json` prints them: arr
 | `1` | `gds pull check-revocation`: the certificate is not valid |
 | `2` | Usage or validation error |
 | `3` | Input file that cannot be read |
-| `4` | Connection or transport failure |
+| `4` | Connection or transport failure, also a connection lost during a service or `alarms watch` |
 | `5` | Timeout |
 | `6` | OPC UA service or status-code failure |
 | `7` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events) |

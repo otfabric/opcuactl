@@ -102,7 +102,7 @@ Examples:
 					Latency: browseDur.String(),
 					Error:   browseErr.Error(),
 				})
-				return pingFailed(steps, exitProtocol)
+				return pingFailed(steps, refine(exitProtocol, browseErr))
 			}
 			steps = append(steps, model.PingStep{
 				Stage:   "browse",
@@ -141,7 +141,7 @@ func dialTCP(ctx context.Context, endpoint string) (net.Conn, error) {
 
 // pingFailed prints the stages and fails with code for the last one:
 // exitTransport when the server cannot be reached (tcp, secure),
-// exitProtocol when it cannot be browsed.
+// exitProtocol, or what the error says, when it cannot be browsed.
 func pingFailed(steps []model.PingStep, code int) error {
 	if err := outputPing(steps); err != nil {
 		return err
