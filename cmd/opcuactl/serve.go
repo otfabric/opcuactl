@@ -189,11 +189,11 @@ type serveSetup struct {
 func (f *serveFlags) run(ctx context.Context, stdout, stderr io.Writer, out serveOutput) error {
 	setup, err := f.setup(stderr)
 	if err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
 	srv, err := serve.New(setup.cfg)
 	if err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
 	if f.duration > 0 {
 		var cancel context.CancelFunc
@@ -202,7 +202,7 @@ func (f *serveFlags) run(ctx context.Context, stdout, stderr io.Writer, out serv
 	}
 	if err := srv.Start(ctx); err != nil {
 		_ = srv.Close()
-		return exitCodef(2, "starting the server: %v", err)
+		return exitCodef(exitTransport, "starting the server: %v", err)
 	}
 	if err := writeServeInfo(stdout, out, srv, setup); err != nil {
 		_ = srv.Close()
@@ -211,7 +211,7 @@ func (f *serveFlags) run(ctx context.Context, stdout, stderr io.Writer, out serv
 	_, _ = fmt.Fprintln(stderr, "Serving; stop with Ctrl+C")
 	<-ctx.Done()
 	if err := srv.Close(); err != nil {
-		return exitCodef(2, "stopping the server: %v", err)
+		return exitCodef(exitTransport, "stopping the server: %v", err)
 	}
 	_, _ = fmt.Fprintln(stderr, "Server stopped")
 	return nil

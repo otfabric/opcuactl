@@ -73,12 +73,12 @@ server (Part 14 §9.1.3.7; go-opcua v1.11.0 and later).`,
 // client. Errors of fn are reported with exit code 3.
 func withRemote(fn func(ctx context.Context, c *opcua.Client, r *remote.Client) error) error {
 	if err := connCfg.RequireEndpoint(); err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
-	ctx := context.Background()
+	ctx := rootContext()
 	c, err := connCfg.NewClient(ctx)
 	if err != nil {
-		return exitCode(2, err)
+		return exitCode(exitTransport, err)
 	}
 	defer func() { _ = c.Close(ctx) }()
 	opCtx, cancel := connCfg.TimeoutContext(ctx)
@@ -87,18 +87,18 @@ func withRemote(fn func(ctx context.Context, c *opcua.Client, r *remote.Client) 
 		if _, ok := err.(*exitError); ok {
 			return err
 		}
-		return exitCode(3, err)
+		return exitCode(exitProtocol, err)
 	}
 	return nil
 }
 
 func requireNode(flag, value string) (*ua.NodeID, error) {
 	if value == "" {
-		return nil, exitCodef(1, "--%s is required", flag)
+		return nil, exitCodef(exitUsage, "--%s is required", flag)
 	}
 	nid, err := parse.NodeIDWithNamespace(value, namespace)
 	if err != nil {
-		return nil, exitCodef(1, "--%s: %v", flag, err)
+		return nil, exitCodef(exitUsage, "--%s: %v", flag, err)
 	}
 	return nid, nil
 }
@@ -322,25 +322,25 @@ Examples:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" || url == "" {
-				return exitCodef(1, "--name and --url are required")
+				return exitCodef(exitUsage, "--name and --url are required")
 			}
 			enc, err := parse.ParsePubSubEncoding(encoding, false)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			if _, err := transportProfile(url, enc); err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			scheme, _ := transport.Scheme(url)
 			if scheme == "opc.eth" && iface == "" {
-				return exitCodef(1, "--interface is required with opc.eth:// (the network interface of the server)")
+				return exitCodef(exitUsage, "--interface is required with opc.eth:// (the network interface of the server)")
 			}
 			if mqttVersion != "" && !isMQTTScheme(scheme) {
-				return exitCodef(1, "--mqtt-version needs an MQTT broker (mqtt://, mqtts://)")
+				return exitCodef(exitUsage, "--mqtt-version needs an MQTT broker (mqtt://, mqtts://)")
 			}
 			version, err := parse.MQTTVersion(mqttVersion)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			compress, err := checkJSONCompression(jsonCompression, enc, url)
 			if err != nil {
@@ -348,13 +348,13 @@ Examples:
 			}
 			properties, err := parse.TransportProperties(props)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			var pid interface{}
 			if publisherID != "" {
 				p, err := parse.PublisherID(publisherID)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				pid = parse.PublisherIDValue(p)
 			}
@@ -428,18 +428,18 @@ Example:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" || len(vars) == 0 {
-				return exitCodef(1, "--name and at least one --var Field=NodeId are required")
+				return exitCodef(exitUsage, "--name and at least one --var Field=NodeId are required")
 			}
 			aliases := make([]string, len(vars))
 			pvs := make([]*ua.PublishedVariableDataType, len(vars))
 			for i, v := range vars {
 				alias, node, ok := strings.Cut(v, "=")
 				if !ok || alias == "" {
-					return exitCodef(1, "invalid --var %q: want Field=NodeId", v)
+					return exitCodef(exitUsage, "invalid --var %q: want Field=NodeId", v)
 				}
 				nid, err := parse.NodeIDWithNamespace(node, namespace)
 				if err != nil {
-					return exitCodef(1, "invalid --var %q: %v", v, err)
+					return exitCodef(exitUsage, "invalid --var %q: %v", v, err)
 				}
 				aliases[i] = alias
 				pvs[i] = &ua.PublishedVariableDataType{PublishedVariable: nid, AttributeID: ua.AttributeIDValue}
@@ -470,10 +470,10 @@ Example:
 func groupSecurity(mode, group string) (ua.MessageSecurityMode, error) {
 	m, err := parse.MessageSecurity(mode)
 	if err != nil {
-		return 0, exitCode(1, err)
+		return 0, exitCode(exitUsage, err)
 	}
 	if m > ua.MessageSecurityModeNone && group == "" {
-		return 0, exitCodef(1, "--message-security %s needs --security-group", mode)
+		return 0, exitCodef(exitUsage, "--message-security %s needs --security-group", mode)
 	}
 	return m, nil
 }
@@ -503,11 +503,11 @@ Example:
 				return err
 			}
 			if name == "" {
-				return exitCodef(1, "--name is required")
+				return exitCodef(exitUsage, "--name is required")
 			}
 			enc, err := parse.ParsePubSubEncoding(encoding, false)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			mode, err := groupSecurity(secMode, secGroup)
 			if err != nil {
@@ -577,11 +577,11 @@ Example:
 				return err
 			}
 			if name == "" || dataSet == "" {
-				return exitCodef(1, "--name and --dataset are required")
+				return exitCodef(exitUsage, "--name and --dataset are required")
 			}
 			mask, err := parse.FieldEncoding(fieldEncoding)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			cfg := pubsub.DataSetWriter(name, writerID, dataSet)
 			cfg.KeyFrameCount = keyFrames
@@ -629,7 +629,7 @@ Example:
 				return err
 			}
 			if name == "" {
-				return exitCodef(1, "--name is required")
+				return exitCodef(exitUsage, "--name is required")
 			}
 			mode, err := groupSecurity(secMode, secGroup)
 			if err != nil {
@@ -685,13 +685,13 @@ Example:
 				return err
 			}
 			if name == "" {
-				return exitCodef(1, "--name is required")
+				return exitCodef(exitUsage, "--name is required")
 			}
 			var pid interface{}
 			if publisherID != "" {
 				p, err := parse.PublisherID(publisherID)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				pid = parse.PublisherIDValue(p)
 			}
@@ -708,7 +708,7 @@ Example:
 				for i, t := range targets {
 					nid, err := parse.NodeIDWithNamespace(t, namespace)
 					if err != nil {
-						return exitCodef(1, "--target %q: %v", t, err)
+						return exitCodef(exitUsage, "--target %q: %v", t, err)
 					}
 					tv[i] = pubsub.Target(nid)
 				}
@@ -775,7 +775,7 @@ Examples:
 				}
 			case "connection", "dataset":
 			default:
-				return exitCodef(1, "unknown component %q (%s)", args[0], strings.Join(pubsubRemoveKinds, "|"))
+				return exitCodef(exitUsage, "unknown component %q (%s)", args[0], strings.Join(pubsubRemoveKinds, "|"))
 			}
 			return withRemote(func(ctx context.Context, _ *opcua.Client, r *remote.Client) error {
 				var err error

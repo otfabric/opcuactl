@@ -563,9 +563,9 @@ opcuactl call method -e opc.tcp://localhost:4840 --object "ns=2;i=1" --method "n
   --arg-file args.json
 ```
 
-The values of `--arg-json` and `--arg-file` are converted to the DataType and ValueRank of the method's InputArguments (the signature `--introspect` prints): `[2, 40]` calls a method of two Int32 arguments with two Int32, `[[1, 2]]` passes a UInt16 array to a UInt16 array argument. Integer types (SByte to UInt64) take integral numbers in their range, or a string holding one (an Int64 beyond 2^53); Float and Double take numbers and `"NaN"`, `"Infinity"`, `"-Infinity"`; DateTime an RFC 3339 string; ByteString base64; NodeId and ExpandedNodeId their text form; QualifiedName `"ns:Name"`; LocalizedText a string or `{"Locale": "en", "Text": "..."}`. A value that does not fit its argument (`2.5` or `3000000000` for an Int32, a string for a Boolean) is a usage error (exit 1) and the method is not called. When the method has no InputArguments, and for arguments of a structure type or BaseDataType, a JSON number is sent as a Double, a string as a String and `true`/`false` as a Boolean; `--arg` with `--types` sets the types explicitly.
+The values of `--arg-json` and `--arg-file` are converted to the DataType and ValueRank of the method's InputArguments (the signature `--introspect` prints): `[2, 40]` calls a method of two Int32 arguments with two Int32, `[[1, 2]]` passes a UInt16 array to a UInt16 array argument. Integer types (SByte to UInt64) take integral numbers in their range, or a string holding one (an Int64 beyond 2^53); Float and Double take numbers and `"NaN"`, `"Infinity"`, `"-Infinity"`; DateTime an RFC 3339 string; ByteString base64; NodeId and ExpandedNodeId their text form; QualifiedName `"ns:Name"`; LocalizedText a string or `{"Locale": "en", "Text": "..."}`. A value that does not fit its argument (`2.5` or `3000000000` for an Int32, a string for a Boolean) is a usage error (exit 2) and the method is not called. When the method has no InputArguments, and for arguments of a structure type or BaseDataType, a JSON number is sent as a Double, a string as a String and `true`/`false` as a Boolean; `--arg` with `--types` sets the types explicitly.
 
-`--introspect` exits 3 when the method node does not exist (`BadNodeIdUnknown`) or is not a Method (`BadNodeClassInvalid`).
+`--introspect` exits 6 when the method node does not exist (`BadNodeIdUnknown`) or is not a Method (`BadNodeClassInvalid`).
 
 ### Monitoring
 
@@ -663,7 +663,7 @@ opcuactl alarms ack -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --audit
 opcuactl alarms audit -e opc.tcp://localhost:4840 --entry-id ticket-4711 --jsonl
 ```
 
-`--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A BRANCH column appears when the server reports branches; `-v` adds the optional states (suppressed, out of service, silenced, latched, dialog). `-m` (also `--comment`) on `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `reset` and `respond` calls the Part 9 1.05 method variant that takes a comment. A refused method exits with code 3 and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
+`--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A BRANCH column appears when the server reports branches; `-v` adds the optional states (suppressed, out of service, silenced, latched, dialog). `-m` (also `--comment`) on `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `reset` and `respond` calls the Part 9 1.05 method variant that takes a comment. A refused method exits with code 6 (9 for `the user may not call this method`) and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
 
 ### Server Diagnostics
 
@@ -778,17 +778,17 @@ opcuactl gds pull update "${GDS[@]}" "ns=2;g=5f0c..." --discovery-url opc.tcp://
 
 # Step by step: a request (from a CSR, a private key, or a key pair the GDS generates), then collect it
 ID=$(opcuactl gds pull request "${GDS[@]}" "ns=2;g=5f0c..." --csr line4.csr -q)
-opcuactl gds pull finish "${GDS[@]}" "ns=2;g=5f0c..." "$ID" --cert-out line4.pem   # exit 3 while it waits
+opcuactl gds pull finish "${GDS[@]}" "ns=2;g=5f0c..." "$ID" --cert-out line4.pem   # exit 6 while it waits
 opcuactl gds pull wait "${GDS[@]}" "ns=2;g=5f0c..." "$ID" --cert-out line4.pem --wait-timeout 1h
 
 # Trust list, renewal, revocation
 opcuactl gds pull trustlist "${GDS[@]}" "ns=2;g=5f0c..." --out ./pki
 opcuactl gds pull status "${GDS[@]}" "ns=2;g=5f0c..." --type rsa
 opcuactl gds pull revoke "${GDS[@]}" "ns=2;g=5f0c..." line4.pem --yes
-opcuactl gds pull check-revocation "${GDS[@]}" line4.pem   # exit 4 when not Good
+opcuactl gds pull check-revocation "${GDS[@]}" line4.pem   # exit 1 when not Good
 ```
 
-The GDS returns a private key it generated only once: `finish`, `wait` and `enroll` write it next to `--cert-out` with the extension `.key` (mode 0600) unless `--key-out` names the file. A GDS may hold a request for an administrator; `finish` then exits with 3 (`Bad_NothingToDo`, waits for approval), `wait` and `enroll` poll (`--poll`, `--wait-timeout`).
+The GDS returns a private key it generated only once: `finish`, `wait` and `enroll` write it next to `--cert-out` with the extension `.key` (mode 0600) unless `--key-out` names the file. A GDS may hold a request for an administrator; `finish` then exits with 6 (`Bad_NothingToDo`, waits for approval), `wait` and `enroll` poll (`--poll`, `--wait-timeout`).
 
 ### Historical Data
 
@@ -831,9 +831,9 @@ opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --ye
 opcuactl history delete-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event-id 0x0a01 --yes
 ```
 
-`history event` reads with ReadEventDetails (Part 11 §6.5.2): `--start` after `--end` reads backward (newest first); one of them is enough with `--num-values` or `--max-events`. `--select` takes BrowsePaths (`AckedState/Id`, `2:Temperature`) and `ConditionId`; EventIds print in base64. `--of-type`, `--severity-min` and `--severity-max` build the WhereClause, combined with And. `--num-values` is the page size: opcuactl follows the continuation points until the history is read, `--max-events` events were returned or, with `--continuation single`, after one page, and releases the continuation point it leaves. A Bad status of the node (unknown node, no event history) exits 3; an empty range is success.
+`history event` reads with ReadEventDetails (Part 11 §6.5.2): `--start` after `--end` reads backward (newest first); one of them is enough with `--num-values` or `--max-events`. `--select` takes BrowsePaths (`AckedState/Id`, `2:Temperature`) and `ConditionId`; EventIds print in base64. `--of-type`, `--severity-min` and `--severity-max` build the WhereClause, combined with And. `--num-values` is the page size: opcuactl follows the continuation points until the history is read, `--max-events` events were returned or, with `--continuation single`, after one page, and releases the continuation point it leaves. A Bad status of the node (unknown node, no event history) exits 6; an empty range is success.
 
-`history update-events` (UpdateEventDetails, Part 11 §6.9.4) takes events as JSON objects (`--event`, repeatable, or `--events-file`, `-` for stdin) with `--mode insert|replace|update`: EventId in base64 or 0x hex (insert and update make one when missing and print it), EventType and SourceNode as NodeIds, Time in RFC 3339 (default now), Message, SourceName, Severity, and any other field as a string, boolean, number or OPC UA JSON Variant (`{"UaType":7,"Value":42}`). `history delete-events` (DeleteEventDetails, §6.9.7) takes `--event-id` (repeatable); an unknown EventId is `Bad_NoData`. Both print the result of each event, ask before changing anything on a terminal (`--yes` skips it, `--dry-run` only prints) and exit 4 when some events failed, 3 when all did.
+`history update-events` (UpdateEventDetails, Part 11 §6.9.4) takes events as JSON objects (`--event`, repeatable, or `--events-file`, `-` for stdin) with `--mode insert|replace|update`: EventId in base64 or 0x hex (insert and update make one when missing and print it), EventType and SourceNode as NodeIds, Time in RFC 3339 (default now), Message, SourceName, Severity, and any other field as a string, boolean, number or OPC UA JSON Variant (`{"UaType":7,"Value":42}`). `history delete-events` (DeleteEventDetails, §6.9.7) takes `--event-id` (repeatable); an unknown EventId is `Bad_NoData`. Both print the result of each event, ask before changing anything on a terminal (`--yes` skips it, `--dry-run` only prints) and exit 7 when some events failed, 6 when all did.
 
 ### Export
 
@@ -1027,10 +1027,18 @@ In `table` output (and `--quiet`), values are printed as `json` prints them: arr
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Usage or validation error |
-| `2` | Connection or transport failure |
-| `3` | OPC UA service or status-code failure |
-| `4` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events); `gds pull check-revocation`: the certificate is not valid |
+| `1` | `gds pull check-revocation`: the certificate is not valid |
+| `2` | Usage or validation error |
+| `3` | Input file that cannot be read |
+| `4` | Connection or transport failure |
+| `5` | Timeout |
+| `6` | OPC UA service or status-code failure |
+| `7` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events) |
+| `8` | Service not supported by the server |
+| `9` | Permission: `Bad_UserAccessDenied`, or the operating system refused |
+| `130` | Interrupted by SIGINT or SIGTERM before a result |
+
+The table follows the organisation table; [docs/exitcodes.md](docs/exitcodes.md) has the mapping from older versions. `OPCUACTL_FORMAT` sets the default of `--format`; `OPCUACTL_OUTPUT_FORMAT` is accepted too.
 
 ## Security
 
@@ -1147,7 +1155,7 @@ opcuactl get value -e opc.https://dotnet.example:62540 --transport https-uajson 
 ```
 
 - TLS is the only protection. A WebSocket cannot name a security policy, so wss-uajson endpoints are None / None; over https-uajson the policy only decides how the session nonces are signed, as over https-uabinary. `--security-policy auto` selects among the endpoints of `--transport`.
-- `--transport` must fit the scheme of `--endpoint` (`wss-uajson` an `opc.wss://` URL, `https-uajson` an `opc.https://` one); a mismatch is a usage error (exit 1). There is no reverse connect over UA JSON.
+- `--transport` must fit the scheme of `--endpoint` (`wss-uajson` an `opc.wss://` URL, `https-uajson` an `opc.https://` one); a mismatch is a usage error (exit 2). There is no reverse connect over UA JSON.
 - NodeIds of other namespaces than 0 go over the wire with their namespace URI (`nsu=`); the commands take and print them as usual.
 - go-opcua servers serve UA JSON with `server.EnableUAJSON`; of the other stacks, UA-.NETStandard 2.0.1 implements both mappings.
 
@@ -1236,7 +1244,7 @@ The demo namespace `urn:otfabric:opcuactl:demo` (ns=1; the namespaces of `--node
 - **Certificates.** Every security policy gets an application certificate: one of `--cert`, or a self-signed one made at start (RSA for the RSA policies, ECDSA P-256 / P-384 and Ed25519 for the ECC ones; Brainpool and Curve448 need `--cert`). Its SHA-1 thumbprint is printed. The self-signed certificates name the hostname, `localhost`, `127.0.0.1` and `::1`, so clients can verify them as TLS certificates too. Without `--cert-out` a restart makes new ones.
 - **Users.** User names are offered on the secure endpoints and on opc.https, where TLS protects them; `--user` with only `--security-policy None` and no `--https` is a usage error. Anonymous and authenticated users may read, write and call.
 - **Output.** On start the server prints its ApplicationUri, the demo namespace, its certificates, the client trust and the users, then the endpoint table of `discover endpoints`. `--format json|yaml` prints all of it as one document (with `endpoints`, `certificates` and `namespaces`), `--format csv` the endpoint table and `-q` the endpoint URLs; "Serving" and "Server stopped" go to stderr.
-- **Exit codes.** 1 for an invalid flag or file (before anything listens), 2 when a listener cannot start (port in use). The connection flags of the client (`-e`, `--auth`, `OPCUACTL_*` of the client) do not apply to `serve`; its `--security-policy`, `--security-mode`, `--cert`, `--key`, `--trusted-cert`, `--tls-cert` and `--tls-key` configure the server.
+- **Exit codes.** 2 for an invalid flag, 3 for a file that cannot be read (before anything listens), 4 when a listener cannot start (port in use). The connection flags of the client (`-e`, `--auth`, `OPCUACTL_*` of the client) do not apply to `serve`; its `--security-policy`, `--security-mode`, `--cert`, `--key`, `--trusted-cert`, `--tls-cert` and `--tls-key` configure the server.
 - **For tests only.** Without `--trusted-cert` / `--trust-dir` every client certificate is accepted, and the user list and passwords live on the command line or in the environment.
 
 ## PubSub
@@ -1315,7 +1323,7 @@ The defaults of `--topic-prefix` (`opcua`), `--publisher-id` (`1`), `--writer-gr
 | `--message-security`, `--security-group`, `--keys-file` | security of the UADP messages | security its writer group requires |
 | `--diagnostics*` | ActionRequestsSent, ActionResponsesReceived, ActionTimeouts | ActionRequestsReceived, ActionRequestsRejected, ActionResponsesSent |
 
-`call` exits with 0 for a Good result, 3 for a Bad result of the Action (the result is printed too) and 2 when no response arrives within `--timeout`. A Responder answers nothing to a request it cannot address, that is for another writer or target, or that lacks the security of its writer group (§6.2.11.2.2), so such calls time out. On a broker a request sent before the Responder subscribed is lost. `subscribe` and `decode` show action messages as `action-request` and `action-response` DataSetMessages with their ActionTargetId, RequestId, ActionState, RequestorId, TimeoutHint and the status of the response.
+`call` exits with 0 for a Good result, 6 for a Bad result of the Action (the result is printed too) and 5 when no response arrives within `--timeout`. A Responder answers nothing to a request it cannot address, that is for another writer or target, or that lacks the security of its writer group (§6.2.11.2.2), so such calls time out. On a broker a request sent before the Responder subscribed is lost. `subscribe` and `decode` show action messages as `action-request` and `action-response` DataSetMessages with their ActionTargetId, RequestId, ActionState, RequestorId, TimeoutHint and the status of the response.
 
 A request or response larger than the transport's NetworkMessage limit goes in chunks (UADP, Part 14 §7.2.4.4.4). `pubsub config add-action` adds a PublishedAction to a server through its PubSubConfiguration file (CloseAndUpdate, §9.1.3.7), with `--method ID=OBJECT@METHOD` a PublishedActionMethod whose targets call Methods of the server; a DataSetWriter of it (`config add-writer`) makes the server the Responder. `config show` lists a server's PublishedActions as data sets.
 
@@ -1434,7 +1442,7 @@ By default the server reports every change of value or status. A DataChangeFilte
 | `--deadband` | number | The deadband value. |
 | `--index-range` | e.g. `0:3`, `1,0:1` | Monitor part of an array or matrix; changes outside the range do not notify. |
 
-Deadbands need a numeric variable, and a percent deadband needs an `EURange` property (AnalogItemType). The server answers per item: rejected items are reported on stderr with their status (`BadFilterNotAllowed`, `BadMonitoredItemFilterUnsupported`, `BadDeadbandFilterInvalid`, `BadIndexRangeInvalid`) while the others keep running; the command exits with code 3 when no item could be created. The filter is only sent when one of the flags is given, so servers without filter support are unaffected.
+Deadbands need a numeric variable, and a percent deadband needs an `EURange` property (AnalogItemType). The server answers per item: rejected items are reported on stderr with their status (`BadFilterNotAllowed`, `BadMonitoredItemFilterUnsupported`, `BadDeadbandFilterInvalid`, `BadIndexRangeInvalid`) while the others keep running; the command exits with code 6 when no item could be created. The filter is only sent when one of the flags is given, so servers without filter support are unaffected.
 
 > **Tip:** If the server revises your publishing interval (shown on stderr with `-v`), it cannot sustain the requested rate. Increase `--interval` until the revised value matches.
 ## FAQ

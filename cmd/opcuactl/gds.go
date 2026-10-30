@@ -135,7 +135,7 @@ func gdsFailed(what string, err error) error {
 		msg += " (" + h + ")"
 	}
 	format.Errf("%s", msg)
-	return exitCode(3, err)
+	return exitCode(exitProtocol, err)
 }
 
 // withGDS runs fn with a gds client on a new session.
@@ -163,7 +163,7 @@ func certificateGroupValues() []string {
 // parseGroup parses --group (exit code 1 when invalid).
 func parseGroup(s string) (group, trustList *ua.NodeID, err error) {
 	if group, trustList, err = parse.CertificateGroup(s); err != nil {
-		return nil, nil, exitCodef(1, "invalid --group: %v", err)
+		return nil, nil, exitCodef(exitUsage, "invalid --group: %v", err)
 	}
 	return group, trustList, nil
 }
@@ -523,7 +523,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			m, err := parse.TrustListMasks(masks)
 			if err != nil {
-				return exitCodef(1, "invalid --masks: %v", err)
+				return exitCodef(exitUsage, "invalid --masks: %v", err)
 			}
 			return withGDSGroup(group, func(ctx context.Context, g *gds.Client, _ *ua.NodeID) error {
 				tl, err := g.ReadTrustList(ctx, m)
@@ -536,7 +536,7 @@ Examples:
 						e := describe(pkiDirs[i].list, der)
 						if out != "" {
 							if err := writeEntry(filepath.Join(out, pkiDirs[i].dir), &e, der); err != nil {
-								return exitCode(1, err)
+								return exitCode(exitUsage, err)
 							}
 						}
 						entries = append(entries, e)
@@ -578,7 +578,7 @@ Examples:
 			for _, f := range args {
 				cs, err := readCerts(f)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				certs = append(certs, cs...)
 			}
@@ -647,7 +647,7 @@ Examples:
 			for _, a := range args {
 				t, err := thumbprintArg(a)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				thumbs = append(thumbs, t)
 			}
@@ -744,11 +744,11 @@ Examples:
   opcuactl gds trustlist set -e opc.tcp://localhost:4840 $SEC --masks issuers --issuer ca.pem`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 && len(issuers) == 0 {
-				return exitCodef(1, "nothing to write: give certificate or CRL files, a PKI directory, or --issuer files")
+				return exitCodef(exitUsage, "nothing to write: give certificate or CRL files, a PKI directory, or --issuer files")
 			}
 			lists, err := parse.TrustListMasks(masks)
 			if err != nil {
-				return exitCodef(1, "invalid --masks: %v", err)
+				return exitCodef(exitUsage, "invalid --masks: %v", err)
 			}
 			tl := &ua.TrustListDataType{SpecifiedLists: uint32(lists)}
 			var given ua.TrustListMasks
@@ -756,14 +756,14 @@ Examples:
 				if st, err := os.Stat(a); err == nil && st.IsDir() {
 					found, err := readPKIDir(a, tl)
 					if err != nil {
-						return exitCode(1, err)
+						return exitCode(exitUsage, err)
 					}
 					given |= found
 					continue
 				}
 				certs, crls, err := readCertsAndCRLs(a)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				tl.TrustedCertificates = append(tl.TrustedCertificates, certs...)
 				tl.TrustedCrls = append(tl.TrustedCrls, crls...)
@@ -771,7 +771,7 @@ Examples:
 			for _, f := range issuers {
 				certs, crls, err := readCertsAndCRLs(f)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				tl.IssuerCertificates = append(tl.IssuerCertificates, certs...)
 				tl.IssuerCrls = append(tl.IssuerCrls, crls...)
@@ -782,7 +782,7 @@ Examples:
 				}
 				if lists&pkiDirs[i].mask == 0 {
 					if len(*l) > 0 {
-						return exitCodef(1, "%s entries given, but --masks does not replace that list", pkiDirs[i].list)
+						return exitCodef(exitUsage, "%s entries given, but --masks does not replace that list", pkiDirs[i].list)
 					}
 					*l = nil
 				}
@@ -853,7 +853,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			typ, err := parse.CertificateType(certType)
 			if err != nil {
-				return exitCodef(1, "invalid --type: %v", err)
+				return exitCodef(exitUsage, "invalid --type: %v", err)
 			}
 			grp, _, err := parseGroup(group)
 			if err != nil {
@@ -890,7 +890,7 @@ Examples:
 						data = der
 					}
 					if err := os.WriteFile(out, data, 0o644); err != nil { //nolint:gosec // a CSR is public
-						return exitCode(1, err)
+						return exitCode(exitUsage, err)
 					}
 					res.File = out
 				}
@@ -1079,18 +1079,18 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			certs, err := readCerts(args[0])
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			u := &gds.CertificateUpdate{Certificate: certs[0], IssuerCertificates: certs[1:]}
 			for _, f := range issuers {
 				cs, err := readCerts(f)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				u.IssuerCertificates = append(u.IssuerCertificates, cs...)
 			}
 			if u.CertificateType, err = parse.CertificateType(certType); err != nil {
-				return exitCodef(1, "invalid --type: %v", err)
+				return exitCodef(exitUsage, "invalid --type: %v", err)
 			}
 			if u.CertificateGroup, _, err = parseGroup(group); err != nil {
 				return err
@@ -1104,10 +1104,10 @@ Examples:
 			switch {
 			case keyFile != "":
 				if u.PrivateKey, u.PrivateKeyFormat, err = readPrivateKey(keyFile, u.Certificate, keyFormat, pfxPassword); err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			case keyFormat != "" || pfxPassword != "":
-				return exitCodef(1, "--key-format and --pfx-password need --private-key")
+				return exitCodef(exitUsage, "--key-format and --pfx-password need --private-key")
 			}
 			e := describe("certificate", u.Certificate)
 			if !confirmed(yes, os.Stdin, fmt.Sprintf("Replace the %s certificate%s of %s with %s (%s)?", parse.CertificateTypeName(u.CertificateType), groupSuffix(u.CertificateGroup), connCfg.Endpoint, e.Subject, e.Thumbprint)) {
@@ -1163,7 +1163,7 @@ Examples:
 					e := describe("rejected", der)
 					if out != "" {
 						if err := writeEntry(out, &e, der); err != nil {
-							return exitCode(1, err)
+							return exitCode(exitUsage, err)
 						}
 					}
 					entries = append(entries, e)

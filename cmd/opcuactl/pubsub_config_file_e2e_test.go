@@ -46,7 +46,7 @@ func TestE2E_PubSubConfigFile(t *testing.T) {
 	var r model.PubSubActionResult
 	for range 15 {
 		o, _, err := runCLI(t, args...)
-		if err != nil && ExitCode(err) == 3 && o != "" {
+		if err != nil && ExitCode(err) == 6 && o != "" {
 			r = parseActionResult(t, o)
 			break
 		}

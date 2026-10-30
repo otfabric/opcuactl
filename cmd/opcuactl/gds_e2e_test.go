@@ -176,9 +176,9 @@ func TestE2E_GDS(t *testing.T) {
 
 	t.Run("access", func(t *testing.T) {
 		operator := append(secure(cli), "--auth", "username", "--username", "operator", "--password", "op")
-		fail(t, 3, "SecurityAdmin role", append([]string{"gds", "trustlist", "get"}, operator...)...)
-		fail(t, 3, "--security-mode SignAndEncrypt", "gds", "rejected", "-e", s.url, "--auth", "username", "--username", gdsAdmin, "--password", gdsAdminPwd)
-		fail(t, 3, "SecurityAdmin role", append([]string{"gds", "apply"}, operator...)...)
+		fail(t, 9, "SecurityAdmin role", append([]string{"gds", "trustlist", "get"}, operator...)...)
+		fail(t, 6, "--security-mode SignAndEncrypt", "gds", "rejected", "-e", s.url, "--auth", "username", "--username", gdsAdmin, "--password", gdsAdminPwd)
+		fail(t, 9, "SecurityAdmin role", append([]string{"gds", "apply"}, operator...)...)
 	})
 
 	t.Run("trustlist get", func(t *testing.T) {
@@ -209,7 +209,7 @@ func TestE2E_GDS(t *testing.T) {
 		out = run(t, "gds", "trustlist", "get", "-v")
 		wantContains(t, out, "APPLICATION URI", clientURI)
 
-		fail(t, 1, "invalid --masks", append([]string{"gds", "trustlist", "get", "--masks", "everything"}, admin...)...)
+		fail(t, 2, "invalid --masks", append([]string{"gds", "trustlist", "get", "--masks", "everything"}, admin...)...)
 	})
 
 	stranger := newIdentity(t, "rsa", "urn:otfabric:opcuactl:test:stranger")
@@ -272,8 +272,8 @@ func TestE2E_GDS(t *testing.T) {
 		if _, _, err := runCLI(t, strangerRead...); err == nil {
 			t.Fatal("a removed client connected")
 		}
-		fail(t, 3, "not in the trusted certificates", append([]string{"gds", "trustlist", "remove", stranger.certFile}, admin...)...)
-		fail(t, 1, "neither a SHA-1 thumbprint nor a certificate file", append([]string{"gds", "trustlist", "remove", "nope"}, admin...)...)
+		fail(t, 6, "not in the trusted certificates", append([]string{"gds", "trustlist", "remove", stranger.certFile}, admin...)...)
+		fail(t, 3, "neither a SHA-1 thumbprint nor a certificate file", append([]string{"gds", "trustlist", "remove", "nope"}, admin...)...)
 	})
 
 	t.Run("issuer add and remove", func(t *testing.T) {
@@ -286,7 +286,7 @@ func TestE2E_GDS(t *testing.T) {
 		if tl := s.srv.TrustList(); len(tl.IssuerCertificates) != 0 {
 			t.Fatalf("issuers = %d", len(tl.IssuerCertificates))
 		}
-		fail(t, 1, "no such file", append([]string{"gds", "trustlist", "add", filepath.Join(t.TempDir(), "missing.der")}, admin...)...)
+		fail(t, 3, "no such file", append([]string{"gds", "trustlist", "add", filepath.Join(t.TempDir(), "missing.der")}, admin...)...)
 	})
 
 	t.Run("set", func(t *testing.T) {
@@ -327,12 +327,12 @@ func TestE2E_GDS(t *testing.T) {
 			t.Fatalf("round trip: %d trusted, %d issuer CRLs", len(tl.TrustedCertificates), len(tl.IssuerCrls))
 		}
 
-		fail(t, 1, "nothing to write", append([]string{"gds", "trustlist", "set"}, admin...)...)
-		fail(t, 1, "--masks does not replace", append([]string{"gds", "trustlist", "set", "--masks", "trusted", cli.certFile, "--issuer", ca.certFile}, admin...)...)
-		fail(t, 1, "no trusted/certs", append([]string{"gds", "trustlist", "set", t.TempDir()}, admin...)...)
-		fail(t, 1, "invalid --masks", append([]string{"gds", "trustlist", "set", "--masks", "x", cli.certFile}, admin...)...)
-		fail(t, 1, "not a certificate or CRL", append([]string{"gds", "trustlist", "set", cli.keyFile}, admin...)...)
-		fail(t, 1, "not a certificate or CRL", append([]string{"gds", "trustlist", "set", cli.certFile, "--issuer", cli.keyFile}, admin...)...)
+		fail(t, 2, "nothing to write", append([]string{"gds", "trustlist", "set"}, admin...)...)
+		fail(t, 2, "--masks does not replace", append([]string{"gds", "trustlist", "set", "--masks", "trusted", cli.certFile, "--issuer", ca.certFile}, admin...)...)
+		fail(t, 2, "no trusted/certs", append([]string{"gds", "trustlist", "set", t.TempDir()}, admin...)...)
+		fail(t, 2, "invalid --masks", append([]string{"gds", "trustlist", "set", "--masks", "x", cli.certFile}, admin...)...)
+		fail(t, 2, "not a certificate or CRL", append([]string{"gds", "trustlist", "set", cli.keyFile}, admin...)...)
+		fail(t, 2, "not a certificate or CRL", append([]string{"gds", "trustlist", "set", cli.certFile, "--issuer", cli.keyFile}, admin...)...)
 		bad := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(bad, "trusted", "crl"), 0o755); err != nil {
 			t.Fatal(err)
@@ -340,7 +340,7 @@ func TestE2E_GDS(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(bad, "trusted", "crl", "x.der"), cli.der, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		fail(t, 1, "a certificate in", append([]string{"gds", "trustlist", "set", bad}, admin...)...)
+		fail(t, 2, "a certificate in", append([]string{"gds", "trustlist", "set", bad}, admin...)...)
 		bad = t.TempDir()
 		if err := os.MkdirAll(filepath.Join(bad, "trusted", "certs"), 0o755); err != nil {
 			t.Fatal(err)
@@ -348,7 +348,7 @@ func TestE2E_GDS(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(bad, "trusted", "certs", "x.crl"), ca.crl(t), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		fail(t, 1, "a CRL in", append([]string{"gds", "trustlist", "set", bad}, admin...)...)
+		fail(t, 2, "a CRL in", append([]string{"gds", "trustlist", "set", bad}, admin...)...)
 		_, errOut, _ := runCLI(t, append([]string{"gds", "trustlist", "set", "--masks", "trusted", "--issuer", ca.certFile}, admin...)...)
 		wantContains(t, errOut, "--masks does not replace")
 	})
@@ -411,9 +411,9 @@ func TestE2E_GDS(t *testing.T) {
 		}
 		out = run(t, "gds", "csr", "--out", filepath.Join(t.TempDir(), "q.csr"), "-q")
 		wantContains(t, out, "q.csr")
-		fail(t, 1, "invalid --type", append([]string{"gds", "csr", "--type", "dsa"}, admin...)...)
-		fail(t, 3, "CreateSigningRequest", append([]string{"gds", "csr", "--type", "ecc-p256"}, admin...)...)
-		fail(t, 1, "no such file", append([]string{"gds", "csr", "--out", filepath.Join(t.TempDir(), "missing", "x.csr")}, admin...)...)
+		fail(t, 2, "invalid --type", append([]string{"gds", "csr", "--type", "dsa"}, admin...)...)
+		fail(t, 6, "CreateSigningRequest", append([]string{"gds", "csr", "--type", "ecc-p256"}, admin...)...)
+		fail(t, 3, "no such file", append([]string{"gds", "csr", "--out", filepath.Join(t.TempDir(), "missing", "x.csr")}, admin...)...)
 	})
 
 	t.Run("update-cert with a key", func(t *testing.T) {
@@ -444,18 +444,18 @@ func TestE2E_GDS(t *testing.T) {
 			t.Fatal("the endpoints do not carry the new certificate")
 		}
 
-		fail(t, 1, "does not match", append([]string{"gds", "update-cert", certFile, "--private-key", cli.keyFile}, admin...)...)
-		fail(t, 1, "no such file", append([]string{"gds", "update-cert", certFile, "--private-key", filepath.Join(dir, "missing")}, admin...)...)
-		fail(t, 1, "not a certificate", append([]string{"gds", "update-cert", cli.keyFile}, admin...)...)
-		fail(t, 1, "not a certificate", append([]string{"gds", "update-cert", certFile, "--issuer", cli.keyFile}, admin...)...)
-		fail(t, 1, "invalid --type", append([]string{"gds", "update-cert", certFile, "--type", "dsa"}, admin...)...)
+		fail(t, 2, "does not match", append([]string{"gds", "update-cert", certFile, "--private-key", cli.keyFile}, admin...)...)
+		fail(t, 3, "no such file", append([]string{"gds", "update-cert", certFile, "--private-key", filepath.Join(dir, "missing")}, admin...)...)
+		fail(t, 2, "not a certificate", append([]string{"gds", "update-cert", cli.keyFile}, admin...)...)
+		fail(t, 2, "not a certificate", append([]string{"gds", "update-cert", certFile, "--issuer", cli.keyFile}, admin...)...)
+		fail(t, 2, "invalid --type", append([]string{"gds", "update-cert", certFile, "--type", "dsa"}, admin...)...)
 		// The ApplicationUri of the client is not the server's.
 		other := ca.issue(t, cli.key.Public(), mustParse(t, cli.der))
 		otherFile := filepath.Join(dir, "other.der")
 		if err := os.WriteFile(otherFile, other, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		fail(t, 3, "ApplicationUri of the server", append([]string{"gds", "update-cert", otherFile, "--private-key", cli.keyFile, "--yes"}, admin...)...)
+		fail(t, 6, "ApplicationUri of the server", append([]string{"gds", "update-cert", otherFile, "--private-key", cli.keyFile, "--yes"}, admin...)...)
 	})
 
 	t.Run("apply and cancel", func(t *testing.T) {
@@ -471,7 +471,7 @@ func TestE2E_GDS(t *testing.T) {
 func TestE2E_GDSWithoutPushManagement(t *testing.T) {
 	s := startServer(t)
 	_, errOut, err := runCLI(t, "gds", "rejected", "-e", s.url)
-	if err == nil || ExitCode(err) != 3 {
+	if err == nil || ExitCode(err) != 6 {
 		t.Fatalf("err = %v (exit %d)", err, ExitCode(err))
 	}
 	wantContains(t, errOut, "GetRejectedList")
@@ -481,7 +481,7 @@ func TestE2E_GDSWithoutPushManagement(t *testing.T) {
 	}
 	wantContains(t, errOut, "publishes no ServerConfiguration properties")
 	_, _, err = runCLI(t, "gds", "props", "-e", "opc.tcp://127.0.0.1:1", "--timeout", "2s")
-	if ExitCode(err) != 2 {
+	if ExitCode(err) != 4 {
 		t.Errorf("unreachable server: exit %d", ExitCode(err))
 	}
 }

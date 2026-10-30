@@ -67,7 +67,7 @@ func TestE2E_Diagnostics(t *testing.T) {
 		if err == nil {
 			t.Fatalf("opcuactl %s succeeded", strings.Join(args, " "))
 		}
-		if ExitCode(err) != 3 && ExitCode(err) != 1 {
+		if ExitCode(err) != 9 && ExitCode(err) != 6 && ExitCode(err) != 2 {
 			t.Errorf("opcuactl %s: exit %d", strings.Join(args, " "), ExitCode(err))
 		}
 		if !strings.Contains(errOut, wantStderr) {
@@ -248,7 +248,7 @@ func TestE2E_ReturnDiagnostics(t *testing.T) {
 
 	t.Run("invalid mask", func(t *testing.T) {
 		_, _, err := runCLI(t, "get", "value", "-e", s.url, "-n", missing, "--return-diagnostics", "loud")
-		if err == nil || ExitCode(err) != 1 {
+		if err == nil || ExitCode(err) != 2 {
 			t.Errorf("err = %v (exit %d)", err, ExitCode(err))
 		}
 	})

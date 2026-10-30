@@ -111,7 +111,7 @@ func TestE2E_UAJSON(t *testing.T) {
 		wantContains(t, mustRun(t, "get", "value", "-n", s.node("Int32"), "-q"), "42")
 
 		t.Setenv("OPCUACTL_JSON_CONTENT_TYPE", "text/plain")
-		if _, _, err := runCLI(t, "get", "value", "-n", s.node("Int32")); err == nil || ExitCode(err) != 1 {
+		if _, _, err := runCLI(t, "get", "value", "-n", s.node("Int32")); err == nil || ExitCode(err) != 2 {
 			t.Errorf("an invalid OPCUACTL_JSON_CONTENT_TYPE: %v", err)
 		}
 		t.Setenv("OPCUACTL_JSON_CONTENT_TYPE", "")
@@ -135,7 +135,7 @@ func TestE2E_UAJSON(t *testing.T) {
 			{[]string{"-e", s.https, "--transport", "https-uajson", "--json-content-type", "xml"}, "invalid --json-content-type"},
 		} {
 			_, errOut, err := runCLI(t, append([]string{"get", "value", "-n", "i=2258"}, tc.args...)...)
-			if err == nil || ExitCode(err) != 1 || !strings.Contains(errOut, tc.want) {
+			if err == nil || ExitCode(err) != 2 || !strings.Contains(errOut, tc.want) {
 				t.Errorf("%v: exit %d, stderr %s; want %q", tc.args, ExitCode(err), errOut, tc.want)
 			}
 		}

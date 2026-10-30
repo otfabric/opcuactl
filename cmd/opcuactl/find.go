@@ -44,13 +44,13 @@ Examples:
   opcuactl find namespace --endpoint opc.tcp://localhost:4840 --filter "opcfoundation"
   opcuactl find namespace -e opc.tcp://localhost:4840 --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -60,7 +60,7 @@ Examples:
 			nss, err := c.NamespaceArray(opCtx)
 			if err != nil {
 				format.Errf("reading namespace array: %v", err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			var entries []model.NamespaceEntry
@@ -111,16 +111,16 @@ Examples:
   opcuactl find node --endpoint opc.tcp://localhost:4840 --name "Temp.*" --regex --class variable`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" && displayName == "" {
-				return exitCodef(1, "at least one of --name or --display-name is required")
+				return exitCodef(exitUsage, "at least one of --name or --display-name is required")
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -128,7 +128,7 @@ Examples:
 			if startNode != "" {
 				nodeID, err = parse.NodeID(startNode)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 
@@ -137,20 +137,20 @@ Examples:
 				if name != "" {
 					nameRe, err = regexp.Compile("(?i)" + name)
 					if err != nil {
-						return exitCodef(1, "invalid --name regex: %v", err)
+						return exitCodef(exitUsage, "invalid --name regex: %v", err)
 					}
 				}
 				if displayName != "" {
 					displayRe, err = regexp.Compile("(?i)" + displayName)
 					if err != nil {
-						return exitCodef(1, "invalid --display-name regex: %v", err)
+						return exitCodef(exitUsage, "invalid --display-name regex: %v", err)
 					}
 				}
 			}
 
 			classMask, err := parse.NodeClassMask(nodeClass)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			n := c.Node(nodeID)
 			var results []model.NodeInfo
@@ -158,7 +158,7 @@ Examples:
 			for wr, walkErr := range n.WalkLimitDedup(ctx, walkLimitDepth(maxDepth)) {
 				if walkErr != nil {
 					format.Errf("walk: %v", walkErr)
-					return exitCode(3, walkErr)
+					return exitCode(exitProtocol, walkErr)
 				}
 				ref := wr.Ref
 				if classMask != ua.NodeClassAll && ref.NodeClass&classMask == 0 {
@@ -296,16 +296,16 @@ Examples:
   opcuactl find type -e opc.tcp://localhost:4840 --type-definition BaseObjectType --limit 20`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if typeDefStr == "" && dataTypeStr == "" {
-				return exitCodef(1, "at least one of --type-definition or --data-type is required")
+				return exitCodef(exitUsage, "at least one of --type-definition or --data-type is required")
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -313,7 +313,7 @@ Examples:
 			if startNode != "" {
 				nodeID, err = parse.NodeID(startNode)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 
@@ -339,7 +339,7 @@ Examples:
 
 			classMask, err := parse.NodeClassMask(nodeClass)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			n := c.Node(nodeID)
 			var results []model.NodeInfo
@@ -347,7 +347,7 @@ Examples:
 			for wr, walkErr := range n.WalkLimitDedup(ctx, walkLimitDepth(maxDepth)) {
 				if walkErr != nil {
 					format.Errf("walk: %v", walkErr)
-					return exitCode(3, walkErr)
+					return exitCode(exitProtocol, walkErr)
 				}
 				ref := wr.Ref
 				if classMask != ua.NodeClassAll && ref.NodeClass&classMask == 0 {

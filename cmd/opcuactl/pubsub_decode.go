@@ -4,7 +4,6 @@ package opcuactl
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -61,11 +60,11 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			enc, err := parse.ParsePubSubEncoding(encoding, true)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			minMode, err := parse.MessageSecurity(sf.mode)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			if len(args) == 0 {
 				args = []string{"-"}
@@ -79,17 +78,17 @@ Examples:
 					raw, err = os.ReadFile(name)
 				}
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				if payloads[i], err = decodeInput(raw, input); err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				if len(payloads[i]) == 0 {
-					return exitCodef(1, "%s: empty message", name)
+					return exitCodef(exitUsage, "%s: empty message", name)
 				}
 			}
 
-			ctx := context.Background()
+			ctx := rootContext()
 			md, err := mf.load(ctx)
 			if err != nil {
 				return err
@@ -102,7 +101,7 @@ Examples:
 
 			dec, err := newPubSubDecoder(enc, ff, md, keys, minMode)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			shown := 0
 			for i, payload := range payloads {
@@ -112,9 +111,9 @@ Examples:
 				}
 				if err != nil {
 					if len(payloads) > 1 {
-						return exitCodef(3, "decoding %s: %v", args[i], err)
+						return exitCodef(exitProtocol, "decoding %s: %v", args[i], err)
 					}
-					return exitCodef(3, "decoding the message: %v", err)
+					return exitCodef(exitProtocol, "decoding the message: %v", err)
 				}
 				shown++
 				if err := writeDecoded(res); err != nil {

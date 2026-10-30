@@ -76,7 +76,7 @@ func diagnosticsFailed(what string, err error) error {
 		msg += " (" + h + ")"
 	}
 	format.Errf("%s", msg)
-	return exitCode(3, err)
+	return exitCode(exitProtocol, err)
 }
 
 // warnIfDisabled tells why a diagnostics array is empty: a server with
@@ -180,11 +180,11 @@ func sessionArg(c *opcua.Client, s string) (*ua.NodeID, error) {
 		if sess := c.Session(); sess != nil {
 			return sess.SessionID(), nil
 		}
-		return nil, exitCodef(3, "no session")
+		return nil, exitCodef(exitProtocol, "no session")
 	}
 	n, err := parse.NodeID(s)
 	if err != nil {
-		return nil, exitCodef(1, "invalid --session: %v", err)
+		return nil, exitCodef(exitUsage, "invalid --session: %v", err)
 	}
 	return n, nil
 }
@@ -195,7 +195,7 @@ func validateSessionFlag(s string) error {
 		return nil
 	}
 	if _, err := parse.NodeID(s); err != nil {
-		return exitCodef(1, "invalid --session: %v", err)
+		return exitCodef(exitUsage, "invalid --session: %v", err)
 	}
 	return nil
 }
@@ -576,7 +576,7 @@ Examples:
 						msg += " (" + h + ")"
 					}
 					format.Errf("%s", msg)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				on, err := c.ServerDiagnosticsEnabled(ctx)
 				if err != nil {

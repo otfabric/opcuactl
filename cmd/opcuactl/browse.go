@@ -47,13 +47,13 @@ Examples:
   opcuactl browse children --endpoint opc.tcp://localhost:4840 --node "ns=0;i=85"
   opcuactl browse children -e opc.tcp://localhost:4840 -n i=2253 --node-class variable --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -64,19 +64,19 @@ Examples:
 			if nodeStr != "" {
 				nodeID, err = parse.NodeID(nodeStr)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 
 			classMask, err := parse.NodeClassMask(nodeClass)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			n := c.Node(nodeID)
 			children, err := n.Children(opCtx, id.HierarchicalReferences, classMask)
 			if err != nil {
 				format.Errf("browsing children of %s: %v", nodeID, err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			var results []model.ChildNode
@@ -141,13 +141,13 @@ Examples:
   opcuactl browse refs -e opc.tcp://localhost:4840 -n i=85 --direction forward
   opcuactl browse refs --endpoint opc.tcp://localhost:4840 --node i=2253 --include-subtypes --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -158,24 +158,24 @@ Examples:
 			if nodeStr != "" {
 				nodeID, err = parse.NodeID(nodeStr)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 
 			dir, err := parse.BrowseDirection(direction)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			classMask, err := parse.NodeClassMask(nodeClass)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			refTypeID := uint32(id.References)
 			if refType != "" {
 				rtID, err := parse.NodeID(refType)
 				if err != nil || rtID.Namespace() != 0 || rtID.IntID() == 0 {
-					return exitCodef(1, "invalid --refs %q: a numeric reference type NodeId of namespace 0, e.g. i=33", refType)
+					return exitCodef(exitUsage, "invalid --refs %q: a numeric reference type NodeId of namespace 0, e.g. i=33", refType)
 				}
 				refTypeID = rtID.IntID()
 			}
@@ -184,7 +184,7 @@ Examples:
 			refs, err := n.References(opCtx, refTypeID, dir, classMask, includeSubtypes)
 			if err != nil {
 				format.Errf("browsing references of %s: %v", nodeID, err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			var results []model.Reference
@@ -256,13 +256,13 @@ Examples:
   opcuactl browse tree --endpoint opc.tcp://localhost:4840 --depth 3
   opcuactl browse tree -e opc.tcp://localhost:4840 -n i=2253 --node-class variable --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -270,13 +270,13 @@ Examples:
 			if nodeStr != "" {
 				nodeID, err = parse.NodeID(nodeStr)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 
 			classMask, err := parse.NodeClassMask(nodeClass)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			n := c.Node(nodeID)
 
@@ -290,7 +290,7 @@ Examples:
 			tree, err := browseTreeJSON(ctx, n, maxDepth, classMask, 0)
 			if err != nil {
 				format.Errf("browsing tree: %v", err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 			return w.Write(tree)
 		},
@@ -307,7 +307,7 @@ func browseTreeTable(ctx context.Context, n *opcua.Node, maxDepth int, classMask
 	for wr, err := range n.WalkLimitDedup(ctx, walkLimitDepth(maxDepth)) {
 		if err != nil {
 			format.Errf("walk: %v", err)
-			return exitCode(3, err)
+			return exitCode(exitProtocol, err)
 		}
 		ref := wr.Ref
 		if classMask != ua.NodeClassAll && ref.NodeClass&classMask == 0 {
@@ -393,16 +393,16 @@ Examples:
   opcuactl browse path -e opc.tcp://localhost:4840 --path Sensor.Value --start-node "ns=1;i=1000"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if pathStr == "" {
-				return exitCodef(1, "--path is required")
+				return exitCodef(exitUsage, "--path is required")
 			}
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -416,14 +416,14 @@ Examples:
 				// Custom start node: use Node.TranslateBrowsePathInNamespaceToNodeID
 				startID, err := parse.NodeID(startNode)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 
 				n := c.Node(startID)
 				resolved, err := n.TranslateBrowsePathInNamespaceToNodeID(opCtx, ns, pathStr)
 				if err != nil {
 					format.Errf("resolving path %q from %s: %v", pathStr, startID, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				result.NodeID = resolved.String()
 			} else if isQualifiedPath(pathStr) {
@@ -431,7 +431,7 @@ Examples:
 				node, err := c.NodeFromQualifiedPath(opCtx, pathStr)
 				if err != nil {
 					format.Errf("resolving qualified path %q: %v", pathStr, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				result.NodeID = node.ID.String()
 			} else if ns > 0 {
@@ -439,7 +439,7 @@ Examples:
 				node, err := c.NodeFromPathInNamespace(opCtx, ns, pathStr)
 				if err != nil {
 					format.Errf("resolving path %q in namespace %d: %v", pathStr, ns, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				result.NodeID = node.ID.String()
 			} else {
@@ -447,7 +447,7 @@ Examples:
 				node, err := c.NodeFromPath(opCtx, pathStr)
 				if err != nil {
 					format.Errf("resolving path %q: %v", pathStr, err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 				result.NodeID = node.ID.String()
 			}

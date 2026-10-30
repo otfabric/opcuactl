@@ -143,7 +143,7 @@ func callUntilAnswered(t *testing.T, args ...string) string {
 		if err == nil {
 			return out
 		}
-		if ExitCode(err) != 2 {
+		if ExitCode(err) != 4 {
 			t.Fatalf("opcuactl %s: %v\nstderr: %s", strings.Join(args, " "), err, e)
 		}
 		errOut = e
@@ -272,7 +272,7 @@ func TestE2E_PubSubActionsResults(t *testing.T) {
 		{[]string{"--input", "A:Int32=1", "--input", "B:Int32=2"}, "BadTooManyArguments"},
 	} {
 		out, _, err := runCLI(t, append(append([]string{"pubsub", "call", "--format", "json"}, call...), tc.inputs...)...)
-		if ExitCode(err) != 3 {
+		if ExitCode(err) != 6 {
 			t.Errorf("%v: exit code %d (%v), want 3", tc.inputs, ExitCode(err), err)
 			continue
 		}
@@ -290,7 +290,7 @@ func TestE2E_PubSubActionsResults(t *testing.T) {
 	} {
 		start := time.Now()
 		_, errOut, err := runCLI(t, append([]string{"pubsub", "call", "--timeout", "300ms"}, args...)...)
-		if ExitCode(err) != 2 || !strings.Contains(errOut, "no response") {
+		if ExitCode(err) != 5 || !strings.Contains(errOut, "no response") {
 			t.Errorf("%v: exit code %d, stderr %q", args, ExitCode(err), errOut)
 		}
 		if d := time.Since(start); d > 5*time.Second {
@@ -314,7 +314,7 @@ func TestE2E_PubSubRespondStatus(t *testing.T) {
 		resp.waitStderr(t, "responding")
 		call := []string{"pubsub", "call", "--url", reqURL, "--request-address", respURL, "--resend-interval", "100ms", "--input", "A:Int32=1"}
 		out, errOut, err := runCLI(t, call...)
-		if ExitCode(err) != 3 || !strings.Contains(out, "status=BadInternalError") || !strings.Contains(errOut, "BadInternalError") {
+		if ExitCode(err) != 6 || !strings.Contains(out, "status=BadInternalError") || !strings.Contains(errOut, "BadInternalError") {
 			t.Errorf("exit code %d, out %q, stderr %q", ExitCode(err), out, errOut)
 		}
 		resp.wait(t)
@@ -335,11 +335,11 @@ func TestE2E_PubSubRespondStatus(t *testing.T) {
 		// race, and both are timeouts.
 		d := diagnosticsOf(t, errOut)
 		switch ExitCode(err) {
-		case 2:
+		case 5:
 			if !strings.Contains(errOut, "no response") || d[ctrActionTimeouts] != 1 {
 				t.Errorf("timed out: stderr %q, requestor diagnostics %v", errOut, d)
 			}
-		case 3:
+		case 6:
 			if !strings.Contains(errOut, "answered BadTimeout") || d[ctrActionResponsesReceived] == 0 {
 				t.Errorf("answered: stderr %q, requestor diagnostics %v", errOut, d)
 			}
@@ -487,13 +487,13 @@ func TestPubSubActionFlagErrors(t *testing.T) {
 		{"call", "--url", "mqtt://127.0.0.1:1", "--qos", "1"},
 	} {
 		_, _, err := runCLI(t, append([]string{"pubsub"}, args...)...)
-		if err == nil || ExitCode(err) != 1 {
-			t.Errorf("pubsub %v: exit code %d (%v), want 1", args, ExitCode(err), err)
+		if c := ExitCode(err); err == nil || (c != 2 && c != 3) {
+			t.Errorf("pubsub %v: exit code %d (%v), want 2 or 3", args, c, err)
 		}
 	}
 	// A broker nobody listens on: a transport failure.
 	_, _, err := runCLI(t, "pubsub", "call", "--url", "mqtt://127.0.0.1:1", "--timeout", "500ms")
-	if ExitCode(err) != 2 {
+	if ExitCode(err) != 4 {
 		t.Errorf("unreachable broker: exit code %d (%v), want 2", ExitCode(err), err)
 	}
 }

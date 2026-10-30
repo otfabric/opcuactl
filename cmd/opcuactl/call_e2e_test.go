@@ -129,14 +129,14 @@ func TestE2E_CallMethod(t *testing.T) {
 			{demo, "BadNodeClassInvalid"},
 		} {
 			for _, f := range []string{"table", "json"} {
-				out, errOut := wantExit(t, 3, "call", "method", "-e", ep, "--object", demo, "--method", tc.method, "--introspect", "-f", f)
+				out, errOut := wantExit(t, 6, "call", "method", "-e", ep, "--object", demo, "--method", tc.method, "--introspect", "-f", f)
 				if out != "" {
 					t.Errorf("introspect %s: printed %q", tc.method, out)
 				}
 				wantContains(t, errOut, tc.want)
 			}
 		}
-		_, errOut := wantExit(t, 3, "call", "method", "-e", ep, "--object", demo, "--method", s.node(serve.DemoInt32), "--introspect")
+		_, errOut := wantExit(t, 6, "call", "method", "-e", ep, "--object", demo, "--method", s.node(serve.DemoInt32), "--introspect")
 		wantContains(t, errOut, "is a Variable, not a Method")
 	})
 
@@ -160,7 +160,7 @@ func TestE2E_CallMethod(t *testing.T) {
 			{call("--arg-json", "[1, 2, 3]"), "BadTooManyArguments"},
 			{[]string{"call", "method", "-e", ep, "--object", demo, "--method", s.node("Demo.Nope"), "-f", "json"}, "BadMethodInvalid"},
 		} {
-			out, errOut := wantExit(t, 3, tc.args...)
+			out, errOut := wantExit(t, 6, tc.args...)
 			wantContains(t, out, tc.want)
 			wantContains(t, errOut, tc.want)
 		}
@@ -200,16 +200,16 @@ func TestE2E_CallMethod(t *testing.T) {
 			{`[[1], 1]`, "expected a scalar Int32, got an array"},
 			{`[1, 1e400]`, "is out of range for Int32"},
 		} {
-			_, errOut := wantExit(t, 1, call("--arg-json", tc.args)...)
+			_, errOut := wantExit(t, 2, call("--arg-json", tc.args)...)
 			wantContains(t, errOut, "invalid --arg-json", tc.want)
 			if err := os.WriteFile(file, []byte(tc.args), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, errOut = wantExit(t, 1, call("--arg-file", file)...)
+			_, errOut = wantExit(t, 2, call("--arg-file", file)...)
 			wantContains(t, errOut, "invalid --arg-file", tc.want)
 		}
 		// null is an empty Variant, which Add rejects.
-		wantExit(t, 3, call("--arg-json", `[null, 1]`)...)
+		wantExit(t, 6, call("--arg-json", `[null, 1]`)...)
 	})
 
 	t.Run("json arguments of every built-in type", func(t *testing.T) {
@@ -222,10 +222,10 @@ func TestE2E_CallMethod(t *testing.T) {
 		if got := res.OutputArguments[3]; got != float64(9007199254740993) {
 			t.Errorf("Int64 = %v", got)
 		}
-		_, errOut := wantExit(t, 1, "call", "method", "-e", ts.url, "--object", object, "--method", method,
+		_, errOut := wantExit(t, 2, "call", "method", "-e", ts.url, "--object", object, "--method", method,
 			"--arg-json", `[[1, 65536]]`)
 		wantContains(t, errOut, "argument 0 (u16): element 1: 65536 is out of range for UInt16")
-		_, errOut = wantExit(t, 1, "call", "method", "-e", ts.url, "--object", object, "--method", method,
+		_, errOut = wantExit(t, 2, "call", "method", "-e", ts.url, "--object", object, "--method", method,
 			"--arg-json", `[5]`)
 		wantContains(t, errOut, "expected an array of UInt16, got a scalar")
 	})
@@ -270,11 +270,11 @@ func TestE2E_CallMethod(t *testing.T) {
 			call("--arg-file", filepath.Join(t.TempDir(), "missing.json")),
 			call("--arg-file", bad),
 		} {
-			_, errOut := wantExit(t, 1, args...)
+			_, errOut := wantExit(t, 2, args...)
 			if strings.TrimSpace(errOut) == "" {
 				t.Errorf("%v: no error message", args)
 			}
 		}
-		wantExit(t, 2, "call", "method", "-e", "opc.tcp://"+freeAddr(t), "--object", demo, "--method", add, "--timeout", "2s")
+		wantExit(t, 4, "call", "method", "-e", "opc.tcp://"+freeAddr(t), "--object", demo, "--method", add, "--timeout", "2s")
 	})
 }

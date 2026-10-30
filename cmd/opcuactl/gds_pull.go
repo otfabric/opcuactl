@@ -114,7 +114,7 @@ func pullFailed(what string, err error) error {
 		msg += " (" + h + ")"
 	}
 	format.Errf("%s", msg)
-	return exitCode(3, err)
+	return exitCode(exitProtocol, err)
 }
 
 // withPull runs fn with a GDS pull client on a new session.
@@ -127,7 +127,7 @@ func withPull(fn func(ctx context.Context, p *gds.PullClient) error) error {
 func nodeIDArg(s, what string) (*ua.NodeID, error) {
 	n, err := parse.NodeID(s)
 	if err != nil {
-		return nil, exitCodef(1, "invalid %s: %v", what, err)
+		return nil, exitCodef(exitUsage, "invalid %s: %v", what, err)
 	}
 	return n, nil
 }
@@ -297,7 +297,7 @@ Examples:
 			if typ != "" {
 				t, err := parse.ApplicationType(typ)
 				if err != nil {
-					return exitCodef(1, "invalid --type: %v", err)
+					return exitCodef(exitUsage, "invalid --type: %v", err)
 				}
 				// QueryApplications: 0 all, 1 servers, 2 clients.
 				switch t {
@@ -449,7 +449,7 @@ func (f *recordFlags) apply(cmd *cobra.Command, r *gds.ApplicationRecord) error 
 	if changed("type") || r.ApplicationType == 0 && f.typ == "" {
 		t, err := parse.ApplicationType(f.typ)
 		if err != nil {
-			return exitCodef(1, "invalid --type: %v", err)
+			return exitCodef(exitUsage, "invalid --type: %v", err)
 		}
 		r.ApplicationType = t
 	}
@@ -477,7 +477,7 @@ func (f *recordFlags) apply(cmd *cobra.Command, r *gds.ApplicationRecord) error 
 		r.ServerCapabilities = f.caps
 	}
 	if r.ApplicationURI == "" {
-		return exitCodef(1, "--uri is required")
+		return exitCodef(exitUsage, "--uri is required")
 	}
 	if len(r.ApplicationNames) == 0 {
 		r.ApplicationNames = []*ua.LocalizedText{ua.NewLocalizedText(r.ApplicationURI)}
@@ -642,7 +642,7 @@ func (f *requestFlags) parse() (group, certType *ua.NodeID, err error) {
 		return nil, nil, err
 	}
 	if certType, err = parse.CertificateType(f.certType); err != nil {
-		return nil, nil, exitCodef(1, "invalid --type: %v", err)
+		return nil, nil, exitCodef(exitUsage, "invalid --type: %v", err)
 	}
 	return group, certType, nil
 }
@@ -719,18 +719,18 @@ Examples:
 			)
 			switch {
 			case csrFile != "" && keyFile != "":
-				return exitCodef(1, "--csr and --private-key exclude each other")
+				return exitCodef(exitUsage, "--csr and --private-key exclude each other")
 			case csrFile != "":
 				if csr, err = readCSR(csrFile); err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			case keyFile != "":
 				if key, err = readSigner(keyFile); err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 			if keyPassword != "" && (csr != nil || key != nil) {
-				return exitCodef(1, "--key-password is for a key pair the GDS generates (without --csr or --private-key)")
+				return exitCodef(exitUsage, "--key-password is for a key pair the GDS generates (without --csr or --private-key)")
 			}
 			return withPull(func(ctx context.Context, p *gds.PullClient) error {
 				res := model.GDSRequest{ApplicationID: appID.String(), Kind: "signing-request"}
@@ -741,7 +741,7 @@ Examples:
 					}
 					if csr, err = gds.NewCertificateRequest(key, rec.ApplicationURI, rf.subject, rf.dns); err != nil {
 						format.Errf("making the certificate request: %v", err)
-						return exitCode(1, err)
+						return exitCode(exitUsage, err)
 					}
 				}
 				var reqID *ua.NodeID
@@ -937,7 +937,7 @@ Examples:
 				}
 				out, err := writeIssued(&files, appID.String(), reqID.String(), res.Certificate, res.PrivateKey, res.IssuerCertificates)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				return printIssued(out, "Certificate issued", res.Certificate)
 			})
@@ -984,7 +984,7 @@ Examples:
 				}
 				entries, err := trustListEntries(tl, out)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				return writeCertificates(entries)
 			})
@@ -1087,7 +1087,7 @@ Examples:
 					}
 					if out != "" {
 						if err := writeEntry(out, &e, der); err != nil {
-							return exitCode(1, err)
+							return exitCode(exitUsage, err)
 						}
 					}
 					entries = append(entries, e)
@@ -1126,7 +1126,7 @@ Examples:
 			}
 			typ, err := parse.CertificateType(certType)
 			if err != nil {
-				return exitCodef(1, "invalid --type: %v", err)
+				return exitCodef(exitUsage, "invalid --type: %v", err)
 			}
 			return withPull(func(ctx context.Context, p *gds.PullClient) error {
 				update, err := p.GetCertificateStatus(ctx, appID, grp, typ)
@@ -1180,7 +1180,7 @@ Examples:
 			}
 			certs, err := readCerts(args[1])
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			e := describe("certificate", certs[0])
 			if !confirmed(yes, os.Stdin, fmt.Sprintf("Revoke %s (%s)?", e.Thumbprint, e.Subject)) {
@@ -1221,7 +1221,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			certs, err := readCerts(args[0])
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			e := describe("certificate", certs[0])
 			return withPull(func(ctx context.Context, p *gds.PullClient) error {
@@ -1250,7 +1250,7 @@ Examples:
 					return werr
 				}
 				if st != ua.StatusOK {
-					return exitCode(4, st)
+					return exitCode(exitFindings, st)
 				}
 				return nil
 			})
@@ -1300,7 +1300,7 @@ Examples:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if files.certOut == "" {
-				return exitCodef(1, "--cert-out is required")
+				return exitCodef(exitUsage, "--cert-out is required")
 			}
 			group, certType, err := req.parse()
 			if err != nil {
@@ -1320,14 +1320,14 @@ Examples:
 			}
 			switch {
 			case keyFile != "" && newKey != "":
-				return exitCodef(1, "--private-key and --new-key exclude each other")
+				return exitCodef(exitUsage, "--private-key and --new-key exclude each other")
 			case keyFile != "":
 				if r.Key, err = readSigner(keyFile); err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			case newKey != "":
 				if r.Key, err = generateKey(newKey); err != nil {
-					return exitCodef(1, "invalid --new-key: %v", err)
+					return exitCodef(exitUsage, "invalid --new-key: %v", err)
 				}
 			}
 			return withClientTimeout(waitTime, func(ctx context.Context, c *opcua.Client) error {
@@ -1339,17 +1339,17 @@ Examples:
 				if keyFile == "" {
 					der, err := uapolicy.MarshalPrivateKey(e.PrivateKey)
 					if err != nil {
-						return exitCode(1, err)
+						return exitCode(exitUsage, err)
 					}
 					keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 				}
 				out, err := writeIssued(&files, e.ApplicationID.String(), "", e.Certificate, keyPEM, e.IssuerCertificates)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				if e.TrustList != nil {
 					if out.TrustList, err = trustListEntries(e.TrustList, trustOut); err != nil {
-						return exitCode(1, err)
+						return exitCode(exitUsage, err)
 					}
 					out.TrustDir = trustOut
 				}

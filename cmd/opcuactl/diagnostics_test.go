@@ -30,7 +30,7 @@ func TestWriteDiagnostics(t *testing.T) {
 		t.Fatalf("printed %q for errors without diagnostics", buf.String())
 	}
 
-	err := exitCode(3, &opcua.ServiceError{StatusCode: ua.StatusBadTooManyOperations, Diagnostic: &ua.Diagnostic{
+	err := exitCode(6, &opcua.ServiceError{StatusCode: ua.StatusBadTooManyOperations, Diagnostic: &ua.Diagnostic{
 		SymbolicID:      "BadTooManyOperations",
 		NamespaceURI:    "urn:vendor",
 		LocalizedText:   "too many",

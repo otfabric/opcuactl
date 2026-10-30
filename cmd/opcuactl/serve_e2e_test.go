@@ -156,7 +156,7 @@ func TestE2E_Serve(t *testing.T) {
 		// Read-only and writable.
 		// A Bad write status is printed and exits 3.
 		roOut, _, err := runCLI(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "--value", "1", "--type", "int32", "--yes")
-		if ExitCode(err) != 3 {
+		if ExitCode(err) != 6 {
 			t.Errorf("write to a read-only node: %v (exit %d)", err, ExitCode(err))
 		}
 		wantContains(t, roOut, "BadUserAccessDenied")
@@ -207,7 +207,7 @@ func TestE2E_Serve(t *testing.T) {
 
 		_, errOut, err := runCLI(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32),
 			"--auth", "username", "--username", "operator", "--password", "wrong"}, secure...)...)
-		if err == nil || ExitCode(err) != 2 {
+		if err == nil || ExitCode(err) != 9 {
 			t.Errorf("a wrong password: %v %s", err, errOut)
 		}
 		// Basic256Sha256 Sign and auto.
@@ -459,7 +459,7 @@ func TestE2E_ServeFlagValidation(t *testing.T) {
 			}
 			continue
 		}
-		if err == nil || ExitCode(err) != 1 || !strings.Contains(errOut, tc.want) {
+		if c := ExitCode(err); err == nil || (c != 2 && c != 3) || !strings.Contains(errOut, tc.want) {
 			t.Errorf("%v: exit %d, stderr %q; want %q", tc.args, ExitCode(err), errOut, tc.want)
 		}
 	}
@@ -476,7 +476,7 @@ func TestE2E_ServeFlagValidation(t *testing.T) {
 		}
 		defer func() { _ = l.Close() }()
 		_, errOut, err := runCLI(t, "serve", "--listen", l.Addr().String(), "--security-policy", "None")
-		if ExitCode(err) != 2 || !strings.Contains(errOut, "starting the server") {
+		if ExitCode(err) != 4 || !strings.Contains(errOut, "starting the server") {
 			t.Errorf("exit %d: %s", ExitCode(err), errOut)
 		}
 	})

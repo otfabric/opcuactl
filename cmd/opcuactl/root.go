@@ -3,10 +3,14 @@
 package opcuactl
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/otfabric/opcuactl/internal/conn"
@@ -26,6 +30,18 @@ var (
 	quiet             bool
 	namespace         string
 )
+
+// rootCtx holds the context of the running Execute, cancelled by SIGINT and
+// SIGTERM. Commands take it from rootContext.
+var rootCtx atomic.Pointer[context.Context]
+
+// rootContext returns the context of the running Execute.
+func rootContext() context.Context {
+	if ctx := rootCtx.Load(); ctx != nil {
+		return *ctx
+	}
+	return context.Background()
+}
 
 func newWriter() *format.Writer {
 	return format.NewWriter(format.ParseFormat(outputFormat), prettyOutput)
@@ -168,7 +184,8 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 	setString("transport", "OPCUACTL_TRANSPORT", &transportFlag)
 	setString("json-content-type", "OPCUACTL_JSON_CONTENT_TYPE", &jsonContentType)
 	setString("return-diagnostics", "OPCUACTL_RETURN_DIAGNOSTICS", &returnDiagnostics)
-	setString("format", "OPCUACTL_FORMAT", &outputFormat)
+	setString("format", "OPCUACTL_OUTPUT_FORMAT", &outputFormat)
+	setString("format", "OPCUACTL_FORMAT", &outputFormat) // the canonical name wins
 	setString("namespace", "OPCUACTL_NAMESPACE", &namespace)
 
 	if !flags.Changed("trusted-cert") {
@@ -205,20 +222,20 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 func validateGlobalFlags() error {
 	mask, err := parse.ReturnDiagnostics(returnDiagnostics)
 	if err != nil {
-		return exitCodef(1, "invalid --return-diagnostics: %v", err)
+		return exitCodef(exitUsage, "invalid --return-diagnostics: %v", err)
 	}
 	connCfg.ReturnDiagnostics = mask
 	if connCfg.TransportProfile, err = conn.ParseTransport(transportFlag); err != nil {
-		return exitCodef(1, "invalid --transport: %v", err)
+		return exitCodef(exitUsage, "invalid --transport: %v", err)
 	}
 	if err := connCfg.ValidateTransport(); err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
 	if connCfg.JSONContentType, err = conn.ParseJSONContentType(jsonContentType); err != nil {
-		return exitCodef(1, "invalid --json-content-type: %v", err)
+		return exitCodef(exitUsage, "invalid --json-content-type: %v", err)
 	}
 	if _, err := connCfg.TLSConfig(); err != nil {
-		return exitCode(1, err)
+		return exitCode(exitUsage, err)
 	}
 	if connCfg.TLSInsecureSkipVerify {
 		fmt.Fprintln(os.Stderr, "Warning: --tls-insecure-skip-verify: the TLS certificate of the server is not verified (INSECURE, development only)")
@@ -243,7 +260,10 @@ func splitCSV(s string) []string {
 // command fails silently.
 func Execute() error {
 	format.ResetPrinted()
-	err := rootCmd.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	rootCtx.Store(&ctx)
+	err := rootCmd.ExecuteContext(ctx)
 	if err != nil && !format.ErrPrinted(err.Error()) {
 		format.Errf("%v", err)
 	}

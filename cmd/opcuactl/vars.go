@@ -44,13 +44,13 @@ Examples:
   opcuactl get vars -e opc.tcp://localhost:4840 -n "ns=3;s=PLC" --match Revision
   opcuactl get vars -e opc.tcp://localhost:4840 -n "ns=2;i=5001" --recursive --only-ns 3 -f json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
 				format.Errf("%v", err)
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -61,7 +61,7 @@ Examples:
 			if nodeStr != "" {
 				startNode, err = parse.NodeID(nodeStr)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 			}
 
@@ -84,7 +84,7 @@ Examples:
 			})
 			if err != nil {
 				format.Errf("browsing variables from %s: %v", startNode, err)
-				return exitCode(3, err)
+				return exitCode(exitProtocol, err)
 			}
 
 			// Filter to Variable nodes and apply namespace / match filters.
@@ -164,7 +164,7 @@ Examples:
 				readResults, err := c.ReadMulti(opCtx, items)
 				if err != nil {
 					format.Errf("batch reading variables: %v", err)
-					return exitCode(3, err)
+					return exitCode(exitProtocol, err)
 				}
 
 				for i := range results {

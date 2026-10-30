@@ -39,7 +39,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			enc, err := parse.ParseUAEncoding(encoding)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			return withRemote(func(ctx context.Context, _ *opcua.Client, r *remote.Client) error {
 				cfg, err := r.ReadConfiguration(ctx)
@@ -82,11 +82,11 @@ Example:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			enc, err := parse.ParsePubSubEncoding(encoding, false)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			profile, err := transportProfile(url, enc)
 			if err != nil {
-				return exitCodef(1, "--url: %v", err)
+				return exitCodef(exitUsage, "--url: %v", err)
 			}
 			return withRemote(func(ctx context.Context, _ *opcua.Client, r *remote.Client) error {
 				ids, err := r.ReserveIDs(ctx, profile, groups, writers)
@@ -180,7 +180,7 @@ Examples:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" || len(targetSpecs) == 0 {
-				return exitCodef(1, "--name and --target are required")
+				return exitCodef(exitUsage, "--name and --target are required")
 			}
 			reqFields, err := parseActionFields(request, "--request")
 			if err != nil {
@@ -195,10 +195,10 @@ Examples:
 			for i, spec := range targetSpecs {
 				id, tname, err := parse.ActionTarget(spec)
 				if err != nil {
-					return exitCodef(1, "--target: %v", err)
+					return exitCodef(exitUsage, "--target: %v", err)
 				}
 				if _, dup := index[id]; dup {
-					return exitCodef(1, "--target: ActionTargetId %d given twice", id)
+					return exitCodef(exitUsage, "--target: ActionTargetId %d given twice", id)
 				}
 				index[id] = i
 				targets[i] = pubsub.ActionTargetOf(id, tname)
@@ -209,20 +209,20 @@ Examples:
 				for _, spec := range methodSpecs {
 					id, m, err := parseActionMethod(spec)
 					if err != nil {
-						return exitCodef(1, "--method: %v", err)
+						return exitCodef(exitUsage, "--method: %v", err)
 					}
 					i, ok := index[id]
 					if !ok {
-						return exitCodef(1, "--method: no --target %d", id)
+						return exitCodef(exitUsage, "--method: no --target %d", id)
 					}
 					if methods[i] != nil {
-						return exitCodef(1, "--method: ActionTargetId %d given twice", id)
+						return exitCodef(exitUsage, "--method: ActionTargetId %d given twice", id)
 					}
 					methods[i] = m
 				}
 				for i, m := range methods {
 					if m == nil {
-						return exitCodef(1, "--method: none for target %d (give one for every target or none)", targets[i].ActionTargetID)
+						return exitCodef(exitUsage, "--method: none for target %d (give one for every target or none)", targets[i].ActionTargetID)
 					}
 				}
 				pds = pubsub.PublishedActionMethods(name, reqFields, respFields, targets, methods)

@@ -118,7 +118,7 @@ Examples:
 			}
 			lay, err := parse.DiscoveryLayout(layout)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			tf := pubsubTransportFlags{url: url, iface: iface}
 			if _, err := tf.config(parse.EncodingUADP); err != nil {
@@ -126,30 +126,30 @@ Examples:
 			}
 			for _, u := range append([]string{url}, listen...) {
 				if s, _ := transport.Scheme(u); s != "opc.udp" && s != "opc.eth" {
-					return exitCodef(1, "%s: UADP discovery needs opc.udp:// or opc.eth://", u)
+					return exitCodef(exitUsage, "%s: UADP discovery needs opc.udp:// or opc.eth://", u)
 				}
 			}
 			if !sharedAddress(url) && len(listen) == 0 {
-				return exitCodef(1, "%s is a unicast address: give --listen-url for the announcements (the address of the publisher's data)", url)
+				return exitCodef(exitUsage, "%s is a unicast address: give --listen-url for the announcements (the address of the publisher's data)", url)
 			}
 			var pub *message.PublisherID
 			if publisherID != "" {
 				p, err := parse.PublisherID(publisherID)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				pub = &p
 			}
 			ids := make([]uint16, len(writerIDs))
 			for i, id := range writerIDs {
 				if id == 0 || id > 0xffff {
-					return exitCodef(1, "--writer-id %d is not a DataSetWriterId (1-65535)", id)
+					return exitCodef(exitUsage, "--writer-id %d is not a DataSetWriterId (1-65535)", id)
 				}
 				ids[i] = uint16(id)
 			}
 			probes, err := discoveryProbes(kinds, pub, ids, groupID, includeWriters, includeGroups, profiles, lay)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -161,11 +161,11 @@ Examples:
 			defer closeKeys()
 			minMode, err := parse.MessageSecurity(sf.mode)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			dec, err := newPubSubDecoder(parse.EncodingUADP, pubsubFilterFlags{publisherID: publisherID}, nil, keys, minMode)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			dec.diag = newPubSubDiagnostics("discovery", []pubsub.DiagnosticsCounterID{pubsub.CounterReceivedNetworkMessages,
 				pubsub.CounterReceivedInvalidNetworkMessages, pubsub.CounterDecryptionErrors},
@@ -205,13 +205,13 @@ Examples:
 			for _, nm := range probes {
 				b, err := uadp.Encode(nm, nil)
 				if err != nil {
-					return exitCodef(3, "encoding the %s probe: %v", nm.Request.InformationType, err)
+					return exitCodef(exitProtocol, "encoding the %s probe: %v", nm.Request.InformationType, err)
 				}
 				sendCtx, cancel := connCfg.TimeoutContext(ctx)
 				err = conn.Send(sendCtx, b, transport.PublishOptions{})
 				cancel()
 				if err != nil {
-					return exitCodef(2, "sending a probe to %s: %v", url, transportError(url, err))
+					return exitCodef(exitTransport, "sending a probe to %s: %v", url, transportError(url, err))
 				}
 				dec.diag.add(ctrDiscoveryRequestsSent, 1)
 			}

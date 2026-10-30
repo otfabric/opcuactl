@@ -42,7 +42,7 @@ func (f *pubsubChunkFlags) register(fs *pflag.FlagSet) {
 // defaults.
 func (f *pubsubChunkFlags) options() (*uadp.ReassemblerOptions, error) {
 	if f.maxSize < 0 || f.maxPending < 0 || f.maxPendingBytes < 0 || f.timeout < 0 {
-		return nil, exitCodef(1, "the --chunk-* limits must not be negative")
+		return nil, exitCodef(exitUsage, "the --chunk-* limits must not be negative")
 	}
 	return &uadp.ReassemblerOptions{
 		MaxMessageSize:     f.maxSize,
@@ -133,11 +133,11 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			enc, err := parse.ParsePubSubEncoding(encoding, true)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			minMode, err := parse.MessageSecurity(sf.mode)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			reasm, err := cf.options()
 			if err != nil {
@@ -170,7 +170,7 @@ Examples:
 
 			dec, err := newPubSubDecoder(enc, ff, md, keys, minMode)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			dec.reasm = uadp.NewReassembler(reasm)
 			dec.diag = newPubSubDiagnostics("reader-group",

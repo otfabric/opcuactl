@@ -390,7 +390,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			enc, err := parse.ParsePubSubEncoding(encoding, false)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			compress, err := checkJSONCompression(jsonCompression, enc, tf.url)
 			if err != nil {
@@ -398,51 +398,51 @@ Examples:
 			}
 			mode, err := parse.MessageSecurity(sf.mode)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			if err := gf.validate(); err != nil {
 				return err
 			}
 			if len(fieldSpecs) == 0 {
-				return exitCodef(1, "at least one --field Name:Type=Value is required")
+				return exitCodef(exitUsage, "at least one --field Name:Type=Value is required")
 			}
 			fields := make([]parse.PubSubFieldValue, len(fieldSpecs))
 			mdFields := make([]pubsub.Field, len(fieldSpecs))
 			for i, s := range fieldSpecs {
 				f, err := parse.PubSubFieldWithValue(s)
 				if err != nil {
-					return exitCode(1, err)
+					return exitCode(exitUsage, err)
 				}
 				fields[i], mdFields[i] = f, f.Field
 			}
 			fieldMask, err := parse.FieldEncoding(fieldEncoding)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			pid, err := parse.PublisherID(publisherID)
 			if err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			scheme, err := transport.Scheme(tf.url)
 			if err != nil && tf.url != "" {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
 			broker := isBrokerScheme(scheme)
 			switch {
 			case broker && topic == "":
-				return exitCodef(1, "--topic is required with a broker (MQTT topic, AMQP address)")
+				return exitCodef(exitUsage, "--topic is required with a broker (MQTT topic, AMQP address)")
 			case !broker && metaTopic != "":
-				return exitCodef(1, "--metadata-topic needs a broker; use --announce-metadata over UDP or Ethernet")
+				return exitCodef(exitUsage, "--metadata-topic needs a broker; use --announce-metadata over UDP or Ethernet")
 			case mode > ua.MessageSecurityModeNone && enc == parse.EncodingJSON:
-				return exitCodef(1, "--message-security is only available with the UADP encoding")
+				return exitCodef(exitUsage, "--message-security is only available with the UADP encoding")
 			case mode == ua.MessageSecurityModeNone && (sf.group != "" || sf.keysFile != ""):
-				return exitCodef(1, "--security-group/--keys-file need --message-security sign or sign-and-encrypt")
+				return exitCodef(exitUsage, "--security-group/--keys-file need --message-security sign or sign-and-encrypt")
 			case maxMessageSize < 0:
-				return exitCodef(1, "--max-message-size must not be negative")
+				return exitCodef(exitUsage, "--max-message-size must not be negative")
 			case announceEvery < 0:
-				return exitCodef(1, "--announce-interval must not be negative")
+				return exitCodef(exitUsage, "--announce-interval must not be negative")
 			case announceEvery > 0 && broker && metaTopic == "":
-				return exitCodef(1, "--announce-interval needs --metadata-topic with a broker")
+				return exitCodef(exitUsage, "--announce-interval needs --metadata-topic with a broker")
 			}
 			if answerProbes {
 				if err := df.validate(tf.url, enc, "--answer-probes"); err != nil {
@@ -456,7 +456,7 @@ Examples:
 			var keys security.KeySource
 			if mode > ua.MessageSecurityModeNone {
 				if sf.group == "" && sf.keysFile == "" {
-					return exitCodef(1, "--message-security %s needs --security-group or --keys-file", sf.mode)
+					return exitCodef(exitUsage, "--message-security %s needs --security-group or --keys-file", sf.mode)
 				}
 				var closeKeys func()
 				keys, closeKeys, err = sf.keySource(ctx)
@@ -534,11 +534,11 @@ Examples:
 				parts, err := p.metaDataMessage(time.Now())
 				if err != nil {
 					encodeFailed(err)
-					return exitCodef(3, "encoding the DataSetMetaData: %v", err)
+					return exitCodef(exitProtocol, "encoding the DataSetMetaData: %v", err)
 				}
 				n, err := sendParts(conn, parts, transport.PublishOptions{Topic: metaTopic, QoS: tf.qos, Retain: true, MessageType: transport.MessageTypeMetaData})
 				if err != nil {
-					return exitCodef(2, "sending the DataSetMetaData: %v", err)
+					return exitCodef(exitTransport, "sending the DataSetMetaData: %v", err)
 				}
 				if verbose {
 					format.Infof("sent DataSetMetaData (%d bytes)", n)
@@ -615,11 +615,11 @@ Examples:
 				parts, err := p.dataMessage(seq, time.Now())
 				if err != nil {
 					encodeFailed(err)
-					return exitCodef(3, "encoding message %d: %v", seq, err)
+					return exitCodef(exitProtocol, "encoding message %d: %v", seq, err)
 				}
 				n, err := sendParts(conn, parts, transport.PublishOptions{Topic: topic, QoS: tf.qos, Retain: retain, MessageType: transport.MessageTypeData})
 				if err != nil {
-					return exitCodef(2, "sending message %d: %v", seq, err)
+					return exitCodef(exitTransport, "sending message %d: %v", seq, err)
 				}
 				sent++
 				bytesSent += n

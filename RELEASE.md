@@ -1,5 +1,37 @@
 # opcuactl Releases
 
+## v0.11.0
+
+**Date:** 2026-10-30  
+**Previous release:** v0.10.4
+
+### Summary
+
+Exit codes converge on the organisation table (ADR-0006). **Every script that tests an exit code must change.**
+
+| Case | Old | New |
+|---|---|---|
+| Certificate not valid (`check-revocation`) | 4 | 1 |
+| Usage or validation | 1 | 2 |
+| Unreadable file | 1 | 3 |
+| Connection or transport | 2 | 4 |
+| Timeout | 2 or 3 | 5 |
+| Service or status failure | 3 | 6 |
+| Partial success | 4 | 7 |
+| Service unsupported | 3 | 8 |
+| Access denied | 3 | 9 |
+| Interrupted | killed by the signal | 130 |
+
+### Changed
+
+- SIGINT and SIGTERM cancel every command through a root context, not only the streaming commands.
+
+### Added
+
+- `OPCUACTL_OUTPUT_FORMAT` is accepted besides `OPCUACTL_FORMAT`, the canonical name, which wins.
+
+---
+
 ## v0.10.4
 
 **Date:** 2026-10-26  

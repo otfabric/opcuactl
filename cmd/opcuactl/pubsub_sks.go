@@ -3,7 +3,6 @@
 package opcuactl
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 
@@ -64,15 +63,15 @@ Examples:
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if group == "" {
-				return exitCodef(1, "--security-group is required")
+				return exitCodef(exitUsage, "--security-group is required")
 			}
 			if err := connCfg.RequireEndpoint(); err != nil {
-				return exitCode(1, err)
+				return exitCode(exitUsage, err)
 			}
-			ctx := context.Background()
+			ctx := rootContext()
 			c, err := connCfg.NewClient(ctx)
 			if err != nil {
-				return exitCode(2, err)
+				return exitCode(exitTransport, err)
 			}
 			defer func() { _ = c.Close(ctx) }()
 
@@ -80,7 +79,7 @@ Examples:
 			defer cancel()
 			res, err := sks.GetSecurityKeys(opCtx, c, group, startingToken, futureKeys)
 			if err != nil {
-				return exitCodef(3, "GetSecurityKeys: %v", err)
+				return exitCodef(exitProtocol, "GetSecurityKeys: %v", err)
 			}
 			out := securityKeysModel(group, res, showKeys)
 

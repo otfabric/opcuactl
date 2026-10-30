@@ -209,19 +209,19 @@ func TestE2E_HistoryEvents(t *testing.T) {
 
 	t.Run("exit codes", func(t *testing.T) {
 		base := []string{"history", "event", "-e", ep, "--start", from, "--end", to}
-		_, errOut := wantExit(t, 3, append(base, "-n", s.node("Nope"))...)
+		_, errOut := wantExit(t, 6, append(base, "-n", s.node("Nope"))...)
 		wantContains(t, errOut, ua.StatusBadNodeIDUnknown.Symbol())
-		_, errOut = wantExit(t, 3, append(base, "-n", s.node(serve.DemoLevel))...)
+		_, errOut = wantExit(t, 6, append(base, "-n", s.node(serve.DemoLevel))...)
 		wantContains(t, errOut, "BadHistoryOperationUnsupported")
-		wantExit(t, 1, "history", "event", "-e", ep, "--start", from, "--end", to)
-		wantExit(t, 1, append(base, "-n", "ns=1;x=")...)
-		wantExit(t, 1, "history", "event", "-e", ep, "-n", demo, "--start", "yesterday", "--end", to)
-		wantExit(t, 1, "history", "event", "-e", ep, "-n", demo, "--start", from, "--end", "tomorrow")
-		wantExit(t, 1, "history", "event", "-e", ep, "-n", demo, "--start", from)
-		wantExit(t, 1, append(base, "-n", demo, "--continuation", "some")...)
-		wantExit(t, 1, append(base, "-n", demo, "--select", "AckedState//Id")...)
-		wantExit(t, 1, append(base, "-n", demo, "--of-type", "NoSuchType")...)
-		wantExit(t, 2, "history", "event", "-e", "opc.tcp://"+freeAddr(t), "-n", demo, "--start", from, "--end", to, "--timeout", "2s")
+		wantExit(t, 2, "history", "event", "-e", ep, "--start", from, "--end", to)
+		wantExit(t, 2, append(base, "-n", "ns=1;x=")...)
+		wantExit(t, 2, "history", "event", "-e", ep, "-n", demo, "--start", "yesterday", "--end", to)
+		wantExit(t, 2, "history", "event", "-e", ep, "-n", demo, "--start", from, "--end", "tomorrow")
+		wantExit(t, 2, "history", "event", "-e", ep, "-n", demo, "--start", from)
+		wantExit(t, 2, append(base, "-n", demo, "--continuation", "some")...)
+		wantExit(t, 2, append(base, "-n", demo, "--select", "AckedState//Id")...)
+		wantExit(t, 2, append(base, "-n", demo, "--of-type", "NoSuchType")...)
+		wantExit(t, 4, "history", "event", "-e", "opc.tcp://"+freeAddr(t), "-n", demo, "--start", from, "--end", to, "--timeout", "2s")
 	})
 }
 
@@ -279,11 +279,11 @@ func TestE2E_HistoryEventUpdates(t *testing.T) {
 	})
 
 	t.Run("insert existing", func(t *testing.T) {
-		res := update(4, "--event", `[{"EventId":"0x0a01","Time":"2001-03-01T00:00:00Z","Message":"again"},{"EventId":"0x0a04","Time":"2001-06-01T00:00:00Z","Message":"fourth"}]`)
+		res := update(7, "--event", `[{"EventId":"0x0a01","Time":"2001-03-01T00:00:00Z","Message":"again"},{"EventId":"0x0a04","Time":"2001-06-01T00:00:00Z","Message":"fourth"}]`)
 		if res[0].Status != ua.StatusBadEntryExists.Symbol() || res[1].Status != ua.StatusGoodEntryInserted.Symbol() {
 			t.Errorf("partial insert %+v", res)
 		}
-		res = update(3, "--event", `{"EventId":"0x0a01","Time":"2001-03-01T00:00:00Z","Message":"again"}`)
+		res = update(6, "--event", `{"EventId":"0x0a01","Time":"2001-03-01T00:00:00Z","Message":"again"}`)
 		if res[0].StatusCode != uint32(ua.StatusBadEntryExists) {
 			t.Errorf("failed insert %+v", res)
 		}
@@ -294,7 +294,7 @@ func TestE2E_HistoryEventUpdates(t *testing.T) {
 		if res[0].Status != ua.StatusGoodEntryReplaced.Symbol() {
 			t.Errorf("replace %+v", res)
 		}
-		res = update(3, "--mode", "replace", "--event", `{"EventId":"0x0bad","Message":"none"}`)
+		res = update(6, "--mode", "replace", "--event", `{"EventId":"0x0bad","Message":"none"}`)
 		if res[0].Status != ua.StatusBadNoEntryExists.Symbol() {
 			t.Errorf("replace unknown %+v", res)
 		}
@@ -328,7 +328,7 @@ func TestE2E_HistoryEventUpdates(t *testing.T) {
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		res := del(4, "--event-id", "CgE=", "--event-id", "0x0bad")
+		res := del(7, "--event-id", "CgE=", "--event-id", "0x0bad")
 		if res[0].Status != ua.StatusOK.Symbol() || res[1].Status != ua.StatusBadNoData.Symbol() || res[1].EventID != "C60=" {
 			t.Errorf("partial delete %+v", res)
 		}
@@ -336,7 +336,7 @@ func TestE2E_HistoryEventUpdates(t *testing.T) {
 		if res[0].Status != ua.StatusOK.Symbol() || res[1].Status != ua.StatusOK.Symbol() {
 			t.Errorf("delete %+v", res)
 		}
-		res = del(3, "--event-id", "0x0a03")
+		res = del(6, "--event-id", "0x0a03")
 		if res[0].Status != ua.StatusBadNoData.Symbol() {
 			t.Errorf("delete again %+v", res)
 		}
@@ -348,11 +348,11 @@ func TestE2E_HistoryEventUpdates(t *testing.T) {
 	})
 
 	t.Run("not writable", func(t *testing.T) {
-		res := del(3, "--event-id", "0x01", "-n", "i=2253")
+		res := del(6, "--event-id", "0x01", "-n", "i=2253")
 		if res[0].Status != ua.StatusBadHistoryOperationUnsupported.Symbol() {
 			t.Errorf("delete on the Server object %+v", res)
 		}
-		res = update(3, "-n", s.node("Nope"), "--event", `{"Message":"x"}`)
+		res = update(6, "-n", s.node("Nope"), "--event", `{"Message":"x"}`)
 		if res[0].Status != ua.StatusBadNodeIDUnknown.Symbol() {
 			t.Errorf("update of an unknown node %+v", res)
 		}
@@ -360,26 +360,26 @@ func TestE2E_HistoryEventUpdates(t *testing.T) {
 
 	t.Run("usage", func(t *testing.T) {
 		u := []string{"history", "update-events", "-e", ep, "-n", demo, "--yes"}
-		wantExit(t, 1, "history", "update-events", "-e", ep, "--event", `{"Message":"x"}`)
-		wantExit(t, 1, "history", "update-events", "-e", ep, "-n", "ns=1;x=", "--event", `{"Message":"x"}`)
-		wantExit(t, 1, u...)
-		wantExit(t, 1, append(u, "--mode", "upsert", "--event", `{"Message":"x"}`)...)
-		wantExit(t, 1, append(u, "--event", `{"Message":`)...)
-		wantExit(t, 1, append(u, "--event", `{"Severity":-1}`)...)
-		wantExit(t, 1, append(u, "--mode", "replace", "--event", `{"Message":"x"}`)...)
-		wantExit(t, 1, append(u, "--events-file", filepath.Join(t.TempDir(), "missing.json"))...)
+		wantExit(t, 2, "history", "update-events", "-e", ep, "--event", `{"Message":"x"}`)
+		wantExit(t, 2, "history", "update-events", "-e", ep, "-n", "ns=1;x=", "--event", `{"Message":"x"}`)
+		wantExit(t, 2, u...)
+		wantExit(t, 2, append(u, "--mode", "upsert", "--event", `{"Message":"x"}`)...)
+		wantExit(t, 2, append(u, "--event", `{"Message":`)...)
+		wantExit(t, 2, append(u, "--event", `{"Severity":-1}`)...)
+		wantExit(t, 2, append(u, "--mode", "replace", "--event", `{"Message":"x"}`)...)
+		wantExit(t, 2, append(u, "--events-file", filepath.Join(t.TempDir(), "missing.json"))...)
 		bad := filepath.Join(t.TempDir(), "bad.json")
 		if err := os.WriteFile(bad, []byte(`[1]`), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		wantExit(t, 1, append(u, "--events-file", bad)...)
+		wantExit(t, 2, append(u, "--events-file", bad)...)
 		d := []string{"history", "delete-events", "-e", ep, "--yes"}
-		wantExit(t, 1, d...)
-		wantExit(t, 1, append(d, "-n", "ns=1;x=", "--event-id", "0x01")...)
-		wantExit(t, 1, append(d, "-n", demo)...)
-		wantExit(t, 1, append(d, "-n", demo, "--event-id", "latest")...)
-		wantExit(t, 1, append(d, "-n", demo, "--event-id", "0xzz")...)
-		wantExit(t, 2, "history", "delete-events", "-e", "opc.tcp://"+freeAddr(t), "-n", demo, "--event-id", "0x01", "--yes", "--timeout", "2s")
-		wantExit(t, 2, "history", "update-events", "-e", "opc.tcp://"+freeAddr(t), "-n", demo, "--event", `{"Message":"x"}`, "--yes", "--timeout", "2s")
+		wantExit(t, 2, d...)
+		wantExit(t, 2, append(d, "-n", "ns=1;x=", "--event-id", "0x01")...)
+		wantExit(t, 2, append(d, "-n", demo)...)
+		wantExit(t, 2, append(d, "-n", demo, "--event-id", "latest")...)
+		wantExit(t, 2, append(d, "-n", demo, "--event-id", "0xzz")...)
+		wantExit(t, 4, "history", "delete-events", "-e", "opc.tcp://"+freeAddr(t), "-n", demo, "--event-id", "0x01", "--yes", "--timeout", "2s")
+		wantExit(t, 4, "history", "update-events", "-e", "opc.tcp://"+freeAddr(t), "-n", demo, "--event", `{"Message":"x"}`, "--yes", "--timeout", "2s")
 	})
 }
