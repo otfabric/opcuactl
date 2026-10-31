@@ -513,10 +513,16 @@ func TestE2E_DiscoveryOnNetwork(t *testing.T) {
 		t.Fatalf("server.New: %v", err)
 	}
 	if err := srv.Start(context.Background()); err != nil {
+		if os.Getenv("OPCUACTL_REQUIRE_MULTICAST") != "" {
+			t.Fatalf("multicast discovery: %v", err)
+		}
 		t.Skipf("multicast discovery is not available here: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	if len(srv.ServersOnNetwork()) == 0 {
+		if os.Getenv("OPCUACTL_REQUIRE_MULTICAST") != "" {
+			t.Fatal("the server announced nothing")
+		}
 		t.Skip("the server announced nothing (no multicast interface)")
 	}
 	endpoint := fmt.Sprintf("opc.tcp://localhost:%d", srv.Port())
