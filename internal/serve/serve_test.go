@@ -396,6 +396,9 @@ func TestTLSCertificate(t *testing.T) {
 func TestIPv6Hostname(t *testing.T) {
 	l, err := net.Listen("tcp", "[::1]:0")
 	if err != nil {
+		if os.Getenv("OPCUACTL_REQUIRE_IPV6") != "" {
+			t.Fatalf("no IPv6 loopback: %v", err)
+		}
 		t.Skip("no IPv6 loopback")
 	}
 	_ = l.Close()

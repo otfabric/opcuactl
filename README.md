@@ -532,7 +532,7 @@ opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Label" \
 
 ### OPC UA JSON and XML Encodings
 
-`--format json` prints opcuactl's own, compact output. `--ua-encoding` prints the DataValue exactly as Part 6 of the OPC UA specification defines it, so it can be exchanged with other OPC UA stacks and tools:
+`--format json` prints opcuactl's own, compact output. Its shapes are in [docs/json-output.md](docs/json-output.md). `--ua-encoding` prints the DataValue exactly as Part 6 of the OPC UA specification defines it, so it can be exchanged with other OPC UA stacks and tools:
 
 ```sh
 # OPC UA JSON, 1.05 compact form (what open62541 reads and writes)

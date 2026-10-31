@@ -17,9 +17,27 @@ jobs:
     with:
       run-govulncheck: true
       coverage-min: "90"
+      fuzz-time: 10s
       codecov-name: opcuactl
       go-versions: '["1.26", "1.27"]'
       # The default also leaves out /cmd/, which here is the CLI itself:
       # cmd/opcuactl holds most of the tests, the e2e suite included.
       test-exclude-regex: "(/example(s)?($|/))"
     secrets: inherit
+
+  # Per-package floor (TEST-012), and the tests that skip without a
+  # prerequisite: this job has both multicast and IPv6 loopback, so there a
+  # skip is a failure.
+  package-coverage:
+    name: Per-package coverage, prerequisites required
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPCUACTL_REQUIRE_MULTICAST: "1"
+      OPCUACTL_REQUIRE_IPV6: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make coverage-pkg-check

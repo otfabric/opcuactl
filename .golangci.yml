@@ -8,3 +8,8 @@ linters:
   settings:
     unparam:
       check-exported: false  # only report unused params in unexported functions (less noisy)
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
