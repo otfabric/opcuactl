@@ -2,7 +2,6 @@
 /bin/
 /opcuactl
 /release/*
-/bin/*
 
 # Scan results
 *.csv
@@ -21,3 +20,6 @@ coverage.html
 *.cover
 # Claude Code worktrees and local settings
 .claude/
+
+# Build artefacts live in /bin/ and /release/ (otfabric/engineering REPO-005)
+*.test
