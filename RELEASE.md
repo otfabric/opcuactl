@@ -1,5 +1,16 @@
 # opcuactl Releases
 
+## v0.11.3
+
+**Date:** 2026-11-01
+**Previous release:** v0.11.2
+
+### Changed
+
+- Built on go-opcua v1.29.3.
+
+---
+
 ## v0.11.2
 
 **Date:** 2026-10-31
