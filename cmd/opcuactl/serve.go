@@ -65,6 +65,7 @@ type serveFlags struct {
 	noDemo      bool
 	simInterval time.Duration
 	logLevel    string
+	logClients  bool
 	duration    time.Duration
 }
 
@@ -164,6 +165,7 @@ Examples:
 	fs.BoolVar(&f.noDemo, "no-demo", false, "Leave out the demo namespace")
 	fs.DurationVar(&f.simInterval, "sim-interval", time.Second, "Update interval of the simulated demo values")
 	fs.StringVar(&f.logLevel, "log-level", "error", "Server log on stderr (debug|info|warn|error|off)")
+	fs.BoolVar(&f.logClients, "log-clients", false, "Log each client connection, session and refused request on stderr, whatever --log-level")
 	fs.DurationVar(&f.duration, "duration", 0, "Stop after this time (default: run until Ctrl+C / SIGTERM)")
 
 	_ = cmd.RegisterFlagCompletionFunc("security-policy", fixedCompletion(servePolicyValues))
@@ -288,6 +290,9 @@ func (f *serveFlags) setup(stderr io.Writer) (*serveSetup, error) {
 	}
 	if level != nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: *level}))
+	}
+	if f.logClients {
+		cfg.Clients = slog.New(slog.NewTextHandler(stderr, nil))
 	}
 	if cfg.Users, err = f.parseUsers(); err != nil {
 		return nil, err
