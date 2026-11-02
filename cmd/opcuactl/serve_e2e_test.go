@@ -564,3 +564,23 @@ func TestE2E_NoSecurityIsAChoice(t *testing.T) {
 		t.Errorf("connect with the opt-in: %v, %s", err, errOut)
 	}
 }
+
+// TestE2E_ServeLogClients: with --log-clients, serve logs a client's
+// connection and session on stderr, also with --log-level off. The lines of
+// refused requests are tested in internal/serve.
+func TestE2E_ServeLogClients(t *testing.T) {
+	s := startServe(t, "--security-policy", "None", "--log-level", "off", "--log-clients")
+	ep := s.url(t, ua.TransportProfileUATCP)
+	if _, errOut, err := runCLI(t, "get", "value", "-e", ep, "-n", "i=2258", "--insecure-no-security"); err != nil {
+		t.Fatalf("get value: %v, %s", err, errOut)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for _, want := range []string{`msg="client connected"`, `msg="session activated"`, `msg="session closed"`, `msg="client disconnected"`} {
+		for !strings.Contains(s.stderr.String(), want) {
+			if time.Now().After(deadline) {
+				t.Fatalf("no %s in stderr:\n%s", want, s.stderr)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
