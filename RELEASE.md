@@ -1,5 +1,16 @@
 # opcuactl Releases
 
+## v0.11.4
+
+**Date:** 2026-11-02
+**Previous release:** v0.11.3
+
+### Changed
+
+- Built on go-opcua v1.29.5, which takes in v1.29.4. As a server peer this changes what `opcuactl` sees: a Value whose AccessLevel does not allow reading or writing answers `BadNotReadable` or `BadNotWritable` instead of `BadUserAccessDenied`; a server on a published port other than its listen port is accepted; written values carry a SourceTimestamp; `history delete-events` against `opcuactl serve` reports an EventId without an event as `BadNoEntryExists`, and still `BadNoData` when none matched. go-opcua's release notes have the full list.
+
+---
+
 ## v0.11.3
 
 **Date:** 2026-11-01

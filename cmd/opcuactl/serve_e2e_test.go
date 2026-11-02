@@ -159,7 +159,7 @@ func TestE2E_Serve(t *testing.T) {
 		if ExitCode(err) != 6 {
 			t.Errorf("write to a read-only node: %v (exit %d)", err, ExitCode(err))
 		}
-		wantContains(t, roOut, "BadUserAccessDenied")
+		wantContains(t, roOut, "BadNotWritable")
 		wantContains(t, mustRun(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "--value", "90", "--type", "double", "--yes"), "Good")
 		wantContains(t, mustRun(t, "get", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "-q"), "90")
 
