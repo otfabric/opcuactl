@@ -329,13 +329,15 @@ func TestE2E_HistoryEventUpdates(t *testing.T) {
 
 	t.Run("delete", func(t *testing.T) {
 		res := del(7, "--event-id", "CgE=", "--event-id", "0x0bad")
-		if res[0].Status != ua.StatusOK.Symbol() || res[1].Status != ua.StatusBadNoData.Symbol() || res[1].EventID != "C60=" {
+		if res[0].Status != ua.StatusOK.Symbol() || res[1].Status != ua.StatusBadNoEntryExists.Symbol() || res[1].EventID != "C60=" {
 			t.Errorf("partial delete %+v", res)
 		}
 		res = del(0, "--event-id", "0x0a03", "--event-id", "0x0a04")
 		if res[0].Status != ua.StatusOK.Symbol() || res[1].Status != ua.StatusOK.Symbol() {
 			t.Errorf("delete %+v", res)
 		}
+		// The node is Bad_NoData when no EventId matched (Part 11 §6.9.7.2),
+		// and a Bad node status is what each operation reports; it exits 6.
 		res = del(6, "--event-id", "0x0a03")
 		if res[0].Status != ua.StatusBadNoData.Symbol() {
 			t.Errorf("delete again %+v", res)
