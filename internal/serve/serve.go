@@ -82,6 +82,9 @@ type Config struct {
 
 	// Logger receives the log of the server; nil is silent.
 	Logger *slog.Logger
+	// Clients, when not nil, receives a line for each client connection,
+	// session and refused request.
+	Clients *slog.Logger
 }
 
 // Server is a configured go-opcua server.
@@ -198,6 +201,9 @@ func (cfg *Config) options() ([]server.Option, error) {
 	}
 	if cfg.TrustedClients != nil {
 		opts = append(opts, server.WithClientCertificateTrustList(cfg.TrustedClients...))
+	}
+	if cfg.Clients != nil {
+		opts = append(opts, server.WithSessionObserver(clientLog{log: cfg.Clients}))
 	}
 	if cfg.Anonymous {
 		opts = append(opts, server.EnableAuthMode(ua.UserTokenTypeAnonymous))

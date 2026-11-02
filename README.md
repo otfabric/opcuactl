@@ -1233,6 +1233,7 @@ opcuactl serve --listen 127.0.0.1:0 -q
 | `--no-demo` | — | Leave out the demo namespace |
 | `--sim-interval` | `1s` | Update interval of the simulated values |
 | `--log-level` | `error` | Server log on stderr: `debug`, `info`, `warn`, `error`, `off` |
+| `--log-clients` | off | A line on stderr for each client connection (with its duration), session (activated, closed and why) and refused request (an untrusted certificate, a wrong password, a token type not offered), whatever `--log-level` |
 | `--duration` | until Ctrl+C / SIGTERM | Stop after this time |
 
 The demo namespace `urn:otfabric:opcuactl:demo` (ns=1; the namespaces of `--nodeset` files come after it) has the object `Demo` under Objects with string NodeIds. `Demo` is an event notifier with an event history (EventNotifier SubscribeToEvents, HistoryRead and HistoryWrite): it keeps the last 1000 events reported on it, an event "opcuactl serve started" (Severity 100) and the LevelAlarm transitions, for `history event`, `history update-events` and `history delete-events`.

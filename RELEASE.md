@@ -1,5 +1,20 @@
 # opcuactl Releases
 
+## v0.12.0
+
+**Date:** 2026-11-02
+**Previous release:** v0.11.4
+
+### Added
+
+- `serve --log-clients`: a line on stderr for each client connection (remote address, how long it lasted), session (activated or reactivated with its name, client application, identity and security; closed by the client, timed out or closed by the server) and refused request (an untrusted client certificate at OpenSecureChannel, a refused CreateSession, a wrong password or a token type the server does not offer), whatever `--log-level`. It uses the session observer of go-opcua v1.30.0.
+
+### Changed
+
+- Built on go-opcua v1.30.0. As a server, `opcuactl serve` now refuses a login type its endpoints do not offer: with `--allow-anonymous=false` an anonymous client gets `BadIdentityTokenRejected` instead of a session, and a user name over an unsecured channel is refused. A session no longer keeps the password of its user. go-opcua's release notes have the full list.
+
+---
+
 ## v0.11.4
 
 **Date:** 2026-11-02
