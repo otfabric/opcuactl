@@ -564,3 +564,40 @@ func tlsPair(t *testing.T, id Identity) tls.Certificate {
 	t.Helper()
 	return tls.Certificate{Certificate: [][]byte{id.Cert}, PrivateKey: id.Key}
 }
+
+// TestLimits: the limits of the Config reach the server, which refuses a
+// session or subscription beyond them and publishes them in
+// ServerCapabilities (Part 5 §6.3.2).
+func TestLimits(t *testing.T) {
+	s := start(t, Config{Anonymous: true, MaxSessions: 1, MaxSubscriptions: 2, MaxSubscriptionsPerSession: 1})
+	ep := endpointURL(t, s, "opc.tcp")
+	ctx := context.Background()
+	c := connect(t, ep)
+
+	for nid, want := range map[uint32]uint32{24095: 1, 24096: 2, 24098: 1} {
+		dv, err := c.ReadValue(ctx, ua.NewNumericNodeID(0, nid))
+		if err != nil || dv.Value == nil || dv.Value.Value() != want {
+			t.Errorf("i=%d: %v %v, want %d", nid, dv, err, want)
+		}
+	}
+
+	other, err := opcua.NewClient(ep, opcua.InsecureNoSecurity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Connect(ctx); !errors.Is(err, ua.StatusBadTooManySessions) {
+		t.Errorf("second session: %v, want BadTooManySessions", err)
+	}
+	_ = other.Close(ctx)
+
+	subscribe := func() error {
+		_, err := c.Subscribe(ctx, &opcua.SubscriptionParameters{Interval: time.Hour}, make(chan *opcua.PublishNotificationData, 1))
+		return err
+	}
+	if err := subscribe(); err != nil {
+		t.Fatalf("first subscription: %v", err)
+	}
+	if err := subscribe(); !errors.Is(err, ua.StatusBadTooManySubscriptions) {
+		t.Errorf("second subscription of the session: %v, want BadTooManySubscriptions", err)
+	}
+}
