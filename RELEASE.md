@@ -1,5 +1,16 @@
 # opcuactl Releases
 
+## v0.13.0
+
+**Date:** 2026-11-03
+**Previous release:** v0.12.0
+
+### Changed
+
+- Built on go-opcua v1.31.0. As a server, `opcuactl serve` now limits clients to 100 sessions, 1024 subscriptions in all and 64 per session (`BadTooManySessions`, `BadTooManySubscriptions`), and clients can write attributes other than Value only where the node's WriteMask allows it, else `BadNotWritable`: its built-in nodes have none, nodes from `--nodeset` files keep the WriteMask of the file. Both the server and the client keep to the message size and chunk count the other side announced; a response that is too large for the client is aborted by the server with `BadResponseTooLarge`. go-opcua's release notes have the full list.
+
+---
+
 ## v0.12.0
 
 **Date:** 2026-11-02

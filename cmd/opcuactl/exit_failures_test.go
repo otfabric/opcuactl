@@ -142,6 +142,9 @@ func proxy(t *testing.T, target string, frames int, after time.Duration) string 
 						return
 					}
 				}
+				// Wait for the next frame and drop it: closing right after the
+				// last forwarded one would race its response against the close.
+				_, _ = io.ReadFull(c, make([]byte, 8))
 			}()
 		}
 	}()
@@ -167,8 +170,10 @@ func TestExitCodesServerLost(t *testing.T) {
 	if err := os.WriteFile(payload, []byte{0xff}, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Connecting takes six messages; later is after the first operation.
-	ep, later := cutProxy(t, s.url, 6), cutProxy(t, s.url, 7)
+	// Connecting takes five messages (Hello, OpenSecureChannel,
+	// CreateSession, ActivateSession, the namespace Read): ep drops the first
+	// operation, later the second.
+	ep, later := cutProxy(t, s.url, 5), cutProxy(t, s.url, 6)
 	node := "i=2258"
 	from, to := "--start=2026-01-01T00:00:00Z", "--end=2026-01-02T00:00:00Z"
 	for _, c := range []struct {
@@ -201,7 +206,7 @@ func TestExitCodesServerLost(t *testing.T) {
 		{[]string{"get", "vars", "-n", "i=2253"}, "batch reading", later},
 		{[]string{"find", "node", "--name", "x"}, "walk", later},
 		{[]string{"find", "type", "--data-type", "double"}, "walk", later},
-		{[]string{"alarms", "list"}, "ConditionRefresh", cutProxy(t, s.url, 9)},
+		{[]string{"alarms", "list"}, "ConditionRefresh", cutProxy(t, s.url, 8)},
 	} {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
 			_, stderr, err := runCLI(t, append(c.args, "-e", c.ep, "--timeout", "1s")...)
@@ -223,7 +228,7 @@ func TestExitCodesServerLost(t *testing.T) {
 // without reconnecting: the proxy would take a new connection.
 func TestAlarmsWatchConnectionLost(t *testing.T) {
 	s := startServer(t)
-	stdout, stderr, err := runCLI(t, "alarms", "watch", "-e", cutProxy(t, s.url, 10), "--timeout", "1s")
+	stdout, stderr, err := runCLI(t, "alarms", "watch", "-e", cutProxy(t, s.url, 9), "--timeout", "1s")
 	if got := ExitCode(err); got != exitTransport {
 		t.Errorf("exit %d, want %d (%v)", got, exitTransport, err)
 	}
