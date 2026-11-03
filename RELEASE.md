@@ -1,5 +1,16 @@
 # opcuactl Releases
 
+## v0.14.0
+
+**Date:** 2026-11-03
+**Previous release:** v0.13.0
+
+### Added
+
+- `serve --max-sessions` (default 100), `--max-subscriptions` (default 1024, all sessions) and `--max-subscriptions-per-session` (default 64): the session and subscription limits of go-opcua v1.31.0, with its defaults. Each must be positive. The server publishes them in ServerCapabilities `MaxSessions`, `MaxSubscriptions` and `MaxSubscriptionsPerSession`, and the description of `serve` shows them (`limits` in JSON).
+
+---
+
 ## v0.13.0
 
 **Date:** 2026-11-03

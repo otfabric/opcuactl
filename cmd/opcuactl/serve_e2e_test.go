@@ -130,6 +130,9 @@ func TestE2E_Serve(t *testing.T) {
 		if info.ApplicationURI != "urn:127.0.0.1:opcuactl:serve" || !info.Anonymous || strings.Join(info.Users, ",") != "operator,admin" || info.ClientTrust != "any" {
 			t.Errorf("description %+v", info)
 		}
+		if info.Limits != (model.ServeLimits{MaxSessions: 100, MaxSubscriptions: 1024, MaxSubscriptionsPerSession: 64}) {
+			t.Errorf("default limits %+v", info.Limits)
+		}
 		if len(info.Certificates) != 1 || !info.Certificates[0].Generated || info.Certificates[0].KeyType != "rsa" || info.Certificates[0].File != certOut {
 			t.Errorf("certificates %+v", info.Certificates)
 		}
@@ -396,6 +399,21 @@ func TestE2E_ServeCLI(t *testing.T) {
 	}
 }
 
+// TestE2E_ServeLimits: the limit flags reach the server, which publishes
+// them in ServerCapabilities (Part 5 §6.3.2), and its description.
+func TestE2E_ServeLimits(t *testing.T) {
+	s := startServe(t, "--max-sessions", "7", "--max-subscriptions", "9", "--max-subscriptions-per-session", "3", "--log-level", "off")
+	if s.info.Limits != (model.ServeLimits{MaxSessions: 7, MaxSubscriptions: 9, MaxSubscriptionsPerSession: 3}) {
+		t.Errorf("limits %+v", s.info.Limits)
+	}
+	tcp := s.url(t, ua.TransportProfileUATCP)
+	for node, want := range map[string]string{"i=24095": "7", "i=24096": "9", "i=24098": "3"} {
+		if got := strings.TrimSpace(mustRun(t, "get", "value", "-e", tcp, "-n", node, "-q")); got != want {
+			t.Errorf("%s = %q, want %s", node, got, want)
+		}
+	}
+}
+
 // TestE2E_ServeFlagValidation checks the flags before anything starts.
 func TestE2E_ServeFlagValidation(t *testing.T) {
 	dir := t.TempDir()
@@ -438,6 +456,9 @@ func TestE2E_ServeFlagValidation(t *testing.T) {
 		{[]string{"--cert", srvCert.certFile, "--key", other.keyFile}, "no certificate for the ecc-P-256"},
 		{[]string{"--security-policy", "ECC_brainpoolP256r1"}, "needs a certificate of its key type"},
 		{[]string{"--sim-interval", "0s"}, "--sim-interval must be positive"},
+		{[]string{"--max-sessions", "0"}, "--max-sessions must be positive"},
+		{[]string{"--max-subscriptions", "-1"}, "--max-subscriptions must be positive"},
+		{[]string{"--max-subscriptions-per-session", "0"}, "--max-subscriptions-per-session must be positive"},
 		{[]string{"--duration", "-1s"}, "--duration must not be negative"},
 		{[]string{"--trusted-cert", missing}, "--trusted-cert:"},
 		{[]string{"--trusted-cert", badXML}, "--trusted-cert " + badXML},
