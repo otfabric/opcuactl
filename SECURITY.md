@@ -33,6 +33,7 @@ We will acknowledge your report within 48 hours and aim to provide a fix or miti
 - **`--insecure-no-security`** is the only way to run without message security over `opc.tcp`, as a client and with `serve`. Use it only on an isolated, trusted network
 - **List the servers you trust** with `--trusted-cert`: the system CA pool is not used, and a secure channel needs this list
 - **Do not use `--insecure-skip-verify`** in production — it disables server certificate validation
+- **Size the limits of `serve`** to the clients you expect with `--max-sessions`, `--max-subscriptions` and `--max-subscriptions-per-session`: a client can open sessions before it logs in, so the limits bound what an unauthenticated client can tie up
 
 ### Credential Handling
 

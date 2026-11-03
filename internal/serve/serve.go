@@ -80,6 +80,13 @@ type Config struct {
 	// NodeSets are imported after the demo namespace.
 	NodeSets []NodeSet
 
+	// MaxSessions, MaxSubscriptions and MaxSubscriptionsPerSession limit
+	// what clients may open (Bad_TooManySessions, Bad_TooManySubscriptions);
+	// 0 takes go-opcua's defaults of 100, 1024 and 64.
+	MaxSessions                int
+	MaxSubscriptions           int
+	MaxSubscriptionsPerSession int
+
 	// Logger receives the log of the server; nil is silent.
 	Logger *slog.Logger
 	// Clients, when not nil, receives a line for each client connection,
@@ -201,6 +208,15 @@ func (cfg *Config) options() ([]server.Option, error) {
 	}
 	if cfg.TrustedClients != nil {
 		opts = append(opts, server.WithClientCertificateTrustList(cfg.TrustedClients...))
+	}
+	if cfg.MaxSessions > 0 {
+		opts = append(opts, server.WithMaxSessions(cfg.MaxSessions))
+	}
+	if cfg.MaxSubscriptions > 0 {
+		opts = append(opts, server.WithMaxSubscriptions(cfg.MaxSubscriptions))
+	}
+	if cfg.MaxSubscriptionsPerSession > 0 {
+		opts = append(opts, server.WithMaxSubscriptionsPerSession(cfg.MaxSubscriptionsPerSession))
 	}
 	if cfg.Clients != nil {
 		opts = append(opts, server.WithSessionObserver(clientLog{log: cfg.Clients}))

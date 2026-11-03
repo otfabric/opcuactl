@@ -343,7 +343,7 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 **ServeInfo** — a server started by `opcuactl serve`.
 
-`applicationUri`, `demoNamespace`?, `demoNamespaceIndex`?, `namespaces`, `certificates`?, `clientTrust`, `anonymous`, `users`?, `endpoints`
+`applicationUri`, `demoNamespace`?, `demoNamespaceIndex`?, `namespaces`, `certificates`?, `clientTrust`, `anonymous`, `users`?, `limits` (`maxSessions`, `maxSubscriptions`, `maxSubscriptionsPerSession`), `endpoints`
 
 **ServeCertificate** — an application instance certificate of the server.
 

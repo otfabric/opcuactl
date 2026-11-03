@@ -17,9 +17,18 @@ type ServeInfo struct {
 	ClientTrust string `json:"clientTrust"`
 	// Users are the user names the server accepts; Anonymous whether it
 	// accepts anonymous sessions.
-	Anonymous bool       `json:"anonymous"`
-	Users     []string   `json:"users,omitempty"`
-	Endpoints []Endpoint `json:"endpoints"`
+	Anonymous bool     `json:"anonymous"`
+	Users     []string `json:"users,omitempty"`
+	// Limits are what clients may open.
+	Limits    ServeLimits `json:"limits"`
+	Endpoints []Endpoint  `json:"endpoints"`
+}
+
+// ServeLimits are the session and subscription limits of the server.
+type ServeLimits struct {
+	MaxSessions                int `json:"maxSessions"`
+	MaxSubscriptions           int `json:"maxSubscriptions"`
+	MaxSubscriptionsPerSession int `json:"maxSubscriptionsPerSession"`
 }
 
 // ServeCertificate is an application instance certificate of the server.
