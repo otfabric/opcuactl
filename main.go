@@ -8,12 +8,13 @@ import (
 	"github.com/otfabric/opcuactl/cmd/opcuactl"
 )
 
-// Injected at link time, e.g. -X main.version=… -X main.tag=…
+// Injected at link time, e.g. -X main.version=… -X main.tag=…; empty means a
+// development build (see internal/buildinfo).
 var (
-	version   = "dev"
+	version   = ""
 	tag       = ""
-	commit    = "none"
-	buildDate = "unknown"
+	commit    = ""
+	buildDate = ""
 )
 
 func init() {

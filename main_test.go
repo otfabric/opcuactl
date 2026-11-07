@@ -9,11 +9,12 @@ import (
 	"testing"
 )
 
-// init() runs when the package loads under go test; this test documents build-time defaults.
+// TestBuildMetadataDefaults documents the build-time defaults: empty, so
+// that internal/buildinfo falls back on the Go build information.
 func TestBuildMetadataDefaults(t *testing.T) {
 	t.Parallel()
-	if version == "" {
-		t.Error("main.version should have a non-empty default")
+	if version != "" || tag != "" || commit != "" || buildDate != "" {
+		t.Error("main's build metadata should be empty unless set with -ldflags -X")
 	}
 }
 
@@ -35,11 +36,11 @@ func TestMainVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var info map[string]string
+	var info map[string]any
 	if err := json.Unmarshal(out, &info); err != nil {
 		t.Fatalf("version output %q: %v", out, err)
 	}
-	if info["version"] != version || info["commit"] != commit || info["buildDate"] != buildDate {
-		t.Errorf("version %v, want main's %s %s %s", info, version, commit, buildDate)
+	if info["name"] != "opcuactl" || info["version"] != "dev" || info["commit"] == "" || info["built"] != "unknown" {
+		t.Errorf("version %v, want a development build of opcuactl", info)
 	}
 }

@@ -1,5 +1,22 @@
 # opcuactl Releases
 
+## v0.15.0
+
+**Date:** 2026-11-07
+**Previous release:** v0.14.1
+
+### Added
+
+- `version --json`: the build information as one JSON object, keys `name`, `version`, `tag`, `commit`, `built`, `libraries`, `go`, `platform`, always present and in this order. `--format json` and `--format jsonl` print the same.
+- Shell completion completes the value of every flag that takes one: besides the enum flags that already completed, `--endpoint` (`opc.tcp://`, `opc.wss://`, `opc.https://`), the PubSub `--url` schemes, `--capability` (the capability identifiers of OPC 10000-12, with descriptions), `--qos`, `--encoding` and `--ua-encoding` where they had none, `--type` of `gds pull query` and `gds pull status`, `--session` (`self`), `--event-id` (`latest`), network interfaces for `--interface`; certificate, key, CSR, JSON and NodeSet XML files by extension for `--cert`, `--key`, `--trusted-cert`, `--tls-*`, `--issuer`, `--private-key`, `--csr`, `--arg-file`, `--events-file`, `--keys-file`, `--metadata` and `--nodeset`; directories for `--trust-dir`, `--trust-out` and `--out` where it names a directory; certificate files for the `<cert>` arguments of `gds trustlist add`/`remove`, `gds update-cert`, `gds pull revoke` and `check-revocation`. Numbers, durations, node IDs and other free values no longer complete file names. The bash script is cobra's V2 script, with descriptions.
+
+### Changed
+
+- **Breaking for scripts that read `version`:** `version` prints one line, `opcuactl 0.15.0 (tag v0.15.0, commit <sha>, built <date>, go-opcua 1.31.0, go1.26.10, linux/amd64)`, with the OT Fabric libraries it is built with,, instead of a `tag:`/`commit:`/`built:`/`go version:` block, and its JSON is one line with the keys above instead of `version`, `tag`, `commit`, `buildDate`, `goVersion`. The version has no leading `v`. A development build reports `dev` and the commit from the Go VCS stamp (`-dirty` for a modified tree) instead of `dev`/`none`/`unknown`; `go install …@vX.Y.Z` reports that version. `--format yaml` and `csv` print the text line.
+- `make build` stamps a version and tag only when HEAD is a tag (a build off a tag reports `dev`), and the full commit SHA.
+
+---
+
 ## v0.14.1
 
 **Date:** 2026-11-07

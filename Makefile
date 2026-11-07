@@ -20,9 +20,9 @@ DOCSYNC_VERSION := v0.3.1
 APP_NAME       = opcuactl
 APP_SRC        = main.go
 ARCHS          = linux/amd64 linux/arm64 linux/arm/v7 darwin/amd64 darwin/arm64
-VERSION       := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-TAG           := $(shell git tag --points-at HEAD 2>/dev/null | head -1)
-COMMIT        := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+VERSION       := $(shell git describe --tags --exact-match 2>/dev/null)
+TAG           := $(shell git describe --tags --exact-match 2>/dev/null)
+COMMIT        := $(shell git rev-parse HEAD 2>/dev/null || echo "")
 BUILD_DATE    := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS       := -ldflags "-s -w \
   -X 'main.version=$(VERSION)' \
@@ -103,11 +103,11 @@ build-all: ## Build the application for all architectures
 		cpu=$${rest%%/*}; \
 		variant=$${rest#*/}; \
 		if [ "$$cpu" = "arm" ] && [ "$$variant" = "v7" ]; then \
-			echo "Building $(APP_NAME)-$(VERSION)-$$os-armv7..."; \
-			GOOS=$$os GOARCH=$$cpu GOARM=7 go build $(LDFLAGS) -o $(RELEASE_DIR)/$(APP_NAME)-$(VERSION)-$$os-armv7 $(APP_SRC); \
+			echo "Building $(APP_NAME)-$(or $(VERSION),dev)-$$os-armv7..."; \
+			GOOS=$$os GOARCH=$$cpu GOARM=7 go build $(LDFLAGS) -o $(RELEASE_DIR)/$(APP_NAME)-$(or $(VERSION),dev)-$$os-armv7 $(APP_SRC); \
 		else \
-			echo "Building $(APP_NAME)-$(VERSION)-$$os-$$cpu..."; \
-			GOOS=$$os GOARCH=$$cpu go build $(LDFLAGS) -o $(RELEASE_DIR)/$(APP_NAME)-$(VERSION)-$$os-$$cpu $(APP_SRC); \
+			echo "Building $(APP_NAME)-$(or $(VERSION),dev)-$$os-$$cpu..."; \
+			GOOS=$$os GOARCH=$$cpu go build $(LDFLAGS) -o $(RELEASE_DIR)/$(APP_NAME)-$(or $(VERSION),dev)-$$os-$$cpu $(APP_SRC); \
 		fi \
 	done
 
@@ -119,9 +119,9 @@ release-all: build-all ## Package the build binaries into tar.gz archives for al
 		cpu=$${rest%%/*}; \
 		variant=$${rest#*/}; \
 		if [ "$$cpu" = "arm" ] && [ "$$variant" = "v7" ]; then \
-			bin=$(APP_NAME)-$(VERSION)-$$os-armv7; \
+			bin=$(APP_NAME)-$(or $(VERSION),dev)-$$os-armv7; \
 		else \
-			bin=$(APP_NAME)-$(VERSION)-$$os-$$cpu; \
+			bin=$(APP_NAME)-$(or $(VERSION),dev)-$$os-$$cpu; \
 		fi; \
 		echo "Packaging $$bin.tar.gz..."; \
 		tar czf $(RELEASE_DIR)/$$bin.tar.gz -C $(RELEASE_DIR) $$bin; \

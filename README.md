@@ -31,6 +31,8 @@ From source (Go 1.26+): `go install github.com/otfabric/opcuactl@latest`
 
 ### Shell completion
 
+Completion knows the commands and flags, the values of every enum flag (`--format`, `--security-policy`, `--security-mode`, `--auth`, `--transport`, `--capability`, …), the schemes of `--endpoint` and `--url`, and certificate, key, JSON and NodeSet files by extension.
+
 ```bash
 # bash (needs the bash-completion package)
 mkdir -p ~/.local/share/bash-completion/completions

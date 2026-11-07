@@ -4,66 +4,40 @@ package opcuactl
 
 import (
 	"fmt"
-	"runtime"
 
+	"github.com/otfabric/opcuactl/internal/buildinfo"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/spf13/cobra"
 )
 
-var (
-	version   = "dev"
-	tag       = ""
-	commit    = "none"
-	buildDate = "unknown"
-)
-
 // SetBuildInfo is called from main with values from main's link-time -X flags.
 func SetBuildInfo(ver, gitTag, sha, built string) {
-	version = ver
-	tag = gitTag
-	commit = sha
-	buildDate = built
+	buildinfo.Set(ver, gitTag, sha, built)
 }
 
 func newVersionCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
-		Long: `Print the opcuactl version, commit hash, build date, and Go version.
+		Long: `Print the opcuactl version, tag, commit, build date, Go version and
+platform on one line, or as one JSON object with --json (or --format json or
+jsonl).
 
 Examples:
   opcuactl version
-  opcuactl version --format json`,
+  opcuactl version --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			w := newWriter()
-
-			info := struct {
-				Version   string `json:"version"`
-				Tag       string `json:"tag,omitempty"`
-				Commit    string `json:"commit"`
-				BuildDate string `json:"buildDate"`
-				GoVersion string `json:"goVersion"`
-			}{
-				Version:   version,
-				Tag:       tag,
-				Commit:    commit,
-				BuildDate: buildDate,
-				GoVersion: runtime.Version(),
+			info := buildinfo.Get("opcuactl")
+			line := info.String()
+			if f := format.ParseFormat(outputFormat); asJSON || f == format.JSON || f == format.JSONL {
+				line = info.JSON()
 			}
-
-			f := format.ParseFormat(outputFormat)
-			if f == format.Table {
-				fmt.Printf("opcuactl %s\n", info.Version)
-				if info.Tag != "" {
-					fmt.Printf("  tag:        %s\n", info.Tag)
-				}
-				fmt.Printf("  commit:     %s\n", info.Commit)
-				fmt.Printf("  built:      %s\n", info.BuildDate)
-				fmt.Printf("  go version: %s\n", info.GoVersion)
-				return nil
-			}
-			return w.Write(info)
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), line)
+			return err
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the build information as one JSON object")
+	return cmd
 }

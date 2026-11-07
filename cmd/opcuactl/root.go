@@ -151,6 +151,7 @@ func init() {
 		newVersionCmd(),
 		newCompletionCmd(),
 	)
+	registerDefaultCompletions(rootCmd)
 }
 
 // applyEnvOverrides fills unset flags from the environment. Explicit CLI flags win.
