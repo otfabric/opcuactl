@@ -1,0 +1,17 @@
+{
+  "clis": [
+    {
+      "name": "opcuactl",
+      "manifest": "./cmd/opcuactl",
+      "exit_codes": "cmd/opcuactl",
+      "json_types": "internal/model"
+    }
+  ],
+  "ignore": [
+    {
+      "rule": "DS-REF",
+      "subject": "Server.ServerStatus",
+      "reason": "an OPC UA browse path (Path Resolution table), not Go"
+    }
+  ]
+}

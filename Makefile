@@ -1,4 +1,4 @@
-.PHONY: help all run fmt lint lint-ci vet test check build build-all release-all install clean vuln e2e coverage-check coverage-pkg-check fuzz
+.PHONY: help all run fmt lint lint-ci vet test check build build-all release-all install clean vuln e2e coverage-check coverage-pkg-check fuzz docs-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -14,6 +14,8 @@ COVER_MIN := 90
 # is not counted. Lowest package when set: cmd/opcuactl, 93.7 %.
 COVER_PKG_MIN := 90
 FUZZTIME ?= 10s
+# docsync release of docs-check (DOC-008).
+DOCSYNC_VERSION := v0.2.0
 
 APP_NAME       = opcuactl
 APP_SRC        = main.go
@@ -78,11 +80,15 @@ fuzz: ## Run every Fuzz target for FUZZTIME (targets discovered, never listed)
 		done; \
 	done
 
+# The documents against the code (DOC-008): docsync, as docs.yml runs it.
+docs-check: ## Check that the documents agree with the code (docsync)
+	@go run github.com/otfabric/docsync@$(DOCSYNC_VERSION) check .
+
 cover: coverage ## Open coverage report in browser
 	@echo "Opening coverage report"
 	@go tool cover -html=coverage.out
 
-check: fmt lint lint-ci vet vuln test coverage-check coverage-pkg-check ## Run all checks (format, lint, vet, vulnerability scan, test, coverage)
+check: fmt lint lint-ci vet vuln test coverage-check coverage-pkg-check docs-check ## Run all checks (format, lint, vet, vulnerability scan, test, coverage)
 
 build: check ## Build the application
 	@echo "Building $(BIN)"
