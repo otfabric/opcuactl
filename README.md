@@ -11,9 +11,25 @@
 
 It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is interop-tested against open62541, Eclipse Milo, async-opcua, the OPC Foundation UA-.NETStandard stack, node-opcua and opcua-asyncio.
 
-**Quick links:** [Quick start](#quick-start) · [Features](#features) · [Installation](#installation) · [Commands](#command-reference) · [Examples](#usage-examples) · [Security](#security) · [FAQ](#faq)
+**Quick links:** [Install](#install) · [Quick start](#quick-start) · [Features](#features) · [Commands](#command-reference) · [Examples](#usage-examples) · [Security](#security) · [FAQ](#faq)
 
 > **Responsible use:** opcuactl talks to real control systems. Only use it on servers and networks you own or are authorized to test. `write value` changes process values and `call method` runs server-side logic: know what a node controls before you write to it (`--dry-run` validates a write without sending it). Subscriptions and large browse or export runs add load to a server that may have limited sessions and resources.
+
+## Install
+
+```bash
+curl -fsSL https://get.otfabric.io/opcuactl | sh
+```
+
+```powershell
+irm https://get.otfabric.io/opcuactl.ps1 | iex
+```
+
+Linux (amd64, arm64, armv7), macOS (Intel, Apple silicon) and Windows (amd64, arm64). The installer verifies the release's SHA-256 checksum, installs per user without `sudo` (`~/.local/bin`, Windows `%LOCALAPPDATA%\OTFabric\bin`), and upgrades in place when run again. Pin a version with `OTF_VERSION=x.y.z`; for CI, containers and device images use `OTF_UNMANAGED_INSTALL=<dir>`; all options: [otfabric/install](https://github.com/otfabric/install#options). For offline machines, the archives and checksums are on [Releases](https://github.com/otfabric/opcuactl/releases).
+
+From source (Go 1.26+): `go install github.com/otfabric/opcuactl@latest`
+
+Shell completion: `opcuactl completion bash|zsh|fish|powershell` prints a completion script; `opcuactl completion <shell> --help` shows how to load it.
 
 ---
 
@@ -36,13 +52,13 @@ It is built for commissioning, troubleshooting and integration work on PLCs, gat
 - **Reach servers behind a firewall** — with `--reverse-listen` opcuactl waits for the server to connect (OPC UA reverse connect); every command works over it.
 - **Standard encodings** — read and write values in the OPC UA JSON and XML DataEncodings to exchange them with other stacks.
 - **Script-friendly** — `--format table|json|yaml|csv|jsonl`, `--quiet` for a bare value, stable exit codes and `OPCUACTL_*` environment variables.
-- **Pre-built binaries** — Linux, macOS and Windows (x86-64 and ARM) from [GitHub Releases](https://github.com/otfabric/opcuactl/releases), with SHA-256 checksums; no runtime to install.
+- **One-line install** — Linux, macOS and Windows (x86-64 and ARM), checksum-verified, no runtime to install: see [Install](#install).
 
 ---
 
 ## Quick start
 
-Download a binary from [GitHub Releases](https://github.com/otfabric/opcuactl/releases) (see [Installation](#installation) for copy-paste commands for Linux, macOS and Windows, or build from source), then point it at a server — replace `opc.tcp://localhost:4840` with your endpoint:
+[Install](#install) opcuactl, then point it at a server — replace `opc.tcp://localhost:4840` with your endpoint:
 
 ```sh
 # Discover servers on a network
@@ -92,19 +108,11 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 
 ## Table of Contents
 
+- [Install](#install)
 - [Why opcuactl?](#why-opcuactl)
 - [Quick start](#quick-start)
 - [Use cases](#use-cases)
 - [Features](#features)
-- [Installation](#installation)
-  - [Linux](#linux)
-  - [macOS](#macos)
-  - [Windows (PowerShell)](#windows-powershell)
-  - [Manual download](#manual-download)
-  - [Update](#update)
-  - [Go install](#go-install)
-  - [Build from source](#build-from-source)
-  - [Shell completion](#shell-completion)
 - [Command Reference](#command-reference)
 - [Usage Examples](#usage-examples)
 - [Global Flags](#global-flags)
@@ -153,156 +161,6 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
 
 See [RELEASE.md](RELEASE.md) for what changed in the latest release.
-
----
-
-## Installation
-
-The easiest way to install opcuactl is to download a pre-built binary from the [GitHub Releases page](https://github.com/otfabric/opcuactl/releases). No Go toolchain is required.
-
-| Platform | CPU | Download |
-|---|---|---|
-| Linux | x86-64 | `opcuactl-<version>-linux-amd64.tar.gz` |
-| Linux | 64-bit ARM (Raspberry Pi 4/5 with a 64-bit OS, AWS Graviton) | `opcuactl-<version>-linux-arm64.tar.gz` |
-| Linux | 32-bit ARM (Raspberry Pi with a 32-bit OS) | `opcuactl-<version>-linux-armv7.tar.gz` |
-| macOS | Apple Silicon (M1 and later) | `opcuactl-<version>-darwin-arm64.tar.gz` |
-| macOS | Intel | `opcuactl-<version>-darwin-amd64.tar.gz` |
-| Windows | x86-64 | `opcuactl-<version>-windows-amd64.zip` |
-| Windows | ARM64 | `opcuactl-<version>-windows-arm64.zip` |
-
-Each release also contains `opcuactl-<version>-checksums.txt` (SHA-256) so you can verify your download. The commands below fetch the **latest** release, verify its checksum and install it. Afterwards, check that it works:
-
-```console
-opcuactl version
-```
-
-### Linux
-
-```bash
-# 1. Find the latest version and your CPU architecture
-VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/otfabric/opcuactl/releases/latest | sed 's|.*/v||')
-case "$(uname -m)" in
-  x86_64)         ARCH=amd64 ;;
-  aarch64|arm64)  ARCH=arm64 ;;
-  armv7l)         ARCH=armv7 ;;
-  *) echo "Unsupported architecture: $(uname -m)" ;;
-esac
-
-# 2. Download the archive and the checksum file
-FILE="opcuactl-${VERSION}-linux-${ARCH}.tar.gz"
-BASE="https://github.com/otfabric/opcuactl/releases/download/v${VERSION}"
-curl -fsSLO "${BASE}/${FILE}"
-curl -fsSLO "${BASE}/opcuactl-${VERSION}-checksums.txt"
-
-# 3. Verify the download (should print "OK")
-grep "${FILE}" "opcuactl-${VERSION}-checksums.txt" | sha256sum -c -
-
-# 4. Extract and install (the binary in the archive carries the version and platform in its name)
-mkdir -p opcuactl-dl && tar -xzf "${FILE}" -C opcuactl-dl
-sudo install -m 0755 "$(find opcuactl-dl -type f -name 'opcuactl*' | head -n1)" /usr/local/bin/opcuactl
-```
-
-No `sudo`? Install into your home directory instead (and make sure `~/.local/bin` is in your `PATH`):
-
-```bash
-mkdir -p ~/.local/bin
-install -m 0755 "$(find opcuactl-dl -type f -name 'opcuactl*' | head -n1)" ~/.local/bin/opcuactl
-```
-
-### macOS
-
-```bash
-# 1. Find the latest version and your CPU architecture (arm64 = Apple Silicon, x86_64 = Intel)
-VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/otfabric/opcuactl/releases/latest | sed 's|.*/v||')
-case "$(uname -m)" in
-  arm64)   ARCH=arm64 ;;
-  x86_64)  ARCH=amd64 ;;
-esac
-
-# 2. Download the archive and the checksum file
-FILE="opcuactl-${VERSION}-darwin-${ARCH}.tar.gz"
-BASE="https://github.com/otfabric/opcuactl/releases/download/v${VERSION}"
-curl -fsSLO "${BASE}/${FILE}"
-curl -fsSLO "${BASE}/opcuactl-${VERSION}-checksums.txt"
-
-# 3. Verify the download (should print "OK")
-grep "${FILE}" "opcuactl-${VERSION}-checksums.txt" | shasum -a 256 -c -
-
-# 4. Extract and install (the binary in the archive carries the version and platform in its name)
-mkdir -p opcuactl-dl && tar -xzf "${FILE}" -C opcuactl-dl
-sudo install -m 0755 "$(find opcuactl-dl -type f -name 'opcuactl*' | head -n1)" /usr/local/bin/opcuactl
-```
-
-If you downloaded the archive with a web browser instead of `curl` and macOS refuses to run the binary ("cannot be verified"), remove the quarantine flag: `xattr -d com.apple.quarantine /usr/local/bin/opcuactl`.
-
-### Windows (PowerShell)
-
-```powershell
-# 1. Find the latest version and your CPU architecture
-$version = (Invoke-RestMethod https://api.github.com/repos/otfabric/opcuactl/releases/latest).tag_name.TrimStart('v')
-$arch    = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
-
-# 2. Download the archive and the checksum file
-$file = "opcuactl-$version-windows-$arch.zip"
-$base = "https://github.com/otfabric/opcuactl/releases/download/v$version"
-Invoke-WebRequest "$base/$file" -OutFile "$env:TEMP\$file"
-Invoke-WebRequest "$base/opcuactl-$version-checksums.txt" -OutFile "$env:TEMP\opcuactl-checksums.txt"
-
-# 3. Verify the download (throws an error on mismatch)
-$expected = ((Select-String -Path "$env:TEMP\opcuactl-checksums.txt" -Pattern $file).Line -split '\s+')[0]
-$actual   = (Get-FileHash "$env:TEMP\$file" -Algorithm SHA256).Hash
-if ($expected -ne $actual) { throw "Checksum mismatch for $file" }
-
-# 4. Extract to a per-user folder and name the program opcuactl.exe
-#    (the .exe in the archive carries the version and platform in its name)
-$dir = "$env:LOCALAPPDATA\Programs\opcuactl"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Expand-Archive "$env:TEMP\$file" -DestinationPath "$env:TEMP\opcuactl-dl" -Force
-$exe = Get-ChildItem "$env:TEMP\opcuactl-dl" -Recurse -Filter 'opcuactl*.exe' | Select-Object -First 1
-Copy-Item $exe.FullName "$dir\opcuactl.exe" -Force
-
-# 5. Add opcuactl to your user PATH (then open a new terminal)
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($userPath -notlike "*$dir*") {
-  [Environment]::SetEnvironmentVariable('Path', "$userPath;$dir", 'User')
-}
-```
-
-If Windows SmartScreen warns about an unrecognised app, choose **More info → Run anyway**.
-
-### Manual download
-
-1. Open the [latest release](https://github.com/otfabric/opcuactl/releases/latest).
-2. Download the archive for your platform from the table above.
-3. Extract it, rename the binary to `opcuactl` (`opcuactl.exe` on Windows) and move it to a folder on your `PATH`.
-
-### Update
-
-Run the same commands again. They always fetch the latest release and overwrite the previous binary.
-
-### Go install
-
-With Go 1.26 or later you can install straight from source. The binary lands in `$(go env GOPATH)/bin`; `opcuactl version` reports `dev` for builds made this way.
-
-```console
-go install github.com/otfabric/opcuactl@latest
-```
-
-### Build from source
-
-Requires Go 1.26 or later:
-
-```console
-git clone https://github.com/otfabric/opcuactl.git
-cd opcuactl
-make build
-```
-
-`make build` runs the checks and writes the binary to **`bin/opcuactl`**. `make build-all` cross-compiles the Linux and macOS binaries into `release/`; the Windows binaries are produced by the release workflow.
-
-### Shell completion
-
-`opcuactl completion bash|zsh|fish|powershell` prints a completion script; `opcuactl completion <shell> --help` shows how to load it.
 
 ---
 
