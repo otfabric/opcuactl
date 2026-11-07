@@ -22,7 +22,7 @@ jobs:
       coverage-min: "90"
       fuzz-time: 10s
       codecov-name: opcuactl
-      policy-version: v1.4.1
+      policy-version: v1.4.2
       go-versions: '["1.26", "1.27"]'
       # The default also leaves out /cmd/, which here is the CLI itself:
       # cmd/opcuactl holds most of the tests, the e2e suite included.
