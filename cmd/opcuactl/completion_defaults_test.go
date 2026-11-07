@@ -4,6 +4,7 @@ package opcuactl
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"slices"
 	"strings"
@@ -121,4 +122,18 @@ func TestEveryValueFlagCompletes(t *testing.T) {
 		}
 	}
 	walk(rootCmd)
+}
+
+func TestCompleteInterfaces(t *testing.T) {
+	got, d := complete(t, "pubsub", "subscribe", "--interface", "")
+	if d != fmt.Sprintf(":%d", cobra.ShellCompDirectiveNoFileComp) {
+		t.Errorf("--interface directive %s", d)
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil || len(ifaces) == 0 {
+		t.Skip("no network interfaces")
+	}
+	if !slices.Contains(got, ifaces[0].Name) {
+		t.Errorf("--interface offers %v, missing %q", got, ifaces[0].Name)
+	}
 }
