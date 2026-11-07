@@ -1,5 +1,20 @@
 # opcuactl Releases
 
+## v0.14.1
+
+**Date:** 2026-11-07
+**Previous release:** v0.14.0
+
+### Fixed
+
+- The `--format` help listed `table|json|yaml`; it now names all accepted formats, `table|json|yaml|csv|jsonl`.
+
+### Documentation
+
+- `docs/commands.md`: a reference of every command and its flags (docsync).
+
+---
+
 ## v0.14.0
 
 **Date:** 2026-11-03

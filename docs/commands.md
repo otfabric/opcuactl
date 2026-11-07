@@ -14,7 +14,7 @@ Every command accepts these flags of the root command.
 | `--auth-policy-id` | `string` | User token PolicyId (usually set automatically with security auto) |
 | `--cert` | `string` | Client certificate file (PEM/DER; RSA, ECDSA incl. Brainpool, Ed25519 or Ed448) for secure channel and/or certificate auth |
 | `--endpoint`, `-e` | `string` | OPC UA server endpoint (opc.tcp://host:port, opc.wss://host:port or opc.https://host:port) |
-| `--format`, `-f` | `string` | Output format (table\|json\|yaml) (default "table") |
+| `--format`, `-f` | `string` | Output format (table\|json\|yaml\|csv\|jsonl) (default "table") |
 | `--insecure-no-security` |  | Allow no message security (policy and mode None): anyone on the network can read and change the traffic, passwords included |
 | `--insecure-skip-verify` |  | Skip server certificate verification (INSECURE) |
 | `--json-content-type` | `string` | https-uajson: Content-Type of the requests (standard: application/json \| legacy: application/opcua+uajson, for UA-.NETStandard) |
@@ -41,7 +41,7 @@ Every command accepts these flags of the root command.
 | `--username` | `string` | Username for --auth username |
 | `--verbose`, `-v` |  | Verbose output |
 
-`--format` also takes `csv` and `jsonl` ([json-output.md](json-output.md)); `OPCUACTL_FORMAT` sets its default.
+See [json-output.md](json-output.md) for the structured formats; `OPCUACTL_FORMAT` sets the default of `--format`.
 
 ## opcuactl alarms
 
