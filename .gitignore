@@ -6,6 +6,7 @@
 # Scan results
 *.csv
 *.json
+!/.otfabric/docsync.json
 *.log
 
 # Editor settings
