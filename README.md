@@ -308,6 +308,8 @@ make build
 
 ## Command Reference
 
+Every command with all its flags is in [docs/commands.md](docs/commands.md).
+
 ```
 opcuactl
 ├── discover
@@ -1554,6 +1556,9 @@ internal/serve/        The server of `opcuactl serve`: configuration, certificat
 
 ## Documentation
 
+- [docs/commands.md](docs/commands.md) — Every command and flag
+- [docs/exitcodes.md](docs/exitcodes.md) — Exit codes
+- [docs/json-output.md](docs/json-output.md) — JSON output
 - [RECIPES.md](RECIPES.md) — End-to-end workflows for common operator tasks
 - [EXAMPLES.md](EXAMPLES.md) — Real command outputs captured against a WAGO PLC
 - [RELEASE.md](RELEASE.md) — Release notes

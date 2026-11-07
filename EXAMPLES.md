@@ -2,7 +2,7 @@
 
 Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** industrial PLC at `opc.tcp://109.166.142.215:4840`.
 
-Built on [otfabric/go-opcua](https://github.com/otfabric/go-opcua) **v1.6.0** (`opcuactl` **v0.3.0**).
+Captured with `opcuactl` **v0.3.0**, which used [otfabric/go-opcua](https://github.com/otfabric/go-opcua) v1.6.0 at the time.
 
 This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md). The [v0.3.0 features](#v030-features-captured-against-a-go-opcua-server) — ECC security policies, reverse connect, Local Discovery Server, data-change filters and the OPC UA JSON / XML encodings — are live captures against a go-opcua v1.6.0 demo server. The [v0.4.0 PubSub features](#v040-features-captured-against-a-go-opcua-server) are live captures against the go-opcua v1.7.0 PubSub example server. The [v0.5.0 PubSub features](#v050-features-captured-against-brokers-and-a-go-opcua-server) (MQTT 5.0, AMQP 1.0, Ethernet, chunks, discovery and diagnostics) are live captures against real brokers, Linux containers and the go-opcua v1.9.0 PubSub example server.
 
