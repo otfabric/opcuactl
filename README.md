@@ -29,7 +29,25 @@ Linux (amd64, arm64, armv7), macOS (Intel, Apple silicon) and Windows (amd64, ar
 
 From source (Go 1.26+): `go install github.com/otfabric/opcuactl@latest`
 
-Shell completion: `opcuactl completion bash|zsh|fish|powershell` prints a completion script; `opcuactl completion <shell> --help` shows how to load it.
+### Shell completion
+
+```bash
+# bash (needs the bash-completion package)
+mkdir -p ~/.local/share/bash-completion/completions
+opcuactl completion bash > ~/.local/share/bash-completion/completions/opcuactl
+
+# zsh: a directory on your fpath, then restart the shell
+mkdir -p ~/.zsh/completions && opcuactl completion zsh > ~/.zsh/completions/_opcuactl
+# and once in ~/.zshrc:  fpath=(~/.zsh/completions $fpath); autoload -U compinit && compinit
+
+# fish
+mkdir -p ~/.config/fish/completions && opcuactl completion fish > ~/.config/fish/completions/opcuactl.fish
+```
+
+```powershell
+# PowerShell: add this line to your profile ($PROFILE)
+opcuactl completion powershell | Out-String | Invoke-Expression
+```
 
 ---
 
