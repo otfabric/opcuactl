@@ -774,14 +774,13 @@ i=2267   NodeClassVariable  ServiceLevel  Byte       i=68
 
 ```console
 $ opcuactl version
+opcuactl 0.15.0 (tag v0.15.0, commit 1802d0f9afe8642d1e278120b76fcdfac967cb9e, built 2026-11-07T10:00:00Z, go-opcua 1.31.0, go1.26.10, linux/amd64)
 
-opcuactl dev
-  commit:     none
-  built:      unknown
-  go version: go1.26.1
+$ opcuactl version --json
+{"name":"opcuactl","version":"0.15.0","tag":"v0.15.0","commit":"1802d0f9afe8642d1e278120b76fcdfac967cb9e","built":"2026-11-07T10:00:00Z","libraries":[{"name":"go-opcua","version":"1.31.0"}],"go":"go1.26.10","platform":"linux/amd64"}
 ```
 
-With a release build, `tag` appears when `main.tag` is set at link time.
+After the build date come the OT Fabric libraries the binary is built with. A development build (`go build`, `go run`, `make build` off a tag) prints `opcuactl dev (commit <sha>[-dirty], built unknown, …)`, without the tag part; `go install …@vX.Y.Z` reports that version. `--format json` and `jsonl` print the JSON as well.
 
 ---
 

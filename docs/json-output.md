@@ -31,10 +31,10 @@ A Bad status on one item is not a failed command. The item is reported in its re
 {"nodeId":"i=2259","value":0,"type":"TypeIDInt32","status":"Good","statusCode":0,"sourceTimestamp":"2026-10-31T08:39:26.936902Z","serverTimestamp":"2026-10-31T08:39:26.936902Z"}
 ```
 
-`version --format json` (`tag` only on a tagged build):
+`version --json` (or `--format json`/`jsonl`): one line, the keys always present and in this order; `tag` is `""` on a build without a tag, `version` is `dev` and `built` is `unknown` on a development build; `libraries` are the OT Fabric libraries the binary is built with:
 
 ```json
-{"version":"dev","commit":"none","buildDate":"unknown","goVersion":"go1.27.3"}
+{"name":"opcuactl","version":"0.15.0","tag":"v0.15.0","commit":"1802d0f9afe8642d1e278120b76fcdfac967cb9e","built":"2026-11-07T10:00:00Z","libraries":[{"name":"go-opcua","version":"1.31.0"}],"go":"go1.26.10","platform":"linux/amd64"}
 ```
 
 `get attribute`, `call` and the `gds` commands add these small records: `nodeId`, `attribute`, `attributeId`, `value`, `status`, `statusCode`; `objectId`, `methodId`, `inputs`, `outputs`; `method`, `status`.

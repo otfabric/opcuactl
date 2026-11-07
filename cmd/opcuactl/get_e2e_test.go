@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/otfabric/opcuactl/internal/buildinfo"
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/serve"
 )
@@ -245,24 +246,35 @@ func TestE2E_GetVars(t *testing.T) {
 
 // TestVersionCommand prints the build information.
 func TestVersionCommand(t *testing.T) {
-	saved := []string{version, tag, commit, buildDate}
-	t.Cleanup(func() { SetBuildInfo(saved[0], saved[1], saved[2], saved[3]) })
+	t.Cleanup(func() { SetBuildInfo("", "", "", "") })
+	tail := libsText("opcuactl") + runtime.Version() + ", " + runtime.GOOS + "/" + runtime.GOARCH
 
-	SetBuildInfo("1.2.3", "v1.2.3", "abc1234", "2026-10-26")
-	out := mustRun(t, "version")
-	wantContains(t, out, "opcuactl 1.2.3\n", "tag:        v1.2.3", "commit:     abc1234", "built:      2026-10-26", "go version: "+runtime.Version())
-
-	var info map[string]string
-	if err := json.Unmarshal([]byte(mustRun(t, "version", "--format", "json")), &info); err != nil {
-		t.Fatal(err)
+	SetBuildInfo("1.2.3", "v1.2.3", "1802d0f9afe8642d1e278120b76fcdfac967cb9e", "2026-10-26T10:00:00Z")
+	text := "opcuactl 1.2.3 (tag v1.2.3, commit 1802d0f9afe8642d1e278120b76fcdfac967cb9e, built 2026-10-26T10:00:00Z, " + tail + ")\n"
+	if out := mustRun(t, "version"); out != text {
+		t.Errorf("version = %q, want %q", out, text)
 	}
-	if info["version"] != "1.2.3" || info["tag"] != "v1.2.3" || info["commit"] != "abc1234" || info["buildDate"] != "2026-10-26" || info["goVersion"] != runtime.Version() {
-		t.Errorf("version json %v", info)
+	js := `{"name":"opcuactl","version":"1.2.3","tag":"v1.2.3","commit":"1802d0f9afe8642d1e278120b76fcdfac967cb9e","built":"2026-10-26T10:00:00Z",` +
+		libsJSON("opcuactl") + `"go":"` + runtime.Version() + `","platform":"` + runtime.GOOS + "/" + runtime.GOARCH + `"}` + "\n"
+	for _, args := range [][]string{{"version", "--json"}, {"version", "--format", "json"}, {"version", "-f", "jsonl"}} {
+		if out := mustRun(t, args...); out != js {
+			t.Errorf("%v = %q, want %q", args, out, js)
+		}
 	}
+	for _, f := range []string{"table", "yaml", "csv"} {
+		if out := mustRun(t, "version", "--format", f); out != text {
+			t.Errorf("version --format %s = %q, want the text line", f, out)
+		}
+	}
+	t.Setenv("OPCUACTL_FORMAT", "json")
+	if out := mustRun(t, "version"); out != js {
+		t.Errorf("OPCUACTL_FORMAT=json version = %q, want %q", out, js)
+	}
+	t.Setenv("OPCUACTL_FORMAT", "")
 
-	SetBuildInfo("dev", "", "none", "unknown")
-	if out := mustRun(t, "version"); strings.Contains(out, "tag:") {
-		t.Errorf("a build without tag printed one:\n%s", out)
+	SetBuildInfo("", "", "", "")
+	if out := mustRun(t, "version"); !strings.HasPrefix(out, "opcuactl dev (commit ") || strings.Contains(out, "tag ") {
+		t.Errorf("a development build printed %q", out)
 	}
 	wantExit(t, 2, "version", "extra")
 }
@@ -283,4 +295,19 @@ func TestCompletionCommand(t *testing.T) {
 	// The values of a flag come from fixedCompletion.
 	out := mustRun(t, "__complete", "browse", "refs", "--direction", "")
 	wantContains(t, out, "forward\n", "inverse\n", "both\n", ":4\n")
+}
+
+// libsText and libsJSON are how the OT Fabric libraries of this test binary
+// appear in the version output (internal/buildinfo tests the formatting).
+func libsText(name string) string {
+	var s string
+	for _, l := range buildinfo.Get(name).Libraries {
+		s += l.Name + " " + l.Version + ", "
+	}
+	return s
+}
+
+func libsJSON(name string) string {
+	out, _ := json.Marshal(buildinfo.Get(name).Libraries)
+	return `"libraries":` + string(out) + `,`
 }

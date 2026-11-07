@@ -1961,7 +1961,9 @@ Print version information.
 opcuactl version [flags]
 ```
 
-No flags of its own; the global flags apply.
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` |  | Print the build information as one JSON object |
 
 ## opcuactl write
 

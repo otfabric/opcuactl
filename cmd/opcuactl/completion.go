@@ -48,35 +48,15 @@ func newCompletionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "completion [bash|zsh|fish|powershell]",
 		Short: "Generate shell completion scripts",
-		Long: `Generate shell completion scripts for opcuactl.
-
-To load completions:
-
-Bash:
-  $ source <(opcuactl completion bash)
-  # To install permanently:
-  $ opcuactl completion bash > /etc/bash_completion.d/opcuactl
-
-Zsh:
-  $ source <(opcuactl completion zsh)
-  # To install permanently:
-  $ opcuactl completion zsh > "${fpath[1]}/_opcuactl"
-
-Fish:
-  $ opcuactl completion fish | source
-  # To install permanently:
-  $ opcuactl completion fish > ~/.config/fish/completions/opcuactl.fish
-
-PowerShell:
-  PS> opcuactl completion powershell | Out-String | Invoke-Expression
-  # To install permanently, add the output to your PowerShell profile.`,
+		Long: `Generate a shell completion script for opcuactl: bash, zsh, fish or
+PowerShell. Installation: see "Shell completion" in the README.`,
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch args[0] {
 			case "bash":
-				return cmd.Root().GenBashCompletion(os.Stdout)
+				return cmd.Root().GenBashCompletionV2(os.Stdout, true)
 			case "zsh":
 				return cmd.Root().GenZshCompletion(os.Stdout)
 			case "fish":
