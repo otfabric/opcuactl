@@ -3,6 +3,7 @@
 package opcuactl
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -135,5 +136,19 @@ func TestCompleteInterfaces(t *testing.T) {
 	}
 	if !slices.Contains(got, ifaces[0].Name) {
 		t.Errorf("--interface offers %v, missing %q", got, ifaces[0].Name)
+	}
+}
+
+func TestCompleteInterfacesError(t *testing.T) {
+	saved := netInterfaces
+	t.Cleanup(func() { netInterfaces = saved })
+	netInterfaces = func() ([]net.Interface, error) { return nil, errors.New("no interfaces") }
+
+	got, directive := completeInterfaces(nil, nil, "")
+	if got != nil {
+		t.Fatalf("candidates %v on error, want none", got)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("directive %v on error, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
 	}
 }
