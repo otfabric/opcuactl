@@ -139,8 +139,11 @@ func completeCapabilities(*cobra.Command, []string, string) ([]string, cobra.She
 	return out, cobra.ShellCompDirectiveNoFileComp
 }
 
+// netInterfaces lists the network interfaces; a variable so the tests can make it fail.
+var netInterfaces = net.Interfaces
+
 func completeInterfaces(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	ifaces, err := net.Interfaces()
+	ifaces, err := netInterfaces()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
