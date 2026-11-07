@@ -118,7 +118,7 @@ func init() {
 	pf.StringVar(&jsonContentType, "json-content-type", "", "https-uajson: Content-Type of the requests (standard: application/json | legacy: application/opcua+uajson, for UA-.NETStandard)")
 	pf.StringVar(&returnDiagnostics, "return-diagnostics", "", "Ask the server for DiagnosticInfos and print them on failures (none|service|operation|all)")
 	pf.DurationVar(&connCfg.Timeout, "timeout", 10*time.Second, "Connection/operation timeout")
-	pf.StringVarP(&outputFormat, "format", "f", "table", "Output format (table|json|yaml)")
+	pf.StringVarP(&outputFormat, "format", "f", "table", "Output format (table|json|yaml|csv|jsonl)")
 	pf.BoolVar(&prettyOutput, "pretty", false, "Pretty-print structured output")
 	pf.BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	pf.BoolVarP(&quiet, "quiet", "q", false, "Quiet mode: emit only the primary value (for scripting)")
