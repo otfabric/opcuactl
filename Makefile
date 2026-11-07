@@ -15,7 +15,7 @@ COVER_MIN := 90
 COVER_PKG_MIN := 90
 FUZZTIME ?= 10s
 # docsync release of docs-check (DOC-008).
-DOCSYNC_VERSION := v0.2.0
+DOCSYNC_VERSION := v0.3.0
 
 APP_NAME       = opcuactl
 APP_SRC        = main.go
