@@ -65,7 +65,7 @@ opcuactl completion powershell | Out-String | Invoke-Expression
 - **Certificate management** — `gds trustlist get|add|remove|set` read and change the trust lists of a server's certificate groups, `gds csr` and `gds update-cert` renew its certificates through your CA (PEM or PKCS #12 keys), `gds self-signed`, `gds delete-cert` and `gds reset` cover the rest of the push model of OPC UA Part 12 (as a SecurityAdmin over an encrypted channel); `gds pull` registers applications with a Global Discovery Server and gets their certificates and trust lists from it, `gds pull enroll` in one step.
 - **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them (OPC UA Part 11).
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
-- **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Curve25519, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
+- **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Brainpool P-256/P-384, Curve25519, Curve448, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
 - **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, an event history, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
@@ -288,7 +288,10 @@ opcuactl
 │       ├── add-reader-group / add-reader
 │       ├── remove     Remove a connection, group, writer, reader or data set
 │       ├── enable / disable
-│       └── diagnostics Read (and reset) the diagnostics counters of a component
+│       ├── diagnostics Read (and reset) the diagnostics counters of a component
+│       ├── export     Read the PubSubConfiguration file of a server
+│       ├── reserve-ids Reserve WriterGroupIds and DataSetWriterIds (ReserveIds)
+│       └── add-action Add a PublishedAction data set (PubSubConfiguration CloseAndUpdate)
 ├── ping               Test connectivity to an OPC UA server
 ├── serve              Run an OPC UA test server (demo namespace, NodeSet2 import, opc.tcp/wss/https, UA JSON)
 ├── version            Print version, build, and runtime info
@@ -1178,7 +1181,7 @@ Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BR
 
 **Diagnostics.** `subscribe`, `publish` and `discover` count what they send and receive with the counters of the Part 14 diagnostics objects (§9.1.11: SentNetworkMessages, FailedTransmissions, ReceivedNetworkMessages, ReceivedInvalidNetworkMessages, DecryptionErrors, …) plus counters for chunks and discovery messages, and print them on stderr when done (`--diagnostics`), every `--diagnostics-interval`, as a JSON line with `--format json`. `--diagnostics-level` selects the counters by DiagnosticsLevel. `pubsub config diagnostics [--node X] [--reset]` reads the diagnostics object of a server's PublishSubscribe object, connection, group, writer or reader: the totals, every counter with its classification, level and first change, and the LiveValues.
 
-**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). Not supported yet: the gzip-compressed JSON content type.
+**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). gzip-compressed JSON (`application/json+gzip`, or a gzip stream without a content type) is decompressed before decoding.
 
 ### PubSub Actions
 
