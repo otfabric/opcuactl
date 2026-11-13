@@ -156,15 +156,26 @@ func readPubSubDiagnostics(ctx context.Context, c *opcua.Client, comp *ua.NodeID
 	if len(reads) == 0 {
 		return out, fmt.Errorf("%s is empty", diag)
 	}
-	resp, err := c.Read(ctx, &ua.ReadRequest{NodesToRead: reads, TimestampsToReturn: ua.TimestampsToReturnNeither})
+	// In Reads of at most 32 nodes, the default OperationLimits of
+	// go-opcua servers; a server refuses a larger Read than its
+	// MaxNodesPerRead with BadTooManyOperations.
+	items := make([]opcua.ReadItem, len(reads))
+	for i, r := range reads {
+		items[i] = opcua.ReadItem{NodeID: r.NodeID, AttributeID: r.AttributeID}
+	}
+	results, err := c.ReadMulti(ctx, items)
 	if err != nil {
 		return out, err
 	}
 	value := func(i int) (interface{}, bool) {
-		if i < 0 || i >= len(resp.Results) || resp.Results[i] == nil || resp.Results[i].Status != ua.StatusOK || resp.Results[i].Value == nil {
+		if i < 0 || i >= len(results) {
 			return nil, false
 		}
-		return resp.Results[i].Value.Value(), true
+		dv := results[i].DataValue
+		if dv == nil || dv.Status != ua.StatusOK || dv.Value == nil {
+			return nil, false
+		}
+		return dv.Value.Value(), true
 	}
 	if v, ok := value(level); ok {
 		out.Level = diagnosticsLevelName(ua.DiagnosticsLevel(toInt(v)))

@@ -1117,6 +1117,7 @@ opcuactl serve --listen 127.0.0.1:0 -q
 | `--sim-interval` | `1s` | Update interval of the simulated values |
 | `--log-level` | `error` | Server log on stderr: `debug`, `info`, `warn`, `error`, `off` |
 | `--log-clients` | off | A line on stderr for each client connection (with its duration), session (activated, closed and why) and refused request (an untrusted certificate, a wrong password, a token type not offered), whatever `--log-level` |
+| `--max-operations` | `32` | Operations of one service call at most, e.g. the nodes of a Read (`BadTooManyOperations`); `0` is no limit |
 | `--max-sessions` | `100` | Sessions the server keeps at most, activated or not; beyond, CreateSession is `BadTooManySessions` |
 | `--max-subscriptions` | `1024` | Subscriptions of all sessions together at most; beyond, CreateSubscription is `BadTooManySubscriptions` |
 | `--max-subscriptions-per-session` | `64` | Subscriptions of one session at most (`BadTooManySubscriptions`) |

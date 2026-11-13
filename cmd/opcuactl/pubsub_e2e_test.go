@@ -717,17 +717,21 @@ func TestE2E_PubSubSKS(t *testing.T) {
 	})
 
 	t.Run("publish with saved keys", func(t *testing.T) {
-		url := freeUDPURL(t)
-		rcv := newReceiver()
 		md := pubsub.MetaData("DS", pubsub.Field{Name: "Counter", Type: ua.TypeIDUint32})
-		startRuntime(t, pubsub.NewConfiguration(nil, pubsub.AttachReaderGroups(
-			pubsub.UDPConnection("sub", url, nil),
-			pubsub.Secure(pubsub.ReaderGroup("R",
-				pubsub.DataSetReader("r1", uint16(1), 1, 1, md),
-				pubsub.DataSetReader("r2", uint16(1), 1, 2, md),
-				pubsub.DataSetReader("r3", uint16(1), 1, 3, md)),
-				ua.MessageSecurityModeSignAndEncrypt, "sg"))),
-			pubsub.WithDataSetHandler(rcv.handle), pubsub.WithKeySource("sg", keySrc))
+		subscriber := func() (string, *receiver) {
+			url := freeUDPURL(t)
+			rcv := newReceiver()
+			startRuntime(t, pubsub.NewConfiguration(nil, pubsub.AttachReaderGroups(
+				pubsub.UDPConnection("sub", url, nil),
+				pubsub.Secure(pubsub.ReaderGroup("R",
+					pubsub.DataSetReader("r1", uint16(1), 1, 1, md),
+					pubsub.DataSetReader("r2", uint16(1), 1, 2, md),
+					pubsub.DataSetReader("r3", uint16(1), 1, 3, md)),
+					ua.MessageSecurityModeSignAndEncrypt, "sg"))),
+				pubsub.WithDataSetHandler(rcv.handle), pubsub.WithKeySource("sg", keySrc))
+			return url, rcv
+		}
+		url, rcv := subscriber()
 
 		for i, mode := range []string{"sign-and-encrypt", "sign"} {
 			mustRun(t, "pubsub", "publish", "--url", url, "--field", "Counter:UInt32=5", "--count", "3", "--interval", "20ms",
@@ -747,7 +751,11 @@ func TestE2E_PubSubSKS(t *testing.T) {
 			rcv.drain()
 		}
 
-		// Keys pulled from the SKS for publishing.
+		// Keys pulled from the SKS for publishing. Each run of publish
+		// numbers its MessageNonces from 1 (Part 14 Table 156), so a
+		// subscriber that took the runs above on the same SecurityTokenId
+		// ignores this one (§7.2.3): it goes to a subscriber of its own.
+		url, rcv = subscriber()
 		mustRun(t, append([]string{"pubsub", "publish", "--url", url, "--field", "Counter:UInt32=6", "--count", "2", "--writer-id", "2",
 			"--interval", "20ms", "--message-security", "sign-and-encrypt", "--security-group", "sg"}, user...)...)
 		if v := rcv.wait(t).Field("Counter"); v == nil || v.Value.Value() != uint32(6) {

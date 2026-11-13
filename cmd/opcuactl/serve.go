@@ -44,6 +44,8 @@ const (
 	defaultServeMaxSessions                = 100
 	defaultServeMaxSubscriptions           = 1024
 	defaultServeMaxSubscriptionsPerSession = 64
+	// The default OperationLimits of go-opcua's server.
+	defaultServeMaxOperations = 32
 )
 
 // serveFlags are the flags of serve.
@@ -77,6 +79,7 @@ type serveFlags struct {
 	maxSessions                int
 	maxSubscriptions           int
 	maxSubscriptionsPerSession int
+	maxOperations              int
 }
 
 func newServeCmd() *cobra.Command { return serveCommand(&serveFlags{}) }
@@ -180,6 +183,7 @@ Examples:
 	fs.IntVar(&f.maxSessions, "max-sessions", defaultServeMaxSessions, "Sessions the server keeps at most, activated or not (BadTooManySessions beyond)")
 	fs.IntVar(&f.maxSubscriptions, "max-subscriptions", defaultServeMaxSubscriptions, "Subscriptions of all sessions together at most (BadTooManySubscriptions beyond)")
 	fs.IntVar(&f.maxSubscriptionsPerSession, "max-subscriptions-per-session", defaultServeMaxSubscriptionsPerSession, "Subscriptions of one session at most (BadTooManySubscriptions beyond)")
+	fs.IntVar(&f.maxOperations, "max-operations", defaultServeMaxOperations, "Operations of one service call at most, e.g. nodes of a Read (BadTooManyOperations beyond); 0 is no limit")
 
 	_ = cmd.RegisterFlagCompletionFunc("security-policy", fixedCompletion(servePolicyValues))
 	_ = cmd.RegisterFlagCompletionFunc("security-mode", fixedCompletion(serveModeValues))
@@ -253,6 +257,10 @@ func (f *serveFlags) setup(stderr io.Writer) (*serveSetup, error) {
 		MaxSessions:                f.maxSessions,
 		MaxSubscriptions:           f.maxSubscriptions,
 		MaxSubscriptionsPerSession: f.maxSubscriptionsPerSession,
+		MaxOperations:              f.maxOperations,
+	}
+	if f.maxOperations < 0 {
+		return nil, fmt.Errorf("--max-operations must not be negative")
 	}
 	if f.simInterval <= 0 {
 		return nil, fmt.Errorf("--sim-interval must be positive")
@@ -611,6 +619,7 @@ func serveInfo(srv *serve.Server, setup *serveSetup) model.ServeInfo {
 			MaxSessions:                setup.cfg.MaxSessions,
 			MaxSubscriptions:           setup.cfg.MaxSubscriptions,
 			MaxSubscriptionsPerSession: setup.cfg.MaxSubscriptionsPerSession,
+			MaxOperations:              setup.cfg.MaxOperations,
 		},
 	}
 	if uri, idx, ok := srv.DemoNamespace(); ok {
@@ -687,7 +696,11 @@ func writeServeInfo(w io.Writer, out serveOutput, srv *serve.Server, setup *serv
 		users = append([]string{"anonymous"}, users...)
 	}
 	_, _ = fmt.Fprintf(w, "Users:            %s\n", strings.Join(users, ", "))
-	_, _ = fmt.Fprintf(w, "Limits:           %d sessions, %d subscriptions (%d per session)\n\n",
-		info.Limits.MaxSessions, info.Limits.MaxSubscriptions, info.Limits.MaxSubscriptionsPerSession)
+	ops := "no operation limit"
+	if info.Limits.MaxOperations > 0 {
+		ops = fmt.Sprintf("%d operations per call", info.Limits.MaxOperations)
+	}
+	_, _ = fmt.Fprintf(w, "Limits:           %d sessions, %d subscriptions (%d per session), %s\n\n",
+		info.Limits.MaxSessions, info.Limits.MaxSubscriptions, info.Limits.MaxSubscriptionsPerSession, ops)
 	return fw.WriteTable(endpointTable(info.Endpoints, out.verbose))
 }

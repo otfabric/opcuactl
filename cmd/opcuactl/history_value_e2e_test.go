@@ -113,7 +113,7 @@ func TestE2E_HistoryValue(t *testing.T) {
 			{"--mode", "attime", "--at", at},
 		} {
 			_, errOut := wantExit(t, 6, hist(append([]string{"-n", plain}, mode...)...)...)
-			wantContains(t, errOut, "HistoryOperationUnsupported")
+			wantContains(t, errOut, "NotReadable")
 		}
 	})
 

@@ -1937,6 +1937,7 @@ opcuactl serve [flags]
 | `--listen` | `string` | opc.tcp address to listen on (opc.tcp://host:port or host:port; port 0 picks a free port) (default "opc.tcp://0.0.0.0:4840") |
 | `--log-clients` |  | Log each client connection, session and refused request on stderr, whatever --log-level |
 | `--log-level` | `string` | Server log on stderr (debug\|info\|warn\|error\|off) (default "error") |
+| `--max-operations` | `int` | Operations of one service call at most, e.g. nodes of a Read (BadTooManyOperations beyond); 0 is no limit (default 32) |
 | `--max-sessions` | `int` | Sessions the server keeps at most, activated or not (BadTooManySessions beyond) (default 100) |
 | `--max-subscriptions` | `int` | Subscriptions of all sessions together at most (BadTooManySubscriptions beyond) (default 1024) |
 | `--max-subscriptions-per-session` | `int` | Subscriptions of one session at most (BadTooManySubscriptions beyond) (default 64) |

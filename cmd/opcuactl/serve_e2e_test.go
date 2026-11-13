@@ -130,7 +130,7 @@ func TestE2E_Serve(t *testing.T) {
 		if info.ApplicationURI != "urn:127.0.0.1:opcuactl:serve" || !info.Anonymous || strings.Join(info.Users, ",") != "operator,admin" || info.ClientTrust != "any" {
 			t.Errorf("description %+v", info)
 		}
-		if info.Limits != (model.ServeLimits{MaxSessions: 100, MaxSubscriptions: 1024, MaxSubscriptionsPerSession: 64}) {
+		if info.Limits != (model.ServeLimits{MaxSessions: 100, MaxSubscriptions: 1024, MaxSubscriptionsPerSession: 64, MaxOperations: 32}) {
 			t.Errorf("default limits %+v", info.Limits)
 		}
 		if len(info.Certificates) != 1 || !info.Certificates[0].Generated || info.Certificates[0].KeyType != "rsa" || info.Certificates[0].File != certOut {
@@ -402,15 +402,23 @@ func TestE2E_ServeCLI(t *testing.T) {
 // TestE2E_ServeLimits: the limit flags reach the server, which publishes
 // them in ServerCapabilities (Part 5 §6.3.2), and its description.
 func TestE2E_ServeLimits(t *testing.T) {
-	s := startServe(t, "--max-sessions", "7", "--max-subscriptions", "9", "--max-subscriptions-per-session", "3", "--log-level", "off")
-	if s.info.Limits != (model.ServeLimits{MaxSessions: 7, MaxSubscriptions: 9, MaxSubscriptionsPerSession: 3}) {
+	s := startServe(t, "--max-sessions", "7", "--max-subscriptions", "9", "--max-subscriptions-per-session", "3", "--max-operations", "2", "--log-level", "off")
+	if s.info.Limits != (model.ServeLimits{MaxSessions: 7, MaxSubscriptions: 9, MaxSubscriptionsPerSession: 3, MaxOperations: 2}) {
 		t.Errorf("limits %+v", s.info.Limits)
 	}
 	tcp := s.url(t, ua.TransportProfileUATCP)
-	for node, want := range map[string]string{"i=24095": "7", "i=24096": "9", "i=24098": "3"} {
+	// i=11705 is OperationLimits.MaxNodesPerRead.
+	for node, want := range map[string]string{"i=24095": "7", "i=24096": "9", "i=24098": "3", "i=11705": "2"} {
 		if got := strings.TrimSpace(mustRun(t, "get", "value", "-e", tcp, "-n", node, "-q")); got != want {
 			t.Errorf("%s = %q, want %s", node, got, want)
 		}
+	}
+	// A Read of more nodes than the limit is refused as a whole.
+	if _, errOut, err := runCLI(t, "get", "value", "-e", tcp, "-n", "i=24095", "-n", "i=24096", "-n", "i=24098"); err == nil || !strings.Contains(errOut, "TooManyOperations") {
+		t.Errorf("Read of 3 nodes with --max-operations 2: err=%v stderr=%q", err, errOut)
+	}
+	if _, _, err := runCLI(t, "serve", "--listen", "127.0.0.1:0", "--max-operations", "-1", "--duration", "10ms", "-q"); err == nil {
+		t.Errorf("serve --max-operations -1 accepted")
 	}
 }
 
