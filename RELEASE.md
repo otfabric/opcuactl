@@ -1,5 +1,22 @@
 # opcuactl Releases
 
+## v0.16.0
+
+**Date:** 2026-11-14
+**Previous release:** v0.15.1
+
+### Added
+
+- `serve --max-operations` (default 32, `0` is no limit): the operations one service call may carry, such as the nodes of a Read or the monitored items of a CreateMonitoredItems. The server publishes it as every OperationLimit of its ServerCapabilities and refuses a larger call with `BadTooManyOperations`. The description of `serve` shows it (`limits.maxOperations` in JSON).
+
+### Changed
+
+- Built on go-opcua v1.32.0. As a server, `opcuactl serve` limits the operations per call (above), no longer serves AddNodes, AddReferences, DeleteNodes, DeleteReferences, QueryFirst and QueryNext (`BadServiceUnsupported`), serves a session only on the secure channel it was activated on, bounds monitored items, continuation points and event queues, and authorizes history per node: a node without history access, such as `Demo.Int32`, answers HistoryRead with `BadNotReadable` (was `BadHistoryOperationUnsupported`; exit codes are unchanged). As a client, opcuactl checks the endpoints a server returns at CreateSession against the endpoint it chose, and fails with `BadSecurityChecksFailed` when they differ. go-opcua's release notes have the full list.
+- `pubsub config diagnostics` reads the diagnostics in Reads of at most 32 nodes, so it works with servers that limit the nodes per Read.
+- Subscribers built on the PubSub runtime of go-opcua v1.32.0 (not `pubsub subscribe`, which shows every message it can decode) ignore secured messages whose MessageNonce sequence number is not newer than the last one of the same publisher and SecurityTokenId (OPC UA Part 14 §7.2.3). `pubsub publish` numbers its messages from 1 in every run, as Part 14 Table 156 says, so such a subscriber that took an earlier run on the same security token ignores the next run until its record of the publisher expires (twice the MessageReceiveTimeout). Use another `--publisher-id` or `--writer-group-id` to be taken at once.
+
+---
+
 ## v0.15.1
 
 **Date:** 2026-11-08

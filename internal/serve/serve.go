@@ -86,6 +86,10 @@ type Config struct {
 	MaxSessions                int
 	MaxSubscriptions           int
 	MaxSubscriptionsPerSession int
+	// MaxOperations limits the operations of one service call, as every
+	// OperationLimit the server publishes (Bad_TooManyOperations beyond);
+	// 0 is no limit.
+	MaxOperations int
 
 	// Logger receives the log of the server; nil is silent.
 	Logger *slog.Logger
@@ -218,6 +222,7 @@ func (cfg *Config) options() ([]server.Option, error) {
 	if cfg.MaxSubscriptionsPerSession > 0 {
 		opts = append(opts, server.WithMaxSubscriptionsPerSession(cfg.MaxSubscriptionsPerSession))
 	}
+	opts = append(opts, server.WithOperationLimits(operationLimits(cfg.MaxOperations)))
 	if cfg.Clients != nil {
 		opts = append(opts, server.WithSessionObserver(clientLog{log: cfg.Clients}))
 	}
@@ -319,4 +324,23 @@ func shortPolicy(uri string) string {
 		return uri[i+1:]
 	}
 	return uri
+}
+
+// operationLimits sets every OperationLimit of the server to n (0: none).
+func operationLimits(n int) server.OperationalLimits {
+	v := uint32(max(n, 0))
+	return server.OperationalLimits{
+		MaxNodesPerRead:                          v,
+		MaxNodesPerWrite:                         v,
+		MaxNodesPerBrowse:                        v,
+		MaxNodesPerMethodCall:                    v,
+		MaxNodesPerRegisterNodes:                 v,
+		MaxNodesPerTranslateBrowsePathsToNodeIDs: v,
+		MaxNodesPerNodeManagement:                v,
+		MaxMonitoredItemsPerCall:                 v,
+		MaxNodesPerHistoryReadData:               v,
+		MaxNodesPerHistoryReadEvents:             v,
+		MaxNodesPerHistoryUpdateData:             v,
+		MaxNodesPerHistoryUpdateEvents:           v,
+	}
 }

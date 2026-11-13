@@ -29,6 +29,8 @@ type ServeLimits struct {
 	MaxSessions                int `json:"maxSessions"`
 	MaxSubscriptions           int `json:"maxSubscriptions"`
 	MaxSubscriptionsPerSession int `json:"maxSubscriptionsPerSession"`
+	// MaxOperations is the limit of operations per service call; 0 is none.
+	MaxOperations int `json:"maxOperations"`
 }
 
 // ServeCertificate is an application instance certificate of the server.

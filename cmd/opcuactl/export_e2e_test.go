@@ -201,7 +201,7 @@ func TestE2E_ExportValues(t *testing.T) {
 			// Demo.Int32 has no history: with Demo.Sine a partial success
 			// (exit 4) that still exports Sine, alone a failure (exit 3).
 			out, errOut := wantExit(t, 7, exportHist(append([]string{"-n", sine, "-n", plain, "--format", "json"}, mode...)...)...)
-			wantContains(t, errOut, plain, "HistoryOperationUnsupported", "1 of 2 node(s) failed")
+			wantContains(t, errOut, plain, "NotReadable", "1 of 2 node(s) failed")
 			var values []model.ExportedValue
 			if err := json.Unmarshal([]byte(out), &values); err != nil {
 				t.Fatalf("%v: %v\n%s", mode, err, out)
