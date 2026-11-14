@@ -1,5 +1,18 @@
 # opcuactl Releases
 
+## v0.16.1
+
+**Date:** 2026-11-14
+**Previous release:** v0.16.0
+
+Moves to go-opcua v1.32.1 (was v1.32.0). The commands' options and output are unchanged.
+
+### Changed
+
+- Built on go-opcua v1.32.1 (go-opcua RELEASE.md, v1.32.1): the library bounds the work and memory of decoding Variant arrays, AMQP 1.0 messages, PubSub metadata, chunk reassembly and PKCS #12 files, and 32-bit builds handle lengths, enumeration names and NodeSet2 integer attributes as 64-bit builds do. For the tool this means that a message or file the library now refuses ends the command with the library's decode error.
+
+---
+
 ## v0.16.0
 
 **Date:** 2026-11-14
