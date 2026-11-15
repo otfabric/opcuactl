@@ -1,5 +1,24 @@
 # opcuactl Releases
 
+## v0.18.0
+
+**Date:** 2026-11-15
+**Previous release:** v0.17.0
+
+Moves to go-opcua v1.33.0 (was v1.32.1). The endpoints that `--security-policy auto`, `--security-mode auto` and an explicit `--security-policy` without `--server-cert` select from are compared with those of CreateSession, and reads take a response only with one result per node. Changes that need attention when upgrading: a server whose two endpoint lists differ is refused with exit 4, and a Read answered with another number of results ends with exit 6 (see Breaking).
+
+### Breaking
+
+- **`--security-policy auto`, `--security-mode auto` and an explicit `--security-policy` without `--server-cert` refuse a server whose CreateSession endpoints differ from its GetEndpoints answer.** These options take the endpoint, and with it the server certificate, from the GetEndpoints answer, which the server sends without security. opcuactl now compares that whole answer with the endpoints the server returns in CreateSession over the secured channel (OPC UA Part 4 §5.6.2): the security policy, mode and level, transport profile, user token policies, application URI and certificate of each endpoint, not their order or URLs. When they differ, the client closes the session before ActivateSession, so no user token is sent, and the command ends with exit 4 and `the endpoints of GetEndpoints and CreateSession differ (BadSecurityChecksFailed), no session was activated; …` on stderr, followed by the endpoint that differs. Before, opcuactl used the GetEndpoints answer as it came. A server that lists other endpoints in the two answers is refused; one case is a server that selects its endpoints by the URL of the request in two different ways, such as `opcuactl serve` of v0.17.0 with `--wss` or `--https` when the client names it with the host in another letter case or with a trailing slash. `opcuactl serve` of this release answers both in the same way. The way back: give `--security-policy`, `--security-mode` and `--server-cert` explicitly; opcuactl then does not use GetEndpoints and there is nothing to compare. There is no option to turn the comparison off.
+- **A Read that the server answers with another number of results than nodes ends with exit 6**, with `BadUnknownResponse` on stderr (`opcua: N results for M nodes to read`, or `attributes to read`) and no result on stdout: `get vars`, `get node`, `get attr`, `export values` and `pubsub config diagnostics`. Before, the count was not checked. There is no way to keep the old behaviour.
+
+### Changed
+
+- Built on go-opcua v1.33.0 (go-opcua RELEASE.md, v1.33.0). Besides the two changes above: `opcuactl serve` answers GetEndpoints and CreateSession with the endpoints of the URL the client names in the same way (scheme and host without regard to letter case, one trailing slash ignored), so a client that compares the two, as opcuactl now does, connects over opc.tcp, opc.wss and opc.https with the host in any letter case and with or without a trailing slash; commands that read attributes only to describe or select the nodes they list (`browse`, `find`, `export nodes`, and the node details of `write value`) handle a Read with another number of results as a Read that failed; and go-opcua refuses a PubSub JSON message with a String PublisherId or RequestorId of more than 4096 bytes, as it does in UADP.
+- README (Security, exit codes), SECURITY.md and docs/exitcodes.md describe the comparison of the endpoints and the exit codes above.
+
+---
+
 ## v0.17.0
 
 **Date:** 2026-11-15

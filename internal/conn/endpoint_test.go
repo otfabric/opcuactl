@@ -137,8 +137,9 @@ func TestSecurityOptions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// SecurityFromEndpoint and DiscoveredEndpoints, the list it came from.
 	opts, err := (&Config{Endpoint: endpoint, SecurityPolicy: "auto", SecurityMode: "auto"}).securityOptions(ctx, ua.UserTokenTypeAnonymous)
-	if err != nil || len(opts) != 1 {
+	if err != nil || len(opts) != 2 {
 		t.Errorf("auto: %d options, %v", len(opts), err)
 	}
 

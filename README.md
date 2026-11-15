@@ -921,9 +921,9 @@ In `table` output (and `--quiet`), values are printed as `json` prints them: arr
 | `1` | `gds pull check-revocation`: the certificate is not valid |
 | `2` | Usage or validation error |
 | `3` | Input file that cannot be read |
-| `4` | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch`, and a subscription of `monitor` or `alarms watch` that the server ends or transfers |
+| `4` | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch`, a subscription of `monitor` or `alarms watch` that the server ends or transfers, and a server whose CreateSession endpoints differ from its GetEndpoints answer (`BadSecurityChecksFailed`) |
 | `5` | Timeout |
-| `6` | OPC UA service or status-code failure |
+| `6` | OPC UA service or status-code failure, also a response with another number of results than the request asked for |
 | `7` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events, a recursive walk that reached `--max-nodes`) |
 | `8` | Service not supported by the server |
 | `9` | Permission: `Bad_UserAccessDenied`, or the operating system refused |
@@ -960,7 +960,7 @@ The table follows the organisation table; [docs/exitcodes.md](docs/exitcodes.md)
 
 The key type of `--cert` decides which policies you can use: an RSA certificate cannot open an ECC channel and the other way round. `auto`, and `discover endpoints --best --cert …`, therefore only consider endpoints that fit your certificate — a server that offers both gets an ECC channel from a client with an ECC certificate and an RSA channel otherwise. With an explicit policy the server certificate is taken from the matching endpoint (or from `--server-cert`).
 
-**Recommended production pattern:** set `--security-policy auto --security-mode auto`, provide a client cert/key, and trust the server CA with `--trusted-cert`. `auto` discovers endpoints, picks the best match, and applies channel settings, remote certificate, and user-token PolicyId for you.
+**Recommended production pattern:** set `--security-policy auto --security-mode auto`, provide a client cert/key, and trust the server CA with `--trusted-cert`. `auto` discovers endpoints, picks the best match, and applies channel settings, remote certificate, and user-token PolicyId for you. The endpoints come from GetEndpoints, which the server answers without security; over the secured channel opcuactl compares that list with the endpoints of CreateSession and refuses a server whose two lists differ before it activates a session, so no user token is sent (exit 4, `BadSecurityChecksFailed`). An explicit `--security-policy` without `--server-cert` selects from the same list and is compared the same way. A server that answers the two differently, for example because it lists the endpoints of a URL and `--endpoint` names it with another letter case or a trailing slash, is reached with `--security-policy`, `--security-mode` and `--server-cert`, which do not use GetEndpoints.
 
 ```sh
 # 1) Inspect what the server offers

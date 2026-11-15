@@ -32,6 +32,7 @@ We will acknowledge your report within 48 hours and aim to provide a fix or miti
 - **Use certificate-based authentication** (`--auth certificate`) instead of username/password where possible
 - **`--insecure-no-security`** is the only way to run without message security over `opc.tcp`, as a client and with `serve`. Use it only on an isolated, trusted network
 - **List the servers you trust** with `--trusted-cert`: the system CA pool is not used, and a secure channel needs this list
+- **`--security-policy auto` and `--security-mode auto` select from the GetEndpoints answer**, which the server sends without security, as an explicit `--security-policy` without `--server-cert` does. Over the secured channel opcuactl compares that answer with the endpoints of CreateSession and refuses a server whose lists differ before it activates a session (exit 4, `BadSecurityChecksFailed`). `--security-policy`, `--security-mode` and `--server-cert` together do not use GetEndpoints
 - **Do not use `--insecure-skip-verify`** in production — it disables server certificate validation
 - **Size the limits of `serve`** to the clients you expect with `--max-sessions`, `--max-subscriptions` and `--max-subscriptions-per-session`: a client can open sessions before it logs in, so the limits bound what an unauthenticated client can tie up
 
