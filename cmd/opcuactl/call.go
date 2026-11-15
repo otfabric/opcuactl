@@ -261,13 +261,13 @@ Examples:
 				if len(outArgs) > 0 {
 					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nOutput Arguments:")
 					for i, v := range outArgs {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%d] %s\n", i, format.FormatValue(v))
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%d] %s\n", i, format.Sanitize(format.FormatValue(v)))
 					}
 				}
 			} else if err := w.Write(callResult); err != nil {
 				return err
 			}
-			// A Bad result of the method is a status-code failure (exit 3).
+			// A Bad result of the method is a status-code failure (exit 6).
 			if isBadStatus(result.StatusCode) {
 				return exitCodef(exitProtocol, "calling method %s on %s: %s", methodID, objectID, result.StatusCode.Symbol())
 			}

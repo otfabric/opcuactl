@@ -376,8 +376,8 @@ Examples:
   opcuactl pubsub publish --url mqtt://broker:1883 --topic plant/line1 --encoding json \
       --field Temp:Double=21.5 --metadata-topic plant/line1/meta
   opcuactl pubsub publish --url mqtt://broker:1883 --mqtt-version 5.0 --qos 2 --topic plant/line1 --field Temp:Double=21.5
-  opcuactl pubsub publish --url amqp://rabbitmq:5672 --topic /queues/opcua --broker-username opcua \
-      --broker-password secret --transport-property connection-hostname=vhost:plant --field Temp:Double=21.5
+  OPCUACTL_BROKER_PASSWORD="$(cat broker.txt)" opcuactl pubsub publish --url amqp://rabbitmq:5672 --topic /queues/opcua \
+      --broker-username opcua --transport-property connection-hostname=vhost:plant --field Temp:Double=21.5
   opcuactl pubsub publish --url amqp://artemis:5672 --topic opcua.data --transport-property target-capabilities=queue \
       --encoding json --field Temp:Double=21.5
   sudo opcuactl pubsub publish --url opc.eth://01-00-5E-00-00-01 --interface eth0 --field Counter:UInt32=1

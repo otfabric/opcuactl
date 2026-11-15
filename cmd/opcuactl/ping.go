@@ -160,7 +160,7 @@ func outputPing(steps []model.PingStep) error {
 				icon = "✗"
 			}
 			if s.Error != "" {
-				fmt.Printf("  %s %-8s %s  (%s)\n", icon, s.Stage, s.Latency, s.Error)
+				format.Printf("  %s %-8s %s  (%s)\n", icon, s.Stage, s.Latency, s.Error)
 			} else {
 				fmt.Printf("  %s %-8s %s\n", icon, s.Stage, s.Latency)
 			}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/otfabric/go-opcua"
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/opcuactl/internal/format"
 )
 
 // DiagnosticInfo output (--return-diagnostics). The server returns
@@ -57,7 +58,7 @@ func writeDiagnostic(w io.Writer, indent string, d *ua.Diagnostic) {
 	for d != nil {
 		line := func(name, value string) {
 			if value != "" {
-				_, _ = fmt.Fprintf(w, "%s%-16s %s\n", indent, name+":", value)
+				_, _ = fmt.Fprintf(w, "%s%-16s %s\n", indent, name+":", format.Sanitize(value))
 			}
 		}
 		sym := d.SymbolicID

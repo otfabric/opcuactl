@@ -42,7 +42,7 @@ Examples:
   opcuactl diagnostics sessions -e opc.tcp://localhost:4840
   opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --session self
   opcuactl diagnostics subscriptions -e opc.tcp://localhost:4840 --format json
-  opcuactl diagnostics enable -e opc.tcp://localhost:4840 --auth username --username admin --password ...`,
+  opcuactl diagnostics enable -e opc.tcp://localhost:4840 --auth username --username admin --password-file admin.txt`,
 	}
 	cmd.AddCommand(
 		newDiagnosticsSummaryCmd(),
@@ -566,7 +566,7 @@ the counters stand still and the arrays are empty; switching them on resets
 the counters.
 
 Examples:
-  opcuactl diagnostics ` + use + ` -e opc.tcp://localhost:4840 --auth username --username admin --password secret`,
+  opcuactl diagnostics ` + use + ` -e opc.tcp://localhost:4840 --auth username --username admin --password-file admin.txt`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withClient(func(ctx context.Context, c *opcua.Client) error {

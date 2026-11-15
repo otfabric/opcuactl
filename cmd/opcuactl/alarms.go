@@ -940,7 +940,8 @@ branch=<BranchId>; the optional states an alarm is in follow states=.
 With --format json (or --jsonl) every line is a JSON object; the refresh
 markers have "refresh": "start" / "end". --no-refresh skips the refresh.
 Stop with Ctrl+C, --duration or --count (condition events, not markers).
-A lost connection ends the stream with exit 4; opcuactl does not reconnect.
+A lost connection, or a subscription that the server ends or transfers to
+another session, ends the stream with exit 4; opcuactl does not reconnect.
 
 opcuactl monitor alarm subscribes to plain event fields of your choice; alarms
 watch uses the condition fields of Part 9 and ConditionRefresh.
@@ -1054,7 +1055,7 @@ func printConditionNotification(n *model.ConditionNotification, useJSON bool) {
 		return
 	}
 	if n.Condition == nil {
-		fmt.Printf("%s  -- refresh %s --\n", n.Timestamp, n.Refresh)
+		format.Printf("%s  -- refresh %s --\n", n.Timestamp, n.Refresh)
 		return
 	}
 	c := n.Condition
@@ -1069,7 +1070,7 @@ func printConditionNotification(n *model.ConditionNotification, useJSON bool) {
 	if st := conditionStates(c); st != "-" {
 		states = " states=" + st
 	}
-	fmt.Printf("%s  %s  %s  severity=%d active=%s acked=%s confirmed=%s enabled=%s shelved=%s%s retain=%v%s eventId=%s  %q\n",
+	format.Printf("%s  %s  %s  severity=%d active=%s acked=%s confirmed=%s enabled=%s shelved=%s%s retain=%v%s eventId=%s  %q\n",
 		n.Timestamp, c.ConditionID, c.ConditionName, c.Severity, yesNo(c.Active), yesNo(c.Acked), yesNo(c.Confirmed),
 		enabled, shelvedCell(c.Shelving), states, c.Retain, branch, c.EventID, c.Message)
 }

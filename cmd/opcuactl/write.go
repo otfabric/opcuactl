@@ -179,10 +179,12 @@ Examples:
 			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
 				return "write " + nodeID.String()
 			})
-			var sc ua.StatusCode
-			if len(resp.Results) > 0 {
-				sc = resp.Results[0]
+			// One write has one result; a response with another number says
+			// nothing about whether the value was written.
+			if len(resp.Results) != 1 {
+				return exitCodef(exitProtocol, "writing value to %s: %d results for 1 write", nodeID, len(resp.Results))
 			}
+			sc := resp.Results[0]
 
 			result := model.WriteResult{
 				NodeID:     nodeID.String(),
@@ -203,7 +205,7 @@ Examples:
 			if werr != nil {
 				return werr
 			}
-			// A Bad status of the write is a status-code failure (exit 3).
+			// A Bad status of the write is a status-code failure (exit 6).
 			if isBadStatus(sc) {
 				return exitCodef(exitProtocol, "writing value to %s: %s", nodeID, sc.Symbol())
 			}

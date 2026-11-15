@@ -57,7 +57,7 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `discoveryServerUrl`, `multicastSupported`, `servers`, `serversOnNetwork`
 
-**Endpoint** — a server endpoint.
+**Endpoint** — a server endpoint. `certThumbprint` is the SHA-1 thumbprint of the server certificate (the first certificate of the chain), 40 upper-case hex digits, as `serve` and the GDS commands print it.
 
 `endpointUrl`, `securityPolicy`, `securityMode`, `securityLevel`, `hasCertificate`, `userTokenPolicies`, `transportProfile`?, `applicationUri`?, `certThumbprint`?, `urlMismatch`?
 

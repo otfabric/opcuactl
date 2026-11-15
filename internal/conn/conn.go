@@ -7,6 +7,7 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/otfabric/go-opcua"
 	uaerrors "github.com/otfabric/go-opcua/errors"
+	"github.com/otfabric/go-opcua/gds"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/go-opcua/uapolicy"
 )
@@ -72,6 +74,11 @@ type Config struct {
 	// ReturnDiagnostics is the ReturnDiagnostics mask of every request
 	// (Part 4 §7.33); 0 asks for none.
 	ReturnDiagnostics uint32
+
+	// remoteCert is the leaf certificate of the server that NewClient
+	// expects (from the selected endpoint or --server-cert), for the hint
+	// when it is not trusted; nil when not known.
+	remoteCert []byte
 }
 
 // Reverse reports whether the server connects to the client (reverse connect).
@@ -166,6 +173,9 @@ func (cfg *Config) NewClient(ctx context.Context, extra ...opcua.Option) (*opcua
 	if err := c.Connect(connectCtx); err != nil {
 		// Release what a failed attempt holds, the reverse listener in particular.
 		_ = c.Close(context.WithoutCancel(ctx))
+		if u := cfg.untrusted(err); u != nil {
+			err = u
+		}
 		if cfg.Reverse() {
 			return nil, fmt.Errorf("waiting for reverse connection on %s: %w", cfg.ReverseListen, err)
 		}
@@ -202,6 +212,9 @@ func (cfg *Config) buildOptions(ctx context.Context) ([]opcua.Option, error) {
 
 	if cfg.ServerCertFile != "" {
 		opts = append(opts, opcua.RemoteCertificateFile(cfg.ServerCertFile))
+		if certs, err := loadCertificatesFile(cfg.ServerCertFile); err == nil {
+			cfg.remoteCert = certs[0].Raw
+		}
 	}
 
 	if len(cfg.TrustedCertFiles) > 0 {
@@ -309,6 +322,9 @@ func (cfg *Config) securityOptions(ctx context.Context, authType ua.UserTokenTyp
 		if err != nil {
 			return nil, fmt.Errorf("selecting endpoint: %w", err)
 		}
+		if len(ep.ServerCertificate) > 0 {
+			cfg.remoteCert = LeafCertificate(ep.ServerCertificate)
+		}
 		opts := []opcua.Option{opcua.SecurityFromEndpoint(ep, authType)}
 		if cfg.InsecureNoSecurity && ep.SecurityPolicyURI == ua.SecurityPolicyURINone {
 			opts = append(opts, opcua.InsecureNoSecurity())
@@ -331,6 +347,71 @@ func (cfg *Config) securityOptions(ctx context.Context, authType ua.UserTokenTyp
 		}
 	}
 	return opts, nil
+}
+
+// UntrustedCertificateError is a server certificate that the trust list
+// (--trusted-cert) does not cover. Its message says how to trust it; Unwrap
+// returns go-opcua's error.
+type UntrustedCertificateError struct {
+	// Thumbprint is the SHA-1 thumbprint of the server certificate (upper
+	// case hex, as discover, serve and the GDS commands print it), "" when
+	// it is not known.
+	Thumbprint string
+	// NoTrustList is true when no --trusted-cert was given.
+	NoTrustList bool
+	err         error
+}
+
+func (e *UntrustedCertificateError) Error() string {
+	var b strings.Builder
+	b.WriteString("server certificate not trusted: ")
+	if e.NoTrustList {
+		b.WriteString("no --trusted-cert is given")
+	} else {
+		b.WriteString("it is not one of the --trusted-cert certificates, and none of them issued it")
+	}
+	b.WriteString("; pass the server certificate")
+	if e.Thumbprint != "" {
+		b.WriteString(" (SHA-1 thumbprint " + e.Thumbprint + ")")
+	}
+	b.WriteString(", or the CA certificate that issued it, with --trusted-cert (opcuactl discover endpoints -v shows the thumbprint of each endpoint)")
+	return b.String()
+}
+
+func (e *UntrustedCertificateError) Unwrap() error { return e.err }
+
+// untrusted returns err as an UntrustedCertificateError when it says that
+// the trust list does not cover the server certificate, nil otherwise.
+func (cfg *Config) untrusted(err error) error {
+	var unknown x509.UnknownAuthorityError
+	switch {
+	case errors.Is(err, uaerrors.ErrInvalidCertificate) && len(cfg.TrustedCertFiles) == 0:
+		return &UntrustedCertificateError{Thumbprint: Thumbprint(cfg.remoteCert), NoTrustList: true, err: err}
+	case errors.As(err, &unknown):
+		return &UntrustedCertificateError{Thumbprint: Thumbprint(cfg.remoteCert), err: err}
+	}
+	return nil
+}
+
+// LeafCertificate returns the first DER certificate of a ServerCertificate,
+// which may hold the chain of the server after its own certificate (Part 4
+// §7.2). It returns der as it is when that is not DER.
+func LeafCertificate(der []byte) []byte {
+	var raw asn1.RawValue
+	rest, err := asn1.Unmarshal(der, &raw)
+	if err != nil {
+		return der
+	}
+	return der[:len(der)-len(rest)]
+}
+
+// Thumbprint returns the SHA-1 thumbprint of a DER certificate in upper-case
+// hex (Part 6 §6.2.3), as gds.Thumbprint; "" for none.
+func Thumbprint(der []byte) string {
+	if len(der) == 0 {
+		return ""
+	}
+	return gds.Thumbprint(der)
 }
 
 func (cfg *Config) channelCertOptions() ([]opcua.Option, error) {

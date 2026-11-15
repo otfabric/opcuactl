@@ -69,8 +69,8 @@ Examples:
   opcuactl alarms list --endpoint opc.tcp://localhost:4840
   opcuactl diagnostics sessions --endpoint opc.wss://localhost:4843 --tls-ca ca.pem
   opcuactl gds trustlist get --endpoint opc.tcp://plc:4840 --security-policy Basic256Sha256 \
-    --security-mode SignAndEncrypt --cert client.pem --key client.key \
-    --auth username --username secadmin --password secret
+    --security-mode SignAndEncrypt --cert client.pem --key client.key --trusted-cert server.der \
+    --auth username --username secadmin --password-file secadmin.txt
 
 Besides opc.tcp, endpoints can be opc.wss:// (OPC UA over a TLS
 WebSocket) and opc.https:// (UA Binary over HTTPS); --tls-ca, --tls-cert and
@@ -86,6 +86,13 @@ wait for the server instead of dialling it.`,
 		if err := applyEnvOverrides(cmd); err != nil {
 			return err
 		}
+		// The password is read where a user name (--auth username needs
+		// one) can use it.
+		if connCfg.Username != "" || cmd.Flags().Changed("password-file") {
+			if err := resolveSecret(cmd.Flags(), "password", "OPCUACTL_PASSWORD", &connCfg.Password); err != nil {
+				return err
+			}
+		}
 		return validateGlobalFlags()
 	},
 }
@@ -98,9 +105,10 @@ func init() {
 	pf.StringVar(&connCfg.SecurityMode, "security-mode", "None", "Security mode (None|Sign|SignAndEncrypt|auto)")
 	pf.StringVar(&connCfg.Auth, "auth", "anonymous", "Authentication mode (anonymous|username|certificate|issued)")
 	pf.StringVar(&connCfg.Username, "username", "", "Username for --auth username")
-	pf.StringVar(&connCfg.Password, "password", "", "Password for --auth username")
+	pf.StringVar(&connCfg.Password, "password", "", "Password for --auth username (visible in the process list: prefer --password-file or OPCUACTL_PASSWORD)")
+	pf.String("password-file", "", "File with the password for --auth username, - for stdin (or OPCUACTL_PASSWORD_FILE)")
 	pf.StringVar(&connCfg.AuthPolicyID, "auth-policy-id", "", "User token PolicyId (usually set automatically with security auto)")
-	pf.StringVar(&connCfg.Token, "token", "", "Issued token (raw or base64) for --auth issued")
+	pf.StringVar(&connCfg.Token, "token", "", "Issued token (raw or base64) for --auth issued (visible in the process list: prefer --token-file or OPCUACTL_TOKEN)")
 	pf.StringVar(&connCfg.TokenFile, "token-file", "", "Issued token file for --auth issued")
 	pf.StringVar(&connCfg.CertFile, "cert", "", "Client certificate file (PEM/DER; RSA, ECDSA incl. Brainpool, Ed25519 or Ed448) for secure channel and/or certificate auth")
 	pf.StringVar(&connCfg.KeyFile, "key", "", "Client private key file (PEM/DER)")
@@ -171,7 +179,6 @@ func applyEnvOverrides(cmd *cobra.Command) error {
 	setString("security-mode", "OPCUACTL_SECURITY_MODE", &connCfg.SecurityMode)
 	setString("auth", "OPCUACTL_AUTH", &connCfg.Auth)
 	setString("username", "OPCUACTL_USERNAME", &connCfg.Username)
-	setString("password", "OPCUACTL_PASSWORD", &connCfg.Password)
 	setString("auth-policy-id", "OPCUACTL_AUTH_POLICY_ID", &connCfg.AuthPolicyID)
 	setString("token", "OPCUACTL_TOKEN", &connCfg.Token)
 	setString("token-file", "OPCUACTL_TOKEN_FILE", &connCfg.TokenFile)
@@ -251,6 +258,9 @@ func validateGlobalFlags() error {
 	}
 	if connCfg.TLSInsecureSkipVerify {
 		fmt.Fprintln(os.Stderr, "Warning: --tls-insecure-skip-verify: the TLS certificate of the server is not verified (INSECURE, development only)")
+	}
+	if connCfg.InsecureSkipVerify {
+		fmt.Fprintln(os.Stderr, "Warning: --insecure-skip-verify: the application certificate of the server is not verified (INSECURE, development only)")
 	}
 	return nil
 }

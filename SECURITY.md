@@ -37,17 +37,36 @@ We will acknowledge your report within 48 hours and aim to provide a fix or miti
 
 ### Credential Handling
 
-- Passwords provided via `--password` or `OPCUACTL_PASSWORD` are passed in memory and never logged
-- Prefer environment variables over command-line flags for credentials, as command-line arguments may appear in process listings and shell history
+- Read secrets from a file or the environment: `--password-file`, `--token-file`, `--pfx-password-file` and `--key-password-file` (`-` reads stdin), or `OPCUACTL_PASSWORD`, `OPCUACTL_TOKEN`, `OPCUACTL_PFX_PASSWORD`, `OPCUACTL_KEY_PASSWORD` and `OPCUACTL_BROKER_PASSWORD` (`OPCUACTL_PASSWORD_FILE`, `OPCUACTL_PFX_PASSWORD_FILE` and `OPCUACTL_KEY_PASSWORD_FILE` name a file). `--password`, `--token`, `--pfx-password`, `--key-password` and `--broker-password` take the secret itself, which the process list and the shell history show to other users of the machine
+- `opcuactl` does not print a secret: a message about one names the flag, variable or file it came from, and an invalid `serve --user` entry is named by its position
 - Certificate private keys (`--key`) should have restrictive file permissions (`chmod 600`)
 
 ### PubSub Keys
 
 - `pubsub sks get-keys` prints key material only with `--show-keys`; the keys it prints (and the `--keys-file` it is saved to) decrypt and forge the messages of the SecurityGroup until the keys rotate — treat them like a password (`chmod 600`, do not commit them)
 - Prefer `--security-group`, which pulls keys from the Security Key Service when needed and keeps them in memory only
-- MQTT broker passwords: prefer `OPCUACTL_MQTT_PASSWORD` over `--mqtt-password`
+- Broker passwords (MQTT, AMQP): prefer `OPCUACTL_BROKER_PASSWORD` over `--broker-password`; `--mqtt-password` and `OPCUACTL_MQTT_PASSWORD` are the deprecated names of v0.4
+
+### PubSub Input
+
+- `pubsub subscribe` prints what arrives at `--url`. Without message security (JSON messages, UADP without keys) anyone who can send to that address or topic decides what is printed; on a shared network, use secured UADP or a broker that authenticates its clients
+- With `--security-group` or `--keys-file`, `pubsub subscribe` requires signed messages unless `--message-security` says otherwise: an unsigned UADP message is reported on stderr and not printed. `--message-security none` accepts it, `sign-and-encrypt` requires encryption too
+- What a subscriber learns from the network is bounded: DataSetMetaData of `--max-learned-metadata` writers (default 1024, the one used least recently makes room; one with more than 4096 fields is not kept), and the probes of `--probe`, for at most 1024 writers at a time, each until its DataSetMetaData arrives or a minute after its last message
+
+### Test Server (`serve`)
+
+`opcuactl serve` is a test server. Its defaults are open:
+
+- it listens on `opc.tcp://0.0.0.0:4840`, every interface: `--listen 127.0.0.1:4840` keeps it on the machine
+- anonymous sessions are allowed: `--allow-anonymous=false` with `--user` requires a user
+- every client certificate is accepted: `--trusted-cert` or `--trust-dir` lists the clients it accepts
+- anonymous and authenticated users may read, write (`Demo.Level`) and call methods (`Demo.Add`): `--no-demo` leaves out the demo namespace
+- the passwords of `--user` are on its command line: `OPCUACTL_SERVE_USERS` keeps them in the environment
+- `--insecure-no-security` adds endpoints without message security; leave it off outside an isolated network
 
 ### Output Data
 
 - `opcuactl` writes all data to stdout and all errors to stderr
+- Text and table output show the control characters of a string from a server or the network as escapes (`\x1b`, `\r`, `\n`, `\u202e`), on stdout and in messages on stderr, so a terminal shows the characters the string holds. JSON, JSONL, YAML and CSV output keep the value as it is: escape it before you print it to a terminal
+- Recursive walks (`browse tree`, `find`, `get vars --recursive`, `export`) visit each node once stop after `--max-nodes` nodes (default 100000) with the output so far and exit 7, and end after `--walk-timeout` (default 10m) with exit 5
 - Be cautious when redirecting output to files in shared environments, as OPC UA node values may contain sensitive operational data

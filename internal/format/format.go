@@ -116,11 +116,20 @@ func (w *Writer) writeYAML(v interface{}) error {
 	return enc.Encode(v)
 }
 
+// writeTable writes the cells sanitized: a TAB, CR or LF in a cell does not
+// move the columns or start a line.
 func (w *Writer) writeTable(headers []string, rows [][]string) error {
 	tw := tabwriter.NewWriter(w.out, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	line := func(cells []string) {
+		clean := make([]string, len(cells))
+		for i, c := range cells {
+			clean[i] = Sanitize(c)
+		}
+		_, _ = fmt.Fprintln(tw, strings.Join(clean, "\t"))
+	}
+	line(headers)
 	for _, row := range rows {
-		_, _ = fmt.Fprintln(tw, strings.Join(row, "\t"))
+		line(row)
 	}
 	return tw.Flush()
 }
@@ -281,21 +290,21 @@ var (
 	printed   []string
 )
 
-// Errf prints an error message to stderr.
+// Errf prints an error message to stderr, its arguments sanitized.
 func Errf(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	printedMu.Lock()
 	printed = append(printed, msg)
 	printedMu.Unlock()
-	fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
+	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", sanitizeArgs(args)...)
 }
 
 // Infof prints an informational message to stderr: the progress and summary
 // lines of --verbose, warnings and hints that accompany a successful
 // command. Unlike Errf it has no "Error:" prefix and does not count as a
-// printed error.
+// printed error. Its arguments are sanitized.
 func Infof(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	fmt.Fprintf(os.Stderr, format+"\n", sanitizeArgs(args)...)
 }
 
 // ErrPrinted reports whether an Errf message since the last ResetPrinted

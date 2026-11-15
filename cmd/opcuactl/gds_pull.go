@@ -54,7 +54,7 @@ certificate, the private key and the trust list to files that --cert,
 --key and --trusted-cert of opcuactl (or a server) take.
 
 Examples:
-  SEC="--security-mode SignAndEncrypt --security-policy Basic256Sha256 --cert app.pem --key app.key --auth username --username gdsadmin --password ..."
+  SEC="--security-mode SignAndEncrypt --security-policy Basic256Sha256 --cert app.pem --key app.key --trusted-cert gds.der --auth username --username gdsadmin --password-file gdsadmin.txt"
   opcuactl gds pull find -e opc.tcp://gds:4840 urn:plant:line4
   opcuactl gds pull register -e opc.tcp://gds:4840 $SEC --uri urn:plant:line4 --name "Line 4" --discovery-url opc.tcp://line4:4840
   opcuactl gds pull enroll -e opc.tcp://gds:4840 $SEC --uri urn:plant:line4 --cert-out line4.pem --key-out line4.key --trust-out ./pki`,
@@ -695,6 +695,8 @@ RequestId, which gds pull finish and gds pull wait take.
                       (StartSigningRequest; RSA, NIST ECDSA and Ed25519 keys)
   neither             the GDS generates the key pair (StartNewKeyPairRequest,
                       §7.9.5); --key-password encrypts the key it returns
+                      (--key-password-file, - for stdin, or
+                      OPCUACTL_KEY_PASSWORD keep it out of the process list)
 
 --group selects a certificate group of the GDS, --type the certificate
 type. A GDS may hold the request until an administrator approves it.
@@ -729,8 +731,13 @@ Examples:
 					return exitCode(exitUsage, err)
 				}
 			}
-			if keyPassword != "" && (csr != nil || key != nil) {
+			if (keyPassword != "" || cmd.Flags().Changed("key-password-file")) && (csr != nil || key != nil) {
 				return exitCodef(exitUsage, "--key-password is for a key pair the GDS generates (without --csr or --private-key)")
+			}
+			if csr == nil && key == nil {
+				if err := resolveSecret(cmd.Flags(), "key-password", "OPCUACTL_KEY_PASSWORD", &keyPassword); err != nil {
+					return err
+				}
 			}
 			return withPull(func(ctx context.Context, p *gds.PullClient) error {
 				res := model.GDSRequest{ApplicationID: appID.String(), Kind: "signing-request"}
@@ -774,7 +781,8 @@ Examples:
 	rf.register(cmd, "type")
 	cmd.Flags().StringVar(&csrFile, "csr", "", "PKCS #10 certificate request of the application (PEM or DER)")
 	cmd.Flags().StringVar(&keyFile, "private-key", "", "Private key to make the certificate request from")
-	cmd.Flags().StringVar(&keyPassword, "key-password", "", "Password that encrypts the private key the GDS generates")
+	cmd.Flags().StringVar(&keyPassword, "key-password", "", "Password that encrypts the private key the GDS generates; visible in the process list: prefer --key-password-file or OPCUACTL_KEY_PASSWORD")
+	cmd.Flags().String("key-password-file", "", "File with the password that encrypts the private key the GDS generates, - for stdin (or OPCUACTL_KEY_PASSWORD_FILE)")
 	return cmd
 }
 

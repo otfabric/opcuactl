@@ -354,5 +354,5 @@ func actionRequestLine(r model.PubSubActionRequest) string {
 		b.WriteString(" outputs:")
 		b.WriteString(fieldsString(r.Outputs))
 	}
-	return b.String()
+	return format.Sanitize(b.String())
 }

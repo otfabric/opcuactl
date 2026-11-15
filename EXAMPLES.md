@@ -1460,7 +1460,7 @@ opcuactl discover endpoints -e opc.tcp://secure-host:4840 --best -v
 
 # Username + auto endpoint selection
 opcuactl get value -e opc.tcp://secure-host:4840 -n i=2258 \
-  --auth username --username operator --password "$OPCUACTL_PASSWORD" \
+  --auth username --username operator --password-file operator.txt \
   --security-policy auto --security-mode auto \
   --cert client.pem --key client.key \
   --trusted-cert server-ca.pem

@@ -5,6 +5,7 @@ package opcuactl
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/otfabric/go-opcua"
@@ -24,8 +25,11 @@ func newGetVarsCmd() *cobra.Command {
 		noRead    bool
 		paths     bool
 		match     string
-		onlyNS    int
-		excludeNS int
+		// int64: pflag's int flag keeps the low 32 bits of a value on 32-bit
+		// builds, so 4294967297 would pass the range check as 1.
+		onlyNS    int64
+		excludeNS int64
+		wf        walkFlags
 	)
 
 	cmd := &cobra.Command{
@@ -37,6 +41,10 @@ and read their values, data types, and status codes.
 By default, returns direct child variables with values. Use --recursive to
 traverse the subtree. Use --no-read for metadata only.
 
+Each node is visited once, also where references loop. The walk stops after
+--max-nodes nodes, with the results so far and exit 7, and after
+--walk-timeout with exit 5.
+
 Examples:
   opcuactl get vars --endpoint opc.tcp://localhost:4840 -n "ns=3;s=PLC"
   opcuactl get vars -e opc.tcp://localhost:4840 -n "ns=2;i=5001" --recursive --paths
@@ -44,6 +52,16 @@ Examples:
   opcuactl get vars -e opc.tcp://localhost:4840 -n "ns=3;s=PLC" --match Revision
   opcuactl get vars -e opc.tcp://localhost:4840 -n "ns=2;i=5001" --recursive --only-ns 3 -f json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkNamespaceFlag("--only-ns", onlyNS); err != nil {
+				return err
+			}
+			if err := checkNamespaceFlag("--exclude-ns", excludeNS); err != nil {
+				return err
+			}
+			if err := wf.validate(); err != nil {
+				return err
+			}
+
 			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
@@ -75,16 +93,20 @@ Examples:
 				}
 			}
 
-			// Browse for all nodes, then filter to variables.
-			n := c.Node(startNode)
-			refs, err := n.BrowseWithDepth(opCtx, opcua.BrowseWithDepthOptions{
-				MaxDepth:        maxDepth,
-				RefType:         id.HierarchicalReferences,
-				IncludeSubtypes: true,
-			})
-			if err != nil {
-				format.Errf("browsing variables from %s: %v", startNode, err)
-				return exitCode(exitProtocol, err)
+			// Browse for all nodes, each once, then filter to variables.
+			var refs []opcua.BrowseWithDepthResult
+			var partial error
+			walkCtx, walkCancel := wf.context(opCtx)
+			defer walkCancel()
+			for wr, err := range wf.walk(walkCtx, c.Node(startNode), maxDepth) {
+				if partial = partialWalk("browsing variables from "+startNode.String(), err); partial != nil {
+					break
+				}
+				if err != nil {
+					format.Errf("browsing variables from %s: %v", startNode, err)
+					return exitCode(exitProtocol, err)
+				}
+				refs = append(refs, opcua.BrowseWithDepthResult{Ref: wr.Ref, Depth: wr.Depth})
 			}
 
 			// Filter to Variable nodes and apply namespace / match filters.
@@ -185,21 +207,10 @@ Examples:
 			}
 
 			// Output.
-			w := newWriter()
-			f := format.ParseFormat(outputFormat)
-			if quiet {
-				for _, v := range results {
-					fmt.Println(v.NodeID)
-				}
-				return nil
+			if err := writeVars(results, noRead, paths); err != nil {
+				return err
 			}
-			if f == format.Table {
-				return writeVarsTable(w, results, noRead, paths)
-			}
-			if len(results) == 1 {
-				return w.Write(results[0])
-			}
-			return w.Write(results)
+			return partial
 		},
 	}
 
@@ -209,9 +220,37 @@ Examples:
 	cmd.Flags().BoolVar(&noRead, "no-read", false, "Do not read Value attribute (metadata only)")
 	cmd.Flags().BoolVar(&paths, "paths", false, "Include browse path from start node")
 	cmd.Flags().StringVar(&match, "match", "", "Filter by browse name / display name substring")
-	cmd.Flags().IntVar(&onlyNS, "only-ns", -1, "Only return nodes in this namespace (-1 = all)")
-	cmd.Flags().IntVar(&excludeNS, "exclude-ns", -1, "Exclude nodes in this namespace (-1 = none)")
+	cmd.Flags().Int64Var(&onlyNS, "only-ns", -1, "Only return nodes in this namespace index (0-65535; -1 = all)")
+	cmd.Flags().Int64Var(&excludeNS, "exclude-ns", -1, "Exclude nodes in this namespace index (0-65535; -1 = none)")
+	wf.register(cmd.Flags())
 	return cmd
+}
+
+func writeVars(results []model.VarNode, noRead, paths bool) error {
+	w := newWriter()
+	f := format.ParseFormat(outputFormat)
+	if quiet {
+		for _, v := range results {
+			fmt.Println(v.NodeID)
+		}
+		return nil
+	}
+	if f == format.Table {
+		return writeVarsTable(w, results, noRead, paths)
+	}
+	if len(results) == 1 {
+		return w.Write(results[0])
+	}
+	return w.Write(results)
+}
+
+// checkNamespaceFlag refuses a namespace index flag above 65535, the largest
+// NamespaceIndex (a UInt16, Part 3 §8.2.2). A negative value means no filter.
+func checkNamespaceFlag(name string, v int64) error {
+	if v > math.MaxUint16 {
+		return exitCodef(exitUsage, "%s %d is not a namespace index (0-65535, or -1 for no filter)", name, v)
+	}
+	return nil
 }
 
 func writeVarsTable(w *format.Writer, results []model.VarNode, noRead, showPaths bool) error {

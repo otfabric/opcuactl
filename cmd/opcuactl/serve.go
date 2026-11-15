@@ -522,11 +522,16 @@ func (f *serveFlags) parseUsers() ([]serve.User, error) {
 	if len(specs) == 0 {
 		specs = splitCSV(os.Getenv(serveUsersEnv))
 	}
+	source := "--user"
+	if len(f.users) == 0 {
+		source = serveUsersEnv
+	}
 	var out []serve.User
-	for _, spec := range specs {
+	for i, spec := range specs {
 		name, password, ok := strings.Cut(spec, ":")
 		if !ok || name == "" {
-			return nil, fmt.Errorf("invalid --user %q: want name:password", spec)
+			// The spec holds a password: the message names its position.
+			return nil, fmt.Errorf("invalid %s value %d: want name:password", source, i+1)
 		}
 		out = append(out, serve.User{Name: name, Password: password})
 	}
