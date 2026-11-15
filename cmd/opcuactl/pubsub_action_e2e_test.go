@@ -30,6 +30,9 @@ import (
 const cliExecEnv = "OPCUACTL_TEST_EXEC"
 
 func TestMain(m *testing.M) {
+	if os.Getenv(cliWorkerEnv) != "" {
+		cliWorkerMain()
+	}
 	if args := os.Getenv(cliExecEnv); args != "" {
 		var argv []string
 		if err := json.Unmarshal([]byte(args), &argv); err != nil {
@@ -92,6 +95,11 @@ func startCLI(t *testing.T, args ...string) *cliProcess {
 	t.Cleanup(func() {
 		_ = p.cmd.Process.Kill()
 		<-p.done
+		// The race detector reports to the stderr of the process; the exit
+		// code says so only when it would have been 0.
+		if strings.Contains(p.stderr.String(), raceReport) {
+			t.Errorf("the race detector reported a data race in opcuactl %s:\n%s", strings.Join(args, " "), p.stderr)
+		}
 	})
 	return p
 }
@@ -138,12 +146,12 @@ func (p *cliProcess) waitOutput(t *testing.T, out *syncBuffer, want string) {
 
 // callUntilAnswered runs `pubsub call` until a Responder that is still
 // subscribing answers (a request sent before is lost on a broker).
-func callUntilAnswered(t *testing.T, args ...string) string {
+func callUntilAnswered(t *testing.T, ctl cliRunner, args ...string) string {
 	t.Helper()
 	args = append([]string{"pubsub", "call", "--timeout", "1s"}, args...)
 	var errOut string
 	for range 15 {
-		out, e, err := runCLI(t, args...)
+		out, e, err := ctl.run(t, args...)
 		if err == nil {
 			return out
 		}
@@ -199,6 +207,8 @@ func writeKeysFile(t *testing.T) string {
 // TestE2E_PubSubActionsUDP calls a `pubsub respond` Responder with
 // `pubsub call` over UDP, plain and secured.
 func TestE2E_PubSubActionsUDP(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	keys := writeKeysFile(t)
 	for _, secured := range []bool{false, true} {
 		t.Run(fmt.Sprint("secured=", secured), func(t *testing.T) {
@@ -216,7 +226,7 @@ func TestE2E_PubSubActionsUDP(t *testing.T) {
 			// The Responder listens once it reports itself, and the
 			// resends cover a lost datagram: one call, no retries, which
 			// would be new requests that count towards --count 3.
-			out := mustRun(t, append([]string{"pubsub", "call"}, append(call, "--output", "A:Int32", "--output", "B:Int32", "--format", "json")...)...)
+			out := ctl.mustRun(t, append([]string{"pubsub", "call"}, append(call, "--output", "A:Int32", "--output", "B:Int32", "--format", "json")...)...)
 			r := parseActionResult(t, out)
 			if r.Status != "Good" || r.PublisherID != "7" || r.DataSetWriterID != 100 || r.ActionTargetID != 1 || r.RequestID == 0 ||
 				len(r.Outputs) != 2 || r.Outputs[0].Name != "A" || r.Outputs[0].Value != float64(2) || r.Outputs[1].Value != float64(3) ||
@@ -225,10 +235,10 @@ func TestE2E_PubSubActionsUDP(t *testing.T) {
 			}
 
 			// The text form, target 2, without output names.
-			out = mustRun(t, append([]string{"pubsub", "call", "--target-id", "2"}, call...)...)
+			out = ctl.mustRun(t, append([]string{"pubsub", "call", "--target-id", "2"}, call...)...)
 			wantContains(t, out, "pub=7 writer=100 target=2 request=", "status=Good", "#0 = 2 (Int32)", "#1 = 3 (Int32)")
 			// --quiet prints the output values.
-			out = mustRun(t, append([]string{"pubsub", "call", "-q"}, call...)...)
+			out = ctl.mustRun(t, append([]string{"pubsub", "call", "-q"}, call...)...)
 			if out != "2\n3\n" {
 				t.Errorf("--quiet: %q", out)
 			}
@@ -255,13 +265,15 @@ func TestE2E_PubSubActionsUDP(t *testing.T) {
 // TestE2E_PubSubActionsResults covers the results of a call: fixed outputs,
 // Bad statuses of the Action and of the runtime, and timeouts.
 func TestE2E_PubSubActionsResults(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	respURL, reqURL := freeUDPURL(t), freeUDPURL(t)
 	resp := startCLI(t, "pubsub", "respond", "--url", respURL, "--input", "A:Int32", "--output", "Sum:Int32=5",
 		"--output", "Text:String=ok", "-v", "--diagnostics", "--format", "json", "--duration", "60s")
 	resp.waitStderr(t, "responding as publisher 1")
 	call := []string{"--url", reqURL, "--request-address", respURL, "--resend-interval", "100ms"}
 
-	out := callUntilAnswered(t, append(call, "--input", "A:Int32=1", "--output", "Sum:Int32", "--output", "Text:String", "--format", "json")...)
+	out := callUntilAnswered(t, ctl, append(call, "--input", "A:Int32=1", "--output", "Sum:Int32", "--output", "Text:String", "--format", "json")...)
 	if r := parseActionResult(t, out); r.Status != "Good" || len(r.Outputs) != 2 || r.Outputs[0].Value != float64(5) || r.Outputs[1].Value != "ok" {
 		t.Errorf("fixed outputs: %+v", r)
 	}
@@ -275,7 +287,7 @@ func TestE2E_PubSubActionsResults(t *testing.T) {
 		{nil, "BadArgumentsMissing"},
 		{[]string{"--input", "A:Int32=1", "--input", "B:Int32=2"}, "BadTooManyArguments"},
 	} {
-		out, _, err := runCLI(t, append(append([]string{"pubsub", "call", "--format", "json"}, call...), tc.inputs...)...)
+		out, _, err := ctl.run(t, append(append([]string{"pubsub", "call", "--format", "json"}, call...), tc.inputs...)...)
 		if ExitCode(err) != 6 {
 			t.Errorf("%v: exit code %d (%v), want 3", tc.inputs, ExitCode(err), err)
 			continue
@@ -293,7 +305,7 @@ func TestE2E_PubSubActionsResults(t *testing.T) {
 		{"--url", reqURL, "--request-address", freeUDPURL(t), "--input", "A:Int32=1"},
 	} {
 		start := time.Now()
-		_, errOut, err := runCLI(t, append([]string{"pubsub", "call", "--timeout", "300ms"}, args...)...)
+		_, errOut, err := ctl.run(t, append([]string{"pubsub", "call", "--timeout", "300ms"}, args...)...)
 		if ExitCode(err) != 5 || !strings.Contains(errOut, "no response") {
 			t.Errorf("%v: exit code %d, stderr %q", args, ExitCode(err), errOut)
 		}
@@ -312,12 +324,14 @@ func TestE2E_PubSubActionsResults(t *testing.T) {
 
 // TestE2E_PubSubRespondStatus answers with a Bad status and after a delay.
 func TestE2E_PubSubRespondStatus(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	t.Run("status", func(t *testing.T) {
 		respURL, reqURL := freeUDPURL(t), freeUDPURL(t)
 		resp := startCLI(t, "pubsub", "respond", "--url", respURL, "--status", "BadInternalError", "--output", "X:Int32=1", "--count", "1", "-v")
 		resp.waitStderr(t, "responding")
 		call := []string{"pubsub", "call", "--url", reqURL, "--request-address", respURL, "--resend-interval", "100ms", "--input", "A:Int32=1"}
-		out, errOut, err := runCLI(t, call...)
+		out, errOut, err := ctl.run(t, call...)
 		if ExitCode(err) != 6 || !strings.Contains(out, "status=BadInternalError") || !strings.Contains(errOut, "BadInternalError") {
 			t.Errorf("exit code %d, out %q, stderr %q", ExitCode(err), out, errOut)
 		}
@@ -331,7 +345,7 @@ func TestE2E_PubSubRespondStatus(t *testing.T) {
 		respURL, reqURL := freeUDPURL(t), freeUDPURL(t)
 		resp := startCLI(t, "pubsub", "respond", "--url", respURL, "--delay", "3s", "--duration", "30s", "-v")
 		resp.waitStderr(t, "responding")
-		_, errOut, err := runCLI(t, "pubsub", "call", "--url", reqURL, "--request-address", respURL, "--timeout", "500ms",
+		_, errOut, err := ctl.run(t, "pubsub", "call", "--url", reqURL, "--request-address", respURL, "--timeout", "500ms",
 			"--resend-interval", "100ms", "--input", "A:Int32=1", "--diagnostics", "--format", "json")
 		// The TimeoutHint of 500ms ends on both sides: the Responder
 		// cancels the handler and answers Done with Bad_Timeout (Part 14
@@ -361,6 +375,8 @@ func TestE2E_PubSubRespondStatus(t *testing.T) {
 // test broker, UADP and JSON, MQTT 3.1.1 and 5.0, and watches the exchange
 // with `pubsub subscribe`.
 func TestE2E_PubSubActionsMQTT(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	b := startBroker(t)
 	for _, tc := range []struct{ enc, version string }{{"uadp", "3.1.1"}, {"json", "3.1.1"}, {"json", "5.0"}} {
 		t.Run(tc.enc+"/"+tc.version, func(t *testing.T) {
@@ -374,7 +390,7 @@ func TestE2E_PubSubActionsMQTT(t *testing.T) {
 				"--count", "1", "--jsonl", "-v"}, common...)...)
 			resp.waitStderr(t, "responding as publisher responder-1")
 
-			out := callUntilAnswered(t, append(common, "--input", "A:Int32=2", "--input", "B:Int32=3",
+			out := callUntilAnswered(t, ctl, append(common, "--input", "A:Int32=2", "--input", "B:Int32=3",
 				"--output", "A:Int32", "--output", "B:Int32", "--format", "json")...)
 			if r := parseActionResult(t, out); r.Status != "Good" || len(r.Outputs) != 2 || r.Outputs[1].Value != float64(3) {
 				t.Errorf("result: %+v", r)

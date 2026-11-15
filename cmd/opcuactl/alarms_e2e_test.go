@@ -71,9 +71,9 @@ func startAlarmServer(t *testing.T) *alarmServer {
 func (a *alarmServer) id(c *server.Condition) string { return c.NodeID().String() }
 
 // listConditions runs alarms list --format json.
-func listConditions(t *testing.T, args ...string) []model.Condition {
+func listConditions(t *testing.T, ctl cliRunner, args ...string) []model.Condition {
 	t.Helper()
-	out := mustRun(t, append([]string{"alarms", "list", "--format", "json"}, args...)...)
+	out := ctl.mustRun(t, append([]string{"alarms", "list", "--format", "json"}, args...)...)
 	var conds []model.Condition
 	if err := json.Unmarshal([]byte(out), &conds); err != nil {
 		t.Fatalf("alarms list json: %v\n%s", err, out)
@@ -91,12 +91,14 @@ func findCondition(conds []model.Condition, conditionID string) *model.Condition
 }
 
 func TestE2E_Alarms(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	a := startAlarmServer(t)
 	ep := []string{"-e", a.url}
-	run := func(t *testing.T, args ...string) string { t.Helper(); return mustRun(t, append(args, ep...)...) }
+	run := func(t *testing.T, args ...string) string { t.Helper(); return ctl.mustRun(t, append(args, ep...)...) }
 	fail := func(t *testing.T, wantStderr string, args ...string) {
 		t.Helper()
-		_, errOut, err := runCLI(t, append(args, ep...)...)
+		_, errOut, err := ctl.run(t, append(args, ep...)...)
 		if err == nil {
 			t.Fatalf("opcuactl %s succeeded", strings.Join(args, " "))
 		}
@@ -117,7 +119,7 @@ func TestE2E_Alarms(t *testing.T) {
 			t.Errorf("want the header, then by severity LevelAlarm and Info:\n%s", out)
 		}
 
-		conds := listConditions(t, ep...)
+		conds := listConditions(t, ctl, ep...)
 		c := findCondition(conds, level)
 		if c == nil || len(conds) != 2 {
 			t.Fatalf("conditions = %+v", conds)
@@ -141,13 +143,13 @@ func TestE2E_Alarms(t *testing.T) {
 	})
 
 	t.Run("list filters", func(t *testing.T) {
-		if conds := listConditions(t, append(ep, "--state", "unacked")...); len(conds) != 1 || conds[0].ConditionID != level {
+		if conds := listConditions(t, ctl, append(ep, "--state", "unacked")...); len(conds) != 1 || conds[0].ConditionID != level {
 			t.Errorf("--state unacked = %+v", conds)
 		}
-		if conds := listConditions(t, append(ep, "--severity-min", "500")...); len(conds) != 1 {
+		if conds := listConditions(t, ctl, append(ep, "--severity-min", "500")...); len(conds) != 1 {
 			t.Errorf("--severity-min 500 = %+v", conds)
 		}
-		if conds := listConditions(t, append(ep, "--state", "shelved")...); len(conds) != 0 {
+		if conds := listConditions(t, ctl, append(ep, "--state", "shelved")...); len(conds) != 0 {
 			t.Errorf("--state shelved = %+v", conds)
 		}
 		fail(t, "unknown --state", "alarms", "list", "--state", "angry")
@@ -164,12 +166,12 @@ func TestE2E_Alarms(t *testing.T) {
 		}
 		fail(t, "already acknowledged", "alarms", "ack", level)
 
-		if conds := listConditions(t, append(ep, "--state", "unconfirmed")...); len(conds) != 1 {
+		if conds := listConditions(t, ctl, append(ep, "--state", "unconfirmed")...); len(conds) != 1 {
 			t.Errorf("--state unconfirmed after ack = %+v", conds)
 		}
 
 		// An explicit EventId: the latest one, as alarms list printed it.
-		c := findCondition(listConditions(t, ep...), level)
+		c := findCondition(listConditions(t, ctl, ep...), level)
 		out = run(t, "alarms", "confirm", level, "--event-id", c.EventID, "--format", "json")
 		var res model.AlarmAction
 		if err := json.Unmarshal([]byte(out), &res); err != nil {
@@ -197,13 +199,13 @@ func TestE2E_Alarms(t *testing.T) {
 	t.Run("not retained", func(t *testing.T) {
 		fail(t, "not retained", "alarms", "ack", a.id(a.quiet))
 		fail(t, "invalid ConditionId", "alarms", "ack", "garbage")
-		if _, _, err := runCLI(t, append([]string{"alarms", "ack"}, ep...)...); err == nil {
+		if _, _, err := ctl.run(t, append([]string{"alarms", "ack"}, ep...)...); err == nil {
 			t.Error("alarms ack without a ConditionId succeeded")
 		}
 	})
 
 	t.Run("method a ConditionType does not have", func(t *testing.T) {
-		_, _, err := runCLI(t, append([]string{"alarms", "ack", a.id(a.info)}, ep...)...)
+		_, _, err := ctl.run(t, append([]string{"alarms", "ack", a.id(a.info)}, ep...)...)
 		if err == nil || ExitCode(err) != 6 {
 			t.Errorf("ack of a ConditionType: %v (exit %d)", err, ExitCode(err))
 		}
@@ -216,7 +218,7 @@ func TestE2E_Alarms(t *testing.T) {
 		if st := a.level.State(); st.Shelving != server.TimedShelved {
 			t.Fatalf("shelving = %v", st.Shelving)
 		}
-		if conds := listConditions(t, append(ep, "--state", "shelved")...); len(conds) != 1 || conds[0].Shelving != "TimedShelved" {
+		if conds := listConditions(t, ctl, append(ep, "--state", "shelved")...); len(conds) != 1 || conds[0].Shelving != "TimedShelved" {
 			t.Errorf("--state shelved = %+v", conds)
 		}
 		wantContains(t, run(t, "alarms", "list"), "timed")
@@ -245,7 +247,7 @@ func TestE2E_Alarms(t *testing.T) {
 		if a.level.State().Enabled {
 			t.Fatal("still enabled")
 		}
-		if findCondition(listConditions(t, ep...), level) != nil {
+		if findCondition(listConditions(t, ctl, ep...), level) != nil {
 			t.Error("a disabled condition is listed")
 		}
 		fail(t, "already disabled", "alarms", "disable", level)

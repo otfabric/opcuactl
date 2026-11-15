@@ -162,12 +162,14 @@ func fieldValue(ds model.PubSubDataSet, name string) interface{} {
 // TestE2E_PubSubUDP round-trips UADP over UDP between the CLI and the
 // go-opcua PubSub runtime in both directions.
 func TestE2E_PubSubUDP(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	t.Run("subscribe", func(t *testing.T) {
 		url := freeUDPURL(t)
 		startPublisher(t, pubsub.UDPConnection("pub", url, uint16(2234)),
 			pubsub.WriterGroup("G", 100, 50*time.Millisecond, pubsub.DataSetWriter("W", 7, "Measurements")))
 
-		out := mustRun(t, "pubsub", "subscribe", "--url", url, "--count", "2", "--duration", "15s", "--format", "json")
+		out := ctl.mustRun(t, "pubsub", "subscribe", "--url", url, "--count", "2", "--duration", "15s", "--format", "json")
 		got := parseDataSets(t, out)
 		if len(got) != 2 {
 			t.Fatalf("got %d DataSets, want 2:\n%s", len(got), out)
@@ -182,7 +184,7 @@ func TestE2E_PubSubUDP(t *testing.T) {
 		}
 
 		// Field names from the command line, filters that match.
-		out = mustRun(t, "pubsub", "subscribe", "--url", url, "--count", "1", "--duration", "15s",
+		out = ctl.mustRun(t, "pubsub", "subscribe", "--url", url, "--count", "1", "--duration", "15s",
 			"--field", "Counter:UInt32", "--field", "Name:String",
 			"--publisher-id", "2234", "--writer-group-id", "100", "--writer-id", "7")
 		wantContains(t, out, "pub=2234 wg=100 writer=7", "keyframe", "Counter=42", "Name=pump")
@@ -190,7 +192,7 @@ func TestE2E_PubSubUDP(t *testing.T) {
 		// Filters that do not match: nothing is printed.
 		for _, filter := range [][]string{{"--writer-id", "8"}, {"--publisher-id", "1"}, {"--writer-group-id", "1"}} {
 			args := append([]string{"pubsub", "subscribe", "--url", url, "--duration", "400ms"}, filter...)
-			if out := mustRun(t, args...); strings.TrimSpace(out) != "" {
+			if out := ctl.mustRun(t, args...); strings.TrimSpace(out) != "" {
 				t.Errorf("%v: unexpected output:\n%s", filter, out)
 			}
 		}
@@ -210,7 +212,7 @@ func TestE2E_PubSubUDP(t *testing.T) {
 			pubsub.WithDataSetHandler(rcv.handle))
 
 		for i, enc := range []string{"variant", "datavalue", "rawdata"} {
-			out := mustRun(t, "pubsub", "publish", "--url", url, "--publisher-id", "5", "--writer-group-id", "3",
+			out := ctl.mustRun(t, "pubsub", "publish", "--url", url, "--publisher-id", "5", "--writer-group-id", "3",
 				"--writer-id", fmt.Sprint(4+i), "--field", "Counter:UInt32=7", "--field", "T:Double=2.5",
 				"--field-encoding", enc, "--count", "2", "--interval", "20ms")
 			wantContains(t, out, "published 2 message(s)", url)
@@ -233,7 +235,7 @@ func TestE2E_PubSubUDP(t *testing.T) {
 			// A UADP listener that collects what the CLI sends.
 			done <- collectUDP(t, conn, 2)
 		}()
-		out := mustRun(t, "pubsub", "publish", "--url", url, "--field", "A:Int16=-3", "--field", "B:Boolean=true",
+		out := ctl.mustRun(t, "pubsub", "publish", "--url", url, "--field", "A:Int16=-3", "--field", "B:Boolean=true",
 			"--announce-metadata", "--field-encoding", "rawdata", "--format", "json")
 		wantContains(t, out, `"messages":1`)
 		hexMsgs := <-done
@@ -246,15 +248,15 @@ func TestE2E_PubSubUDP(t *testing.T) {
 		if err := os.WriteFile(file, []byte(parts[0]), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		out = mustRun(t, "pubsub", "decode", file)
+		out = ctl.mustRun(t, "pubsub", "decode", file)
 		wantContains(t, out, "metadata pub=1 writer=1", "A:Int16", "B:Boolean")
 		if err := os.WriteFile(file, []byte(parts[1]), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := runCLI(t, "pubsub", "decode", file); err == nil {
+		if _, _, err := ctl.run(t, "pubsub", "decode", file); err == nil {
 			t.Error("a RawData message decoded without its DataSetMetaData")
 		}
-		out = mustRun(t, "pubsub", "decode", file, "--field", "A:Int16", "--field", "B:Boolean")
+		out = ctl.mustRun(t, "pubsub", "decode", file, "--field", "A:Int16", "--field", "B:Boolean")
 		wantContains(t, out, "A=-3", "B=true")
 	})
 }
@@ -620,6 +622,8 @@ func TestE2E_PubSubMQTT(t *testing.T) {
 // TestE2E_PubSubSKS gets keys from a go-opcua Security Key Service and uses
 // them for secured UADP messages in both directions.
 func TestE2E_PubSubSKS(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	srvID := newIdentity(t, "rsa", serverURI)
 	cliID := newIdentity(t, "rsa", clientURI)
 
@@ -658,13 +662,13 @@ func TestE2E_PubSubSKS(t *testing.T) {
 
 	keysFile := filepath.Join(t.TempDir(), "keys.json")
 	t.Run("get-keys", func(t *testing.T) {
-		out := mustRun(t, append([]string{"pubsub", "sks", "get-keys", "--security-group", "sg"}, user...)...)
+		out := ctl.mustRun(t, append([]string{"pubsub", "sks", "get-keys", "--security-group", "sg"}, user...)...)
 		wantContains(t, out, "SecurityGroup:  sg", security.PolicyURIAes256CTR, "KeyLifetime:    1h0m0s", "TOKEN", "LENGTH")
 		if strings.Contains(out, "KEY ") {
 			t.Errorf("key material printed without --show-keys:\n%s", out)
 		}
 
-		out = mustRun(t, append([]string{"pubsub", "sks", "get-keys", "--security-group", "sg", "--future-keys", "2",
+		out = ctl.mustRun(t, append([]string{"pubsub", "sks", "get-keys", "--security-group", "sg", "--future-keys", "2",
 			"--show-keys", "--format", "json"}, user...)...)
 		var sk model.SecurityKeys
 		if err := json.Unmarshal([]byte(out), &sk); err != nil {
@@ -678,7 +682,7 @@ func TestE2E_PubSubSKS(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		out = mustRun(t, append([]string{"pubsub", "sks", "get-keys", "--security-group", "sg", "--show-keys"}, user...)...)
+		out = ctl.mustRun(t, append([]string{"pubsub", "sks", "get-keys", "--security-group", "sg", "--show-keys"}, user...)...)
 		wantContains(t, out, "KEY")
 	})
 
@@ -690,7 +694,7 @@ func TestE2E_PubSubSKS(t *testing.T) {
 			append([]string{}, user...),                                                  // no group
 			{"--security-group", "sg", "-e", "opc.tcp://127.0.0.1:1", "--timeout", "1s"}, // unreachable
 		} {
-			if _, _, err := runCLI(t, append([]string{"pubsub", "sks", "get-keys"}, args...)...); err == nil {
+			if _, _, err := ctl.run(t, append([]string{"pubsub", "sks", "get-keys"}, args...)...); err == nil {
 				t.Errorf("get-keys %v: expected an error", args)
 			}
 		}
@@ -706,16 +710,16 @@ func TestE2E_PubSubSKS(t *testing.T) {
 		args := append([]string{"pubsub", "subscribe", "--url", url, "--security-group", "sg",
 			"--message-security", "sign-and-encrypt", "--count", "2", "--duration", "20s", "--format", "json",
 			"--field", "Counter:UInt32", "--field", "Name:String"}, user...)
-		got := parseDataSets(t, mustRun(t, args...))
+		got := parseDataSets(t, ctl.mustRun(t, args...))
 		if len(got) != 2 || got[0].Security != "SignAndEncrypt" || got[0].SecurityTokenID == 0 ||
 			fieldValue(got[0], "Counter") != float64(42) || fieldValue(got[0], "Name") != "pump" {
 			t.Errorf("unexpected DataSets: %+v", got)
 		}
 
 		// The same with the saved keys, and without keys at all.
-		out := mustRun(t, "pubsub", "subscribe", "--url", url, "--keys-file", keysFile, "--count", "1", "--duration", "20s")
+		out := ctl.mustRun(t, "pubsub", "subscribe", "--url", url, "--keys-file", keysFile, "--count", "1", "--duration", "20s")
 		wantContains(t, out, "[SignAndEncrypt token=", "#0=42")
-		out, errOut, err := runCLI(t, "pubsub", "subscribe", "--url", url, "--duration", "500ms")
+		out, errOut, err := ctl.run(t, "pubsub", "subscribe", "--url", url, "--duration", "500ms")
 		if err != nil || strings.TrimSpace(out) != "" || !strings.Contains(errOut, "security") {
 			t.Errorf("without keys: err=%v out=%q stderr=%q", err, out, errOut)
 		}
@@ -739,7 +743,7 @@ func TestE2E_PubSubSKS(t *testing.T) {
 		url, rcv := subscriber()
 
 		for i, mode := range []string{"sign-and-encrypt", "sign"} {
-			mustRun(t, "pubsub", "publish", "--url", url, "--field", "Counter:UInt32=5", "--count", "3", "--interval", "20ms",
+			ctl.mustRun(t, "pubsub", "publish", "--url", url, "--field", "Counter:UInt32=5", "--count", "3", "--interval", "20ms",
 				"--writer-id", fmt.Sprint(1+2*i), "--message-security", mode, "--keys-file", keysFile, "--security-group", "sg")
 			if mode == "sign" {
 				// The reader requires SignAndEncrypt: signed messages are rejected.
@@ -761,7 +765,7 @@ func TestE2E_PubSubSKS(t *testing.T) {
 		// subscriber that took the runs above on the same SecurityTokenId
 		// ignores this one (§7.2.3): it goes to a subscriber of its own.
 		url, rcv = subscriber()
-		mustRun(t, append([]string{"pubsub", "publish", "--url", url, "--field", "Counter:UInt32=6", "--count", "2", "--writer-id", "2",
+		ctl.mustRun(t, append([]string{"pubsub", "publish", "--url", url, "--field", "Counter:UInt32=6", "--count", "2", "--writer-id", "2",
 			"--interval", "20ms", "--message-security", "sign-and-encrypt", "--security-group", "sg"}, user...)...)
 		if v := rcv.wait(t).Field("Counter"); v == nil || v.Value.Value() != uint32(6) {
 			t.Errorf("Counter = %v", v)
@@ -792,13 +796,15 @@ func TestE2E_PubSubSKS(t *testing.T) {
 // TestE2E_PubSubConfig configures the PubSub of a go-opcua server through
 // its PublishSubscribe methods.
 func TestE2E_PubSubConfig(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	s := startServer(t, server.WithPubSub(nil))
 	src := s.ns.AddNewVariableStringNode("Src", int32(7))
 	dst := s.ns.AddNewVariableStringNode("Dst", int32(0))
 	ep := []string{"-e", s.url}
 	run := func(args ...string) string {
 		t.Helper()
-		return strings.TrimSpace(mustRun(t, append(append([]string{"pubsub", "config"}, args...), ep...)...))
+		return strings.TrimSpace(ctl.mustRun(t, append(append([]string{"pubsub", "config"}, args...), ep...)...))
 	}
 
 	out := run("show")
@@ -846,7 +852,7 @@ func TestE2E_PubSubConfig(t *testing.T) {
 	}
 
 	// The server publishes the variable.
-	sub := mustRun(t, "pubsub", "subscribe", "--url", url, "--count", "1", "--duration", "15s", "--metadata-node", ds.NodeID, "-e", s.url)
+	sub := ctl.mustRun(t, "pubsub", "subscribe", "--url", url, "--count", "1", "--duration", "15s", "--metadata-node", ds.NodeID, "-e", s.url)
 	wantContains(t, sub, "pub=9 wg=1 writer=1", "Value=7")
 
 	// A reader that writes what the writer publishes to Dst.
@@ -856,7 +862,7 @@ func TestE2E_PubSubConfig(t *testing.T) {
 		"--writer-id", "1", "--field", "Value:Int32", "--target", dst.ID().String(), "--message-receive-timeout", "2s", "-q")
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		v := strings.TrimSpace(mustRun(t, "get", "value", "-e", s.url, "-n", dst.ID().String(), "-q"))
+		v := strings.TrimSpace(ctl.mustRun(t, "get", "value", "-e", s.url, "-n", dst.ID().String(), "-q"))
 		if v == "7" {
 			break
 		}
@@ -898,7 +904,7 @@ func TestE2E_PubSubConfig(t *testing.T) {
 		{"diagnostics", "--node", "bogus"},
 		{"diagnostics", "--node", dst.ID().String()},
 	} {
-		if _, _, err := runCLI(t, append(append([]string{"pubsub", "config"}, args...), ep...)...); err == nil {
+		if _, _, err := ctl.run(t, append(append([]string{"pubsub", "config"}, args...), ep...)...); err == nil {
 			t.Errorf("config %v: expected an error", args)
 		}
 	}
@@ -908,7 +914,7 @@ func TestE2E_PubSubConfig(t *testing.T) {
 	wantContains(t, run("enable", "--node", wg, "--format", "json"), `"state":"Operational"`)
 	wantContains(t, run("disable"), "i=14443", "Disabled")
 	wantContains(t, run("enable", "-q"), "Operational")
-	if _, _, err := runCLI(t, "pubsub", "config", "enable", "--node", wg, "-e", s.url); err == nil {
+	if _, _, err := ctl.run(t, "pubsub", "config", "enable", "--node", wg, "-e", s.url); err == nil {
 		t.Error("enabling an enabled group succeeded")
 	}
 
@@ -947,11 +953,11 @@ func TestE2E_PubSubConfig(t *testing.T) {
 		{"add-reader", "--group", rg, "--name", "x", "--target", "bogus"},
 		{"enable", "--node", "bogus"},
 	} {
-		if _, _, err := runCLI(t, append(append([]string{"pubsub", "config"}, args...), ep...)...); err == nil {
+		if _, _, err := ctl.run(t, append(append([]string{"pubsub", "config"}, args...), ep...)...); err == nil {
 			t.Errorf("config %v: expected an error", args)
 		}
 	}
-	if _, _, err := runCLI(t, "pubsub", "config", "show"); err == nil {
+	if _, _, err := ctl.run(t, "pubsub", "config", "show"); err == nil {
 		t.Error("config show without endpoint succeeded")
 	}
 

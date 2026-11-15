@@ -83,12 +83,14 @@ func startAlarm105Server(t *testing.T) *alarm105Server {
 }
 
 func TestE2E_AlarmStateMethods(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	a := startAlarm105Server(t)
 	ep := []string{"-e", a.url}
-	run := func(t *testing.T, args ...string) string { t.Helper(); return mustRun(t, append(args, ep...)...) }
+	run := func(t *testing.T, args ...string) string { t.Helper(); return ctl.mustRun(t, append(args, ep...)...) }
 	fail := func(t *testing.T, wantStderr string, args ...string) {
 		t.Helper()
-		_, errOut, err := runCLI(t, append(args, ep...)...)
+		_, errOut, err := ctl.run(t, append(args, ep...)...)
 		if err == nil {
 			t.Fatalf("opcuactl %s succeeded", strings.Join(args, " "))
 		}
@@ -100,20 +102,20 @@ func TestE2E_AlarmStateMethods(t *testing.T) {
 	dialog := a.dialog.NodeID().String()
 
 	t.Run("list shows the 1.05 states", func(t *testing.T) {
-		c := findCondition(listConditions(t, ep...), pump)
+		c := findCondition(listConditions(t, ctl, ep...), pump)
 		if c == nil || c.Suppressed == nil || *c.Suppressed || c.OutOfService == nil || c.Silenced == nil || c.Latched == nil || !*c.Latched {
 			t.Fatalf("PumpAlarm = %+v", c)
 		}
-		d := findCondition(listConditions(t, ep...), dialog)
+		d := findCondition(listConditions(t, ctl, ep...), dialog)
 		if d == nil || d.DialogActive == nil || !*d.DialogActive || d.Prompt != "Start the pump?" {
 			t.Fatalf("StartDialog = %+v", d)
 		}
 		out := run(t, "alarms", "list", "-v")
 		wantContains(t, out, "STATES", "latched", "dialog")
-		if conds := listConditions(t, append(ep, "--state", "dialog")...); len(conds) != 1 || conds[0].ConditionID != dialog {
+		if conds := listConditions(t, ctl, append(ep, "--state", "dialog")...); len(conds) != 1 || conds[0].ConditionID != dialog {
 			t.Errorf("--state dialog = %+v", conds)
 		}
-		if conds := listConditions(t, append(ep, "--state", "latched")...); len(conds) != 1 {
+		if conds := listConditions(t, ctl, append(ep, "--state", "latched")...); len(conds) != 1 {
 			t.Errorf("--state latched = %+v", conds)
 		}
 	})
@@ -124,7 +126,7 @@ func TestE2E_AlarmStateMethods(t *testing.T) {
 		if st := a.pump.State(); !st.Suppressed || st.Comment == nil || st.Comment.Text != "line stopped" {
 			t.Fatalf("after suppress: %+v", st)
 		}
-		if conds := listConditions(t, append(ep, "--state", "suppressed")...); len(conds) != 1 {
+		if conds := listConditions(t, ctl, append(ep, "--state", "suppressed")...); len(conds) != 1 {
 			t.Errorf("--state suppressed = %+v", conds)
 		}
 		run(t, "alarms", "unsuppress", pump)
@@ -146,7 +148,7 @@ func TestE2E_AlarmStateMethods(t *testing.T) {
 		if !a.pump.State().OutOfService {
 			t.Fatal("not out of service")
 		}
-		if conds := listConditions(t, append(ep, "--state", "out-of-service")...); len(conds) != 1 {
+		if conds := listConditions(t, ctl, append(ep, "--state", "out-of-service")...); len(conds) != 1 {
 			t.Errorf("--state out-of-service = %+v", conds)
 		}
 		run(t, "alarms", "in-service", pump, "-m", "repaired")
@@ -160,10 +162,10 @@ func TestE2E_AlarmStateMethods(t *testing.T) {
 		if !a.pump.State().Silenced {
 			t.Fatal("not silenced")
 		}
-		if conds := listConditions(t, append(ep, "--state", "silenced")...); len(conds) != 1 {
+		if conds := listConditions(t, ctl, append(ep, "--state", "silenced")...); len(conds) != 1 {
 			t.Errorf("--state silenced = %+v", conds)
 		}
-		if _, _, err := runCLI(t, append([]string{"alarms", "silence", pump, "-m", "x"}, ep...)...); err == nil {
+		if _, _, err := ctl.run(t, append([]string{"alarms", "silence", pump, "-m", "x"}, ep...)...); err == nil {
 			t.Error("silence accepted a comment")
 		}
 	})
@@ -268,7 +270,7 @@ func TestE2E_AlarmStateMethods(t *testing.T) {
 		out := run(t, "alarms", "list")
 		wantContains(t, out, "BRANCH", branch.String())
 		var found bool
-		for _, c := range listConditions(t, append(ep, "--state", "branch")...) {
+		for _, c := range listConditions(t, ctl, append(ep, "--state", "branch")...) {
 			found = found || (c.BranchID == branch.String() && c.ConditionID == pump)
 		}
 		if !found {

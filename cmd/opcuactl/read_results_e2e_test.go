@@ -5,6 +5,7 @@ package opcuactl
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,6 +56,7 @@ func readResultsServer(t *testing.T, results func(n int) int, opts ...server.Opt
 // than nodes ends with exit 6 and BadUnknownResponse on stderr, and prints
 // no result; with one result per node the command prints them and exits 0.
 func TestReadResultCount(t *testing.T) {
+	t.Parallel()
 	counts := []struct {
 		name    string
 		results func(n int) int
@@ -118,11 +120,20 @@ func TestReadResultCount(t *testing.T) {
 			result: func(*testServer) string { return "diagnostics" },
 		},
 	}
+	ctl := startCLIWorker(t)
 	for _, cmd := range commands {
+		// One server for the counts, which the subtests set in turn.
+		var results atomic.Pointer[func(n int) int]
+		s := readResultsServer(t, func(n int) int {
+			if f := results.Load(); f != nil {
+				return (*f)(n)
+			}
+			return n
+		}, cmd.opts...)
 		for _, c := range counts {
 			t.Run(cmd.name+", "+c.name, func(t *testing.T) {
-				s := readResultsServer(t, c.results, cmd.opts...)
-				stdout, stderr, err := runCLI(t, append(cmd.args(s), "-e", s.url)...)
+				results.Store(&c.results)
+				stdout, stderr, err := ctl.run(t, append(cmd.args(s), "-e", s.url)...)
 				if c.name == "n results" {
 					if err != nil {
 						t.Fatalf("exit %d (%v)\nstderr: %s", ExitCode(err), err, stderr)

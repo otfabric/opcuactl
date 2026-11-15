@@ -93,6 +93,8 @@ func startGDSPullServer(t *testing.T, srvID *identity) *gdsPullServer {
 }
 
 func TestE2E_GDSPull(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	srvID := newIdentity(t, "rsa", serverURI)
 	cli := newIdentity(t, "rsa", clientURI)
 	s := startGDSPullServer(t, srvID)
@@ -103,11 +105,11 @@ func TestE2E_GDSPull(t *testing.T) {
 	anon := admin[:len(admin)-6]
 	run := func(t *testing.T, args ...string) string {
 		t.Helper()
-		return mustRun(t, append(args, admin...)...)
+		return ctl.mustRun(t, append(args, admin...)...)
 	}
 	fail := func(t *testing.T, code int, wantStderr string, args ...string) {
 		t.Helper()
-		_, errOut, err := runCLI(t, args...)
+		_, errOut, err := ctl.run(t, args...)
 		if err == nil {
 			t.Fatalf("opcuactl %s succeeded", strings.Join(args, " "))
 		}
@@ -143,13 +145,13 @@ func TestE2E_GDSPull(t *testing.T) {
 	})
 
 	t.Run("find, get, query", func(t *testing.T) {
-		out := mustRun(t, append([]string{"gds", "pull", "find", appURI, "-v"}, open...)...)
+		out := ctl.mustRun(t, append([]string{"gds", "pull", "find", appURI, "-v"}, open...)...)
 		wantContains(t, out, "APPLICATION ID", appID, appURI, "Line 4", "server", "opc.tcp://line4:4840", "DA")
-		if out := mustRun(t, append([]string{"gds", "pull", "find", appURI, "-q"}, open...)...); strings.TrimSpace(out) != appID {
+		if out := ctl.mustRun(t, append([]string{"gds", "pull", "find", appURI, "-q"}, open...)...); strings.TrimSpace(out) != appID {
 			t.Errorf("find -q = %q", out)
 		}
 		var none []model.GDSApplication
-		if err := json.Unmarshal([]byte(mustRun(t, append([]string{"gds", "pull", "find", "urn:nobody", "--format", "json"}, open...)...)), &none); err != nil || len(none) != 0 {
+		if err := json.Unmarshal([]byte(ctl.mustRun(t, append([]string{"gds", "pull", "find", "urn:nobody", "--format", "json"}, open...)...)), &none); err != nil || len(none) != 0 {
 			t.Errorf("find urn:nobody = %v %v", none, err)
 		}
 
@@ -159,10 +161,10 @@ func TestE2E_GDSPull(t *testing.T) {
 		fail(t, 2, "invalid ApplicationId", append([]string{"gds", "pull", "get", "nonsense"}, admin...)...)
 		fail(t, 6, "GetApplication", append([]string{"gds", "pull", "get", "ns=1;g=00000000-0000-0000-0000-000000000001"}, admin...)...)
 
-		out = mustRun(t, append([]string{"gds", "pull", "query"}, open...)...)
+		out = ctl.mustRun(t, append([]string{"gds", "pull", "query"}, open...)...)
 		wantContains(t, out, "APPLICATION URI", appURI, "urn:otfabric:opcuactl:test:hmi")
 		var q model.GDSApplicationQuery
-		if err := json.Unmarshal([]byte(mustRun(t, append([]string{"gds", "pull", "query", "--type", "client", "--format", "json"}, open...)...)), &q); err != nil {
+		if err := json.Unmarshal([]byte(ctl.mustRun(t, append([]string{"gds", "pull", "query", "--type", "client", "--format", "json"}, open...)...)), &q); err != nil {
 			t.Fatal(err)
 		}
 		for _, a := range q.Applications {
@@ -170,23 +172,23 @@ func TestE2E_GDSPull(t *testing.T) {
 				t.Errorf("--type client returned the server: %+v", q)
 			}
 		}
-		wantContains(t, mustRun(t, append([]string{"gds", "pull", "query", "--uri", "%line4", "-q"}, open...)...), appURI)
-		_, errOut, err := runCLI(t, append([]string{"gds", "pull", "query", "--max", "1"}, open...)...)
+		wantContains(t, ctl.mustRun(t, append([]string{"gds", "pull", "query", "--uri", "%line4", "-q"}, open...)...), appURI)
+		_, errOut, err := ctl.run(t, append([]string{"gds", "pull", "query", "--max", "1"}, open...)...)
 		if err != nil || !strings.Contains(errOut, "more applications") {
 			t.Errorf("query --max 1: %v %s", err, errOut)
 		}
 		fail(t, 2, "invalid --type", append([]string{"gds", "pull", "query", "--type", "x"}, open...)...)
 
-		out = mustRun(t, append([]string{"gds", "pull", "query-servers"}, open...)...)
+		out = ctl.mustRun(t, append([]string{"gds", "pull", "query-servers"}, open...)...)
 		wantContains(t, out, "DISCOVERY URL", "opc.tcp://line4:4840", "Line 4")
 		var sq model.GDSServerQuery
-		if err := json.Unmarshal([]byte(mustRun(t, append([]string{"gds", "pull", "query-servers", "--capability", "DA", "--format", "json"}, open...)...)), &sq); err != nil {
+		if err := json.Unmarshal([]byte(ctl.mustRun(t, append([]string{"gds", "pull", "query-servers", "--capability", "DA", "--format", "json"}, open...)...)), &sq); err != nil {
 			t.Fatal(err)
 		}
 		if len(sq.Servers) != 1 || sq.Servers[0].DiscoveryURL != "opc.tcp://line4:4840" {
 			t.Errorf("query-servers = %+v", sq)
 		}
-		wantContains(t, mustRun(t, append([]string{"gds", "pull", "query-servers", "-q"}, open...)...), "opc.tcp://line4:4840")
+		wantContains(t, ctl.mustRun(t, append([]string{"gds", "pull", "query-servers", "-q"}, open...)...), "opc.tcp://line4:4840")
 	})
 
 	t.Run("update", func(t *testing.T) {
@@ -264,7 +266,7 @@ func TestE2E_GDSPull(t *testing.T) {
 
 		// Without --cert-out the certificate and key are printed.
 		reqID = strings.TrimSpace(run(t, "gds", "pull", "request", appID, "-q"))
-		out, errOut, err := runCLI(t, append([]string{"gds", "pull", "wait", appID, reqID, "--poll", "50ms"}, admin...)...)
+		out, errOut, err := ctl.run(t, append([]string{"gds", "pull", "wait", appID, reqID, "--poll", "50ms"}, admin...)...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -337,7 +339,7 @@ func TestE2E_GDSPull(t *testing.T) {
 			t.Errorf("check = %+v %v", rs, err)
 		}
 		wantContains(t, run(t, "gds", "pull", "revoke", appID, issuedFile, "--yes"), "Revoked")
-		_, _, err := runCLI(t, append([]string{"gds", "pull", "check-revocation", issuedFile, "-q"}, admin...)...)
+		_, _, err := ctl.run(t, append([]string{"gds", "pull", "check-revocation", issuedFile, "-q"}, admin...)...)
 		if ExitCode(err) != 1 {
 			t.Errorf("check of a revoked certificate: exit %d (%v)", ExitCode(err), err)
 		}
@@ -396,7 +398,7 @@ func TestE2E_GDSPull(t *testing.T) {
 	t.Run("unregister", func(t *testing.T) {
 		wantContains(t, run(t, "gds", "pull", "unregister", appID, "--yes"), "UnregisterApplication: done")
 		var none []model.GDSApplication
-		if err := json.Unmarshal([]byte(mustRun(t, append([]string{"gds", "pull", "find", appURI, "--format", "json"}, open...)...)), &none); err != nil || len(none) != 0 {
+		if err := json.Unmarshal([]byte(ctl.mustRun(t, append([]string{"gds", "pull", "find", appURI, "--format", "json"}, open...)...)), &none); err != nil || len(none) != 0 {
 			t.Errorf("after unregister: %v %v", none, err)
 		}
 		fail(t, 6, "UnregisterApplication", append([]string{"gds", "pull", "unregister", appID, "--yes"}, admin...)...)

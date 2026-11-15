@@ -243,7 +243,9 @@ func TestAlarmsWatchConnectionLost(t *testing.T) {
 // The monitor commands end like alarms watch: with what arrived before the
 // loss, exit 4, no reconnect and no hang.
 func TestMonitorConnectionLost(t *testing.T) {
+	t.Parallel()
 	s := startServer(t)
+	ctl := startCLIWorker(t)
 	const node = "i=2258"
 	for _, c := range []struct {
 		args   []string
@@ -256,7 +258,7 @@ func TestMonitorConnectionLost(t *testing.T) {
 		{[]string{"monitor", "alarm", "-n", "i=2253"}, "monitoring events on i=2253: connection lost", ""},
 	} {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
-			stdout, stderr, err := runCLI(t, append(c.args, "-e", timedCutProxy(t, s.url, time.Second), "--timeout", "1s")...)
+			stdout, stderr, err := ctl.run(t, append(c.args, "-e", timedCutProxy(t, s.url, time.Second), "--timeout", "1s")...)
 			if got := ExitCode(err); got != exitTransport {
 				t.Errorf("exit %d, want %d (%v)", got, exitTransport, err)
 			}

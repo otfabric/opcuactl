@@ -49,7 +49,13 @@ func eventIDs(recs []model.HistoryEventRecord) []string {
 // wantExit checks the exit code of a CLI run.
 func wantExit(t *testing.T, code int, args ...string) (stdout, stderr string) {
 	t.Helper()
-	out, errOut, err := runCLI(t, args...)
+	return wantExitWith(t, inProcess{}, code, args...)
+}
+
+// wantExitWith is wantExit with ctl.
+func wantExitWith(t *testing.T, ctl cliRunner, code int, args ...string) (stdout, stderr string) {
+	t.Helper()
+	out, errOut, err := ctl.run(t, args...)
 	if got := ExitCode(err); got != code {
 		t.Fatalf("opcuactl %s: exit %d (%v), want %d\nstdout: %s\nstderr: %s", strings.Join(args, " "), got, err, code, out, errOut)
 	}

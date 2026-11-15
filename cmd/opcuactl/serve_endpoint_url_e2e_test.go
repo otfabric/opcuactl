@@ -17,6 +17,8 @@ import (
 // trailing slash, so auto and an explicit policy without --server-cert
 // connect over every transport.
 func TestServeEndpointURLVariants(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	dir := t.TempDir()
 	certOut := filepath.Join(dir, "server.pem")
 	s := startServe(t, "--listen", "localhost:0", "--wss", "localhost:0", "--https", "localhost:0", "--uajson",
@@ -67,7 +69,7 @@ func TestServeEndpointURLVariants(t *testing.T) {
 					if tr.transport != "" {
 						args = append(args, "--transport", tr.transport)
 					}
-					stdout, stderr, err := runCLI(t, append(args, trust...)...)
+					stdout, stderr, err := ctl.run(t, append(args, trust...)...)
 					if err != nil || strings.TrimSpace(stdout) != "42" {
 						t.Errorf("exit %d (%v)\nstdout: %s\nstderr: %s", ExitCode(err), err, stdout, stderr)
 					}

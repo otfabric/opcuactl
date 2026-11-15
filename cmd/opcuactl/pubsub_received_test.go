@@ -38,6 +38,7 @@ func TestEncodingOf(t *testing.T) {
 }
 
 func TestGunzipJSON(t *testing.T) {
+	t.Parallel() // no CLI and no package state: what takes time is the large payload
 	msg := []byte(`{"MessageId":"1"}`)
 	gz := gzipJSON(msg)
 	for _, tc := range []struct {
