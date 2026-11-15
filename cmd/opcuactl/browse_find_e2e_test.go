@@ -16,7 +16,13 @@ import (
 // runJSON runs opcuactl with --format json and decodes what it printed.
 func runJSON[T any](t *testing.T, args ...string) T {
 	t.Helper()
-	out := mustRun(t, append(args, "--format", "json")...)
+	return runJSONWith[T](t, inProcess{}, args...)
+}
+
+// runJSONWith is runJSON with ctl.
+func runJSONWith[T any](t *testing.T, ctl cliRunner, args ...string) T {
+	t.Helper()
+	out := ctl.mustRun(t, append(args, "--format", "json")...)
 	var v T
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
 		t.Fatalf("opcuactl %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -239,53 +245,55 @@ func TestE2E_Browse(t *testing.T) {
 // TestE2E_Find searches the demo address space with find namespace, node
 // and type.
 func TestE2E_Find(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	s, ep := startDemo(t)
 	demo := s.node(serve.DemoFolder)
 
 	t.Run("namespace", func(t *testing.T) {
-		all := runJSON[[]model.NamespaceEntry](t, "find", "namespace", "-e", ep)
+		all := runJSONWith[[]model.NamespaceEntry](t, ctl, "find", "namespace", "-e", ep)
 		if len(all) < 2 || all[0].URI != "http://opcfoundation.org/UA/" {
 			t.Errorf("namespaces %+v", all)
 		}
-		demoNS := runJSON[[]model.NamespaceEntry](t, "find", "namespace", "-e", ep, "--filter", "OPCUACTL:DEMO")
+		demoNS := runJSONWith[[]model.NamespaceEntry](t, ctl, "find", "namespace", "-e", ep, "--filter", "OPCUACTL:DEMO")
 		if len(demoNS) != 1 || demoNS[0].URI != serve.DemoNamespaceURI || demoNS[0].Index != int(s.info.DemoNamespaceIndex) {
 			t.Errorf("--filter: %+v", demoNS)
 		}
-		wantContains(t, mustRun(t, "find", "namespace", "-e", ep), "INDEX", "NAMESPACE URI", serve.DemoNamespaceURI)
+		wantContains(t, ctl.mustRun(t, "find", "namespace", "-e", ep), "INDEX", "NAMESPACE URI", serve.DemoNamespaceURI)
 	})
 
 	t.Run("node", func(t *testing.T) {
-		nodes := runJSON[[]model.NodeInfo](t, "find", "node", "-e", ep, "--name", "sine")
+		nodes := runJSONWith[[]model.NodeInfo](t, ctl, "find", "node", "-e", ep, "--name", "sine")
 		if len(nodes) != 1 || nodes[0].NodeID != s.node(serve.DemoSine) || nodes[0].DataType != "Double" || nodes[0].BrowseName != "1:Sine" {
 			t.Errorf("--name sine: %+v", nodes)
 		}
 
 		// A regex anchors at the name, not at the namespace index.
-		nodes = runJSON[[]model.NodeInfo](t, "find", "node", "-e", ep, "--name", "^Coun.*", "--regex", "--start-node", demo)
+		nodes = runJSONWith[[]model.NodeInfo](t, ctl, "find", "node", "-e", ep, "--name", "^Coun.*", "--regex", "--start-node", demo)
 		if len(nodes) != 1 || nodes[0].NodeID != s.node(serve.DemoCounter) {
 			t.Errorf("--name ^Coun.* --regex: %+v", nodes)
 		}
-		nodes = runJSON[[]model.NodeInfo](t, "find", "node", "-e", ep, "--display-name", "^(Int32|Double)$", "--regex", "--start-node", demo)
+		nodes = runJSONWith[[]model.NodeInfo](t, ctl, "find", "node", "-e", ep, "--display-name", "^(Int32|Double)$", "--regex", "--start-node", demo)
 		if len(nodes) != 2 {
 			t.Errorf("--display-name regex: %+v", nodes)
 		}
 
-		nodes = runJSON[[]model.NodeInfo](t, "find", "node", "-e", ep, "--display-name", "level", "--class", "variable", "--start-node", demo, "--depth", "1")
+		nodes = runJSONWith[[]model.NodeInfo](t, ctl, "find", "node", "-e", ep, "--display-name", "level", "--class", "variable", "--start-node", demo, "--depth", "1")
 		if len(nodes) != 1 || nodes[0].NodeID != s.node(serve.DemoLevel) {
 			t.Errorf("--display-name level --class variable --depth 1: %+v", nodes)
 		}
 
-		nodes = runJSON[[]model.NodeInfo](t, "find", "node", "-e", ep, "--name", "a", "--start-node", demo, "--limit", "2")
+		nodes = runJSONWith[[]model.NodeInfo](t, ctl, "find", "node", "-e", ep, "--name", "a", "--start-node", demo, "--limit", "2")
 		if len(nodes) != 2 {
 			t.Errorf("--limit 2 returned %d nodes", len(nodes))
 		}
 
-		nodes = runJSON[[]model.NodeInfo](t, "find", "node", "-e", ep, "--name", "BaseObjectType", "--class", "objecttype", "--start-node", "i=88", "--depth", "1")
+		nodes = runJSONWith[[]model.NodeInfo](t, ctl, "find", "node", "-e", ep, "--name", "BaseObjectType", "--class", "objecttype", "--start-node", "i=88", "--depth", "1")
 		if len(nodes) != 1 || nodes[0].NodeID != "i=58" {
 			t.Errorf("--class objecttype: %+v", nodes)
 		}
 
-		out := mustRun(t, "find", "node", "-e", ep, "--name", "Add", "--start-node", demo)
+		out := ctl.mustRun(t, "find", "node", "-e", ep, "--name", "Add", "--start-node", demo)
 		wantContains(t, out, "NODE ID", s.node(serve.DemoAdd), "NodeClassMethod")
 	})
 
@@ -297,25 +305,25 @@ func TestE2E_Find(t *testing.T) {
 			}
 			return out
 		}
-		doubles := runJSON[[]model.NodeInfo](t, "find", "type", "-e", ep, "--data-type", "double", "--start-node", demo, "--depth", "1")
+		doubles := runJSONWith[[]model.NodeInfo](t, ctl, "find", "type", "-e", ep, "--data-type", "double", "--start-node", demo, "--depth", "1")
 		if got := ids(doubles); !slices.Equal(got, []string{s.node(serve.DemoDouble), s.node(serve.DemoSine), s.node(serve.DemoLevel)}) {
 			t.Errorf("--data-type double: %v", got)
 		}
-		int32s := runJSON[[]model.NodeInfo](t, "find", "type", "-e", ep, "--data-type", "i=6", "--start-node", demo)
+		int32s := runJSONWith[[]model.NodeInfo](t, ctl, "find", "type", "-e", ep, "--data-type", "i=6", "--start-node", demo)
 		if got := ids(int32s); !slices.Equal(got, []string{s.node(serve.DemoInt32), s.node(serve.DemoInt32Array)}) {
 			t.Errorf("--data-type i=6: %v", got)
 		}
 
-		alarms := runJSON[[]model.NodeInfo](t, "find", "type", "-e", ep, "--type-definition", "ExclusiveLevel", "--start-node", demo)
+		alarms := runJSONWith[[]model.NodeInfo](t, ctl, "find", "type", "-e", ep, "--type-definition", "ExclusiveLevel", "--start-node", demo)
 		if len(alarms) != 1 || alarms[0].NodeID != s.node(serve.DemoAlarm) || alarms[0].TypeDefinition != "ExclusiveLevelAlarmType" {
 			t.Errorf("--type-definition ExclusiveLevel: %+v", alarms)
 		}
 
-		out, errOut := wantExit(t, 0, "find", "type", "-e", ep, "--type-definition", "i=63", "--start-node", demo, "--limit", "2", "--class", "variable", "-v")
+		out, errOut := wantExitWith(t, ctl, 0, "find", "type", "-e", ep, "--type-definition", "i=63", "--start-node", demo, "--limit", "2", "--class", "variable", "-v")
 		wantContains(t, errOut, "found 2 node(s)")
 		wantContains(t, out, "DATA TYPE", "BaseDataVariableType", s.node(serve.DemoBoolean))
 
-		none := runJSON[[]model.NodeInfo](t, "find", "type", "-e", ep, "--type-definition", "i=63", "--data-type", "Boolean", "--start-node", demo, "--depth", "1")
+		none := runJSONWith[[]model.NodeInfo](t, ctl, "find", "type", "-e", ep, "--type-definition", "i=63", "--data-type", "Boolean", "--start-node", demo, "--depth", "1")
 		if got := ids(none); !slices.Equal(got, []string{s.node(serve.DemoBoolean)}) {
 			t.Errorf("--type-definition and --data-type: %v", got)
 		}
@@ -332,11 +340,11 @@ func TestE2E_Find(t *testing.T) {
 			{"find", "type", "-e", ep, "--data-type", "x", "--start-node", "bogus"},
 			{"find", "type", "-e", ep, "--data-type", "x", "--class", "bogus"},
 		} {
-			wantExit(t, 2, args...)
+			wantExitWith(t, ctl, 2, args...)
 		}
 		closed := "opc.tcp://" + freeAddr(t)
 		for _, cmd := range [][]string{{"find", "namespace"}, {"find", "node", "--name", "x"}, {"find", "type", "--data-type", "x"}} {
-			wantExit(t, 4, append(cmd, "-e", closed, "--timeout", "2s")...)
+			wantExitWith(t, ctl, 4, append(cmd, "-e", closed, "--timeout", "2s")...)
 		}
 	})
 }

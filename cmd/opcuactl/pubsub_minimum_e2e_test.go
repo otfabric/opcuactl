@@ -21,6 +21,8 @@ import (
 // message is reported on stderr and not printed. --message-security none
 // accepts it, as a subscriber without keys does.
 func TestPubSubSubscribeMinimumWithKeys(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	key := make([]byte, security.Aes128CTR().KeyLength())
 	for i := range key {
 		key[i] = byte(i)
@@ -45,7 +47,7 @@ func TestPubSubSubscribeMinimumWithKeys(t *testing.T) {
 		{"--keys-file", keysFile, "--message-security", "sign"},
 	} {
 		// The publisher sends every 50 ms: the 2 s see many messages.
-		out, stderr, err := runCLI(t, append(append(subscribe, "--duration", "2s"), refused...)...)
+		out, stderr, err := ctl.run(t, append(append(subscribe, "--duration", "2s"), refused...)...)
 		if err != nil {
 			t.Fatalf("%v: %v\n%s", refused, err, stderr)
 		}
@@ -61,7 +63,7 @@ func TestPubSubSubscribeMinimumWithKeys(t *testing.T) {
 		{"--keys-file", keysFile, "--message-security", "none"},
 		nil,
 	} {
-		out, stderr, err := runCLI(t, append(append(subscribe, "--count", "1", "--duration", "15s"), accepted...)...)
+		out, stderr, err := ctl.run(t, append(append(subscribe, "--count", "1", "--duration", "15s"), accepted...)...)
 		if err != nil {
 			t.Fatalf("%v: %v\n%s", accepted, err, stderr)
 		}

@@ -39,7 +39,8 @@ import (
 
 // These tests run the CLI in-process against a go-opcua server. The commands
 // keep their flags in package variables and write to os.Stdout, so the tests
-// are serialized and reset the flags before every run.
+// are serialized and reset the flags before every run. A test that runs in
+// parallel runs the CLI in a worker process instead (cliworker_test.go).
 
 var cliMu sync.Mutex
 
@@ -49,34 +50,56 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	cliMu.Lock()
 	defer cliMu.Unlock()
 
+	stdout, stderr, err, pipeErr := executeCLI(args)
+	if pipeErr != nil {
+		t.Fatalf("pipe: %v", pipeErr)
+	}
+	return stdout, stderr, err
+}
+
+// executeCLI resets the flags, runs opcuactl with args in this process and
+// returns what it wrote to os.Stdout and os.Stderr. The caller holds cliMu,
+// or is a worker process, which runs one command at a time.
+func executeCLI(args []string) (stdout, stderr string, err, pipeErr error) {
 	resetFlags(rootCmd)
 
-	capture := func(target **os.File) func() string {
-		r, w, pipeErr := os.Pipe()
-		if pipeErr != nil {
-			t.Fatalf("pipe: %v", pipeErr)
-		}
-		orig := *target
-		*target = w
-		done := make(chan string, 1)
-		go func() {
-			var buf bytes.Buffer
-			_, _ = io.Copy(&buf, r)
-			done <- buf.String()
-		}()
-		return func() string {
-			_ = w.Close()
-			*target = orig
-			return <-done
-		}
+	stopOut, pipeErr := captureFile(&os.Stdout)
+	if pipeErr != nil {
+		return "", "", nil, pipeErr
 	}
-	stopOut := capture(&os.Stdout)
-	stopErr := capture(&os.Stderr)
+	stopErr, pipeErr := captureFile(&os.Stderr)
+	if pipeErr != nil {
+		stopOut()
+		return "", "", nil, pipeErr
+	}
 
 	rootCmd.SetArgs(args)
 	err = Execute()
 
-	return stopOut(), stopErr(), err
+	return stopOut(), stopErr(), err, nil
+}
+
+// captureFile replaces *target with a pipe until the returned function is
+// called, which puts it back and returns what was written.
+func captureFile(target **os.File) (func() string, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	orig := *target
+	*target = w
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		_ = r.Close()
+		done <- buf.String()
+	}()
+	return func() string {
+		_ = w.Close()
+		*target = orig
+		return <-done
+	}, nil
 }
 
 func resetFlags(cmd *cobra.Command) {
@@ -638,29 +661,42 @@ func checkDeadband(t *testing.T, got []float64, deadband, last float64) {
 // TestE2E_MonitorDataChangeFilter checks that the deadband flags reach the
 // server and that rejected items are reported.
 func TestE2E_MonitorDataChangeFilter(t *testing.T) {
-	s, created := monitorServer(t)
+	t.Parallel()
+	s, _ := monitorServer(t)
+	ctl := startCLIWorker(t)
 
+	// The subtests with writeLoop monitor for a fixed time: they run in
+	// parallel, each with a server and a worker of its own, after the others.
 	t.Run("absolute deadband", func(t *testing.T) {
+		t.Parallel()
+		s, created := monitorServer(t)
+		ctl := startCLIWorker(t)
 		// 100 → 101 (inside the deadband of 5) → 110 (outside) → 112 (inside).
 		writeLoop(t, s, created, "Double", float64(101), float64(110), float64(112))
-		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Double"), "--jsonl",
+		out := ctl.mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Double"), "--jsonl",
 			"--interval", "50ms", "--sampling", "0s",
 			"--deadband-type", "absolute", "--deadband", "5", "--duration", "4s")
 		checkDeadband(t, monitoredValues(t, out), 5, 110)
 	})
 
 	t.Run("percent deadband", func(t *testing.T) {
+		t.Parallel()
+		s, created := monitorServer(t)
+		ctl := startCLIWorker(t)
 		// EURange is [0, 200]: 10 % is 20. 100 → 110 (inside) → 150 (outside).
 		writeLoop(t, s, created, "Analog", float64(110), float64(150))
-		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Analog"), "--jsonl",
+		out := ctl.mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Analog"), "--jsonl",
 			"--interval", "50ms", "--sampling", "0s",
 			"--deadband-type", "percent", "--deadband", "10", "--duration", "3500ms")
 		checkDeadband(t, monitoredValues(t, out), 20, 150)
 	})
 
 	t.Run("no filter reports every change", func(t *testing.T) {
+		t.Parallel()
+		s, created := monitorServer(t)
+		ctl := startCLIWorker(t)
 		writeLoop(t, s, created, "Int32", int32(43), int32(44))
-		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Int32"), "--jsonl",
+		out := ctl.mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Int32"), "--jsonl",
 			"--interval", "50ms", "--sampling", "0s", "--duration", "3s")
 		// Without a filter every write arrives, also the ones a deadband
 		// would have swallowed.
@@ -671,7 +707,7 @@ func TestE2E_MonitorDataChangeFilter(t *testing.T) {
 	})
 
 	t.Run("index range", func(t *testing.T) {
-		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Int32Array"),
+		out := ctl.mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Int32Array"),
 			"--format", "json", "--index-range", "1:2", "--count", "1", "--duration", "20s")
 		wantContains(t, out, `"value":[2,3]`)
 	})
@@ -682,7 +718,7 @@ func TestE2E_MonitorDataChangeFilter(t *testing.T) {
 			{"-n", s.node("String"), "--deadband-type", "absolute", "--deadband", "1"},
 			{"-n", s.node("Double"), "--deadband-type", "percent", "--deadband", "10"},
 		} {
-			_, errOut, err := runCLI(t, append([]string{"monitor", "value", "-e", s.url, "--duration", "1s"}, args...)...)
+			_, errOut, err := ctl.run(t, append([]string{"monitor", "value", "-e", s.url, "--duration", "1s"}, args...)...)
 			if err == nil {
 				t.Fatalf("monitor %v: the server accepted the filter", args)
 			}
@@ -692,7 +728,7 @@ func TestE2E_MonitorDataChangeFilter(t *testing.T) {
 		}
 
 		// One good item next to a rejected one keeps running.
-		out, errOut, err := runCLI(t, "monitor", "value", "-e", s.url, "--jsonl",
+		out, errOut, err := ctl.run(t, "monitor", "value", "-e", s.url, "--jsonl",
 			"-n", s.node("Analog"), "-n", s.node("String"),
 			"--deadband-type", "absolute", "--deadband", "1", "--count", "1", "--duration", "20s")
 		if err != nil {
@@ -710,14 +746,14 @@ func TestE2E_MonitorDataChangeFilter(t *testing.T) {
 			{"--deadband-type", "absolute", "--deadband", "-1"},
 			{"--deadband-type", "percent", "--deadband", "101"},
 		} {
-			if _, _, err := runCLI(t, append([]string{"monitor", "value", "-e", s.url, "-n", s.node("Double")}, args...)...); err == nil {
+			if _, _, err := ctl.run(t, append([]string{"monitor", "value", "-e", s.url, "-n", s.node("Double")}, args...)...); err == nil {
 				t.Errorf("monitor %v: expected a usage error", args)
 			}
 		}
 	})
 
 	t.Run("trigger", func(t *testing.T) {
-		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("String"), "--format", "json",
+		out := ctl.mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("String"), "--format", "json",
 			"--trigger", "status-value-timestamp", "--count", "1", "--duration", "20s")
 		wantContains(t, out, "hello")
 	})

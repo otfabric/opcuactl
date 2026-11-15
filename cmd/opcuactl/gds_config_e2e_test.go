@@ -59,6 +59,8 @@ func startGDSServerWith(t *testing.T, srvID, cli *identity, pfxPassword string) 
 }
 
 func TestE2E_GDSConfiguration(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	srvID := newIdentity(t, "rsa", serverURI)
 	cli := newIdentity(t, "rsa", clientURI)
 	ca := newTestCA(t)
@@ -67,11 +69,11 @@ func TestE2E_GDSConfiguration(t *testing.T) {
 	keep := t.TempDir() // files the later subtests use
 	run := func(t *testing.T, args ...string) string {
 		t.Helper()
-		return mustRun(t, append(args, admin...)...)
+		return ctl.mustRun(t, append(args, admin...)...)
 	}
 	fail := func(t *testing.T, code int, wantStderr string, args ...string) {
 		t.Helper()
-		_, errOut, err := runCLI(t, append(args, admin...)...)
+		_, errOut, err := ctl.run(t, append(args, admin...)...)
 		if err == nil {
 			t.Fatalf("opcuactl %s succeeded", strings.Join(args, " "))
 		}

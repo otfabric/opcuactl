@@ -201,6 +201,8 @@ func TestWalkMaxNodes(t *testing.T) {
 // --max-nodes with exit 7 and what it found so far, or at --walk-timeout
 // with exit 5.
 func TestWalkUnboundedServer(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	s, start := mintingServer(t)
 	for _, c := range []struct {
 		args []string
@@ -213,7 +215,7 @@ func TestWalkUnboundedServer(t *testing.T) {
 		{[]string{"find", "node", "--start-node", start, "--name", "Gen.", "-f", "json"}, true},
 	} {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
-			stdout, stderr, err := runWithin(t, 60*time.Second, append(c.args, "-e", s.url, "--max-nodes", "50")...)
+			stdout, stderr, err := ctl.runWithin(t, 60*time.Second, append(c.args, "-e", s.url, "--max-nodes", "50")...)
 			if got := ExitCode(err); got != exitPartial {
 				t.Fatalf("exit %d, want %d (%v)\n%s", got, exitPartial, err, stderr)
 			}
@@ -228,7 +230,7 @@ func TestWalkUnboundedServer(t *testing.T) {
 				t.Errorf("%d lines, want 50", n)
 			}
 
-			_, stderr, err = runWithin(t, 60*time.Second, append(c.args, "-e", s.url, "--max-nodes", "0", "--walk-timeout", "300ms")...)
+			_, stderr, err = ctl.runWithin(t, 60*time.Second, append(c.args, "-e", s.url, "--max-nodes", "0", "--walk-timeout", "300ms")...)
 			if got := ExitCode(err); got != exitTimeout {
 				t.Errorf("--walk-timeout: exit %d, want %d (%v)\n%s", got, exitTimeout, err, stderr)
 			}

@@ -55,8 +55,12 @@ func heapInUse() uint64 {
 
 // The DataSetMetaData that pubsub subscribe learns from the network is kept
 // for at most 1024 writers (the default of --max-learned-metadata): the heap
-// does not grow with the number of writers that announce one.
+// does not grow with the number of writers that announce one. It runs in a
+// child process, where no other test allocates.
 func TestPubSubLearnedMetaDataBounded(t *testing.T) {
+	if !runInChild(t) {
+		return
+	}
 	const limit, more = 1024, 8000
 	d := testDecoder(t, pubsubFilterFlags{})
 	learn := func(from, to int) {

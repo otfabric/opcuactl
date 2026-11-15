@@ -175,6 +175,8 @@ func (cfg *Config) NewClient(ctx context.Context, extra ...opcua.Option) (*opcua
 		_ = c.Close(context.WithoutCancel(ctx))
 		if u := cfg.untrusted(err); u != nil {
 			err = u
+		} else if d := endpointsDiffer(err); d != nil {
+			err = d
 		}
 		if cfg.Reverse() {
 			return nil, fmt.Errorf("waiting for reverse connection on %s: %w", cfg.ReverseListen, err)
@@ -325,7 +327,12 @@ func (cfg *Config) securityOptions(ctx context.Context, authType ua.UserTokenTyp
 		if len(ep.ServerCertificate) > 0 {
 			cfg.remoteCert = LeafCertificate(ep.ServerCertificate)
 		}
-		opts := []opcua.Option{opcua.SecurityFromEndpoint(ep, authType)}
+		// The GetEndpoints answer comes without security. CreateSession
+		// returns the endpoints again over the secure channel; the client
+		// compares the whole answer, not only the selected endpoint, with
+		// them and closes the session before ActivateSession when they
+		// differ (Part 4 §5.6.2).
+		opts := []opcua.Option{opcua.SecurityFromEndpoint(ep, authType), opcua.DiscoveredEndpoints(endpoints)}
 		if cfg.InsecureNoSecurity && ep.SecurityPolicyURI == ua.SecurityPolicyURINone {
 			opts = append(opts, opcua.InsecureNoSecurity())
 		}
@@ -389,6 +396,34 @@ func (cfg *Config) untrusted(err error) error {
 		return &UntrustedCertificateError{Thumbprint: Thumbprint(cfg.remoteCert), NoTrustList: true, err: err}
 	case errors.As(err, &unknown):
 		return &UntrustedCertificateError{Thumbprint: Thumbprint(cfg.remoteCert), err: err}
+	}
+	return nil
+}
+
+// EndpointsDifferError is a server whose CreateSession endpoints differ from
+// the GetEndpoints answer the client selected its endpoint from (Part 4
+// §5.6.2): the client closed the session before ActivateSession. Its message
+// says what to check; Unwrap returns go-opcua's error, which matches
+// ua.StatusBadSecurityChecksFailed.
+type EndpointsDifferError struct{ err error }
+
+func (e *EndpointsDifferError) Error() string {
+	return "the endpoints of GetEndpoints and CreateSession differ (BadSecurityChecksFailed), no session was activated; " +
+		"check the URL of --endpoint (letter case, trailing slash) or give --security-policy, --security-mode and --server-cert: " +
+		e.err.Error()
+}
+
+func (e *EndpointsDifferError) Unwrap() error { return e.err }
+
+// endpointsDiffer returns err as an EndpointsDifferError when it is
+// go-opcua's comparison of the endpoints of CreateSession with the
+// discovered ones, nil otherwise. BadSecurityChecksFailed alone does not
+// tell: servers also refuse a client certificate with it. go-opcua names the
+// comparison in its message ("the server endpoints of CreateSession ..."),
+// in every one of its three cases.
+func endpointsDiffer(err error) error {
+	if errors.Is(err, ua.StatusBadSecurityChecksFailed) && strings.Contains(err.Error(), "server endpoints of CreateSession") {
+		return &EndpointsDifferError{err: err}
 	}
 	return nil
 }

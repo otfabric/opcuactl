@@ -162,12 +162,14 @@ func TestE2E_PubSubChunks(t *testing.T) {
 // TestE2E_PubSubDiscovery exchanges UADP discovery probes and announcements
 // with the go-opcua runtime.
 func TestE2E_PubSubDiscovery(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	t.Run("discover", func(t *testing.T) {
 		data, disc := freeUDPURL(t), freeUDPURL(t)
 		startPublisher(t, withDiscoveryAddress(pubsub.UDPConnection("pub", data, uint16(2234)), disc),
 			pubsub.WriterGroup("G", 100, 50*time.Millisecond, pubsub.DataSetWriter("W", 7, "Measurements")))
 
-		stdout, stderr, err := runCLI(t, "pubsub", "discover", "--url", disc, "--listen-url", data, "--probe", "metadata,writers",
+		stdout, stderr, err := ctl.run(t, "pubsub", "discover", "--url", disc, "--listen-url", data, "--probe", "metadata,writers",
 			"--publisher-id", "2234", "--writer-id", "7", "--count", "2", "--duration", "10s", "--diagnostics")
 		if err != nil {
 			t.Fatalf("discover: %v\n%s", err, stderr)
@@ -177,7 +179,7 @@ func TestE2E_PubSubDiscovery(t *testing.T) {
 		wantContains(t, stderr, "diagnostics discovery", "DiscoveryRequestsSent")
 
 		// A probe for another publisher gets no answer.
-		_, stderr, err = runCLI(t, "pubsub", "discover", "--url", disc, "--listen-url", data, "--probe", "metadata",
+		_, stderr, err = ctl.run(t, "pubsub", "discover", "--url", disc, "--listen-url", data, "--probe", "metadata",
 			"--publisher-id", "1", "--duration", "700ms")
 		if err != nil || !strings.Contains(stderr, "no announcements") {
 			t.Errorf("probe for another publisher: %v, %s", err, stderr)
@@ -191,7 +193,7 @@ func TestE2E_PubSubDiscovery(t *testing.T) {
 		startPublisher(t, withDiscoveryAddress(pubsub.UDPConnection("pub", data, uint16(2234)), disc),
 			pubsub.WriterGroup("G", 100, 50*time.Millisecond, w))
 
-		stdout, stderr, err := runCLI(t, "pubsub", "subscribe", "--url", data, "--discovery-url", disc, "--probe",
+		stdout, stderr, err := ctl.run(t, "pubsub", "subscribe", "--url", data, "--discovery-url", disc, "--probe",
 			"--show-metadata", "--count", "1", "--duration", "15s", "--diagnostics", "--format", "json")
 		if err != nil {
 			t.Fatalf("subscribe: %v\n%s", err, stderr)
@@ -214,7 +216,7 @@ func TestE2E_PubSubDiscovery(t *testing.T) {
 			pubsub.ReaderGroup("R", pubsub.DataSetReader("r", uint16(9), 1, 3, nil)))),
 			pubsub.WithDataSetHandler(rcv.handle))
 
-		_, stderr, err := runCLI(t, "pubsub", "publish", "--url", data, "--discovery-url", disc, "--answer-probes",
+		_, stderr, err := ctl.run(t, "pubsub", "publish", "--url", data, "--discovery-url", disc, "--answer-probes",
 			"--publisher-id", "9", "--writer-id", "3", "--field", "Counter:UInt32=11", "--field-encoding", "rawdata",
 			"--count", "0", "--interval", "100ms", "--duration", "2s", "--diagnostics", "--diagnostics-level", "advanced")
 		if err != nil {
@@ -235,7 +237,7 @@ func TestE2E_PubSubDiscovery(t *testing.T) {
 		conn := listenUDP(t, url)
 		done := make(chan string, 1)
 		go func() { done <- collectUDP(t, conn, 6) }()
-		mustRun(t, "pubsub", "publish", "--url", url, "--field", "A:Int16=1", "--announce-interval", "60ms",
+		ctl.mustRun(t, "pubsub", "publish", "--url", url, "--field", "A:Int16=1", "--announce-interval", "60ms",
 			"--count", "4", "--interval", "100ms")
 		announcements := 0
 		for _, line := range strings.Split(<-done, "\n") {
@@ -273,7 +275,7 @@ func TestE2E_PubSubDiscovery(t *testing.T) {
 			{"discover", "--url", "opc.udp://224.0.0.22:1", "--discovery-layout", "x"},
 			{"decode", filepath.Join(t.TempDir(), "missing")},
 		} {
-			if _, _, err := runCLI(t, append([]string{"pubsub"}, args...)...); err == nil {
+			if _, _, err := ctl.run(t, append([]string{"pubsub"}, args...)...); err == nil {
 				t.Errorf("pubsub %v: expected an error", args)
 			}
 		}

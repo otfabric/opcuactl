@@ -115,6 +115,8 @@ func (s *servedServer) node(name string) string {
 // opc.tcp (None and Basic256Sha256 with a user), opc.wss and opc.https in
 // UA Binary and UA JSON.
 func TestE2E_Serve(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	dir := t.TempDir()
 	certOut, keyOut := filepath.Join(dir, "server.pem"), filepath.Join(dir, "server.key")
 	s := startServe(t, "--wss", "127.0.0.1:0", "--https", "127.0.0.1:0", "--uajson",
@@ -150,26 +152,26 @@ func TestE2E_Serve(t *testing.T) {
 	})
 
 	t.Run("opc.tcp None", func(t *testing.T) {
-		wantContains(t, mustRun(t, "get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "-q"), "42")
-		wantContains(t, mustRun(t, "browse", "children", "-e", tcp, "-n", s.node(serve.DemoFolder)),
+		wantContains(t, ctl.mustRun(t, "get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "-q"), "42")
+		wantContains(t, ctl.mustRun(t, "browse", "children", "-e", tcp, "-n", s.node(serve.DemoFolder)),
 			"Demo.Counter", "Demo.Sine", "Demo.Level", "Demo.LevelAlarm", "Demo.Add")
-		wantContains(t, mustRun(t, "call", "method", "-e", tcp, "--object", s.node(serve.DemoFolder), "--method", s.node(serve.DemoAdd),
+		wantContains(t, ctl.mustRun(t, "call", "method", "-e", tcp, "--object", s.node(serve.DemoFolder), "--method", s.node(serve.DemoAdd),
 			"--arg", "2", "--arg", "40", "--types", "int32,int32"), "42")
 
 		// Read-only and writable.
 		// A Bad write status is printed and exits 3.
-		roOut, _, err := runCLI(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "--value", "1", "--type", "int32", "--yes")
+		roOut, _, err := ctl.run(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "--value", "1", "--type", "int32", "--yes")
 		if ExitCode(err) != 6 {
 			t.Errorf("write to a read-only node: %v (exit %d)", err, ExitCode(err))
 		}
 		wantContains(t, roOut, "BadNotWritable")
-		wantContains(t, mustRun(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "--value", "90", "--type", "double", "--yes"), "Good")
-		wantContains(t, mustRun(t, "get", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "-q"), "90")
+		wantContains(t, ctl.mustRun(t, "write", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "--value", "90", "--type", "double", "--yes"), "Good")
+		wantContains(t, ctl.mustRun(t, "get", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "-q"), "90")
 
 		// The level alarm follows Level.
 		deadline := time.Now().Add(10 * time.Second)
 		for {
-			conds := listConditions(t, "-e", tcp)
+			conds := listConditions(t, ctl, "-e", tcp)
 			if len(conds) == 1 && conds[0].ConditionName == "LevelAlarm" && conds[0].Active != nil && *conds[0].Active {
 				break
 			}
@@ -180,14 +182,14 @@ func TestE2E_Serve(t *testing.T) {
 		}
 
 		// Counter changes: a subscription sees several values.
-		out := mustRun(t, "monitor", "value", "-e", tcp, "-n", s.node(serve.DemoCounter), "--count", "3", "--duration", "20s", "--format", "jsonl")
+		out := ctl.mustRun(t, "monitor", "value", "-e", tcp, "-n", s.node(serve.DemoCounter), "--count", "3", "--duration", "20s", "--format", "jsonl")
 		if n := strings.Count(strings.TrimSpace(out), "\n") + 1; n != 3 {
 			t.Errorf("monitor printed %d values:\n%s", n, out)
 		}
 
 		// Sine is historized.
 		now := time.Now().UTC()
-		out = mustRun(t, "history", "value", "-e", tcp, "-n", s.node(serve.DemoSine), "--format", "json",
+		out = ctl.mustRun(t, "history", "value", "-e", tcp, "-n", s.node(serve.DemoSine), "--format", "json",
 			"--start", now.Add(-time.Minute).Format(time.RFC3339), "--end", now.Add(time.Minute).Format(time.RFC3339))
 		if strings.Count(out, `"value"`) < 2 {
 			t.Errorf("history of Sine:\n%s", out)
@@ -199,22 +201,22 @@ func TestE2E_Serve(t *testing.T) {
 		"--cert", cli.certFile, "--key", cli.keyFile, "--trusted-cert", certOut}
 
 	t.Run("opc.tcp Basic256Sha256 with a user", func(t *testing.T) {
-		out := mustRun(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoString), "-q",
+		out := ctl.mustRun(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoString), "-q",
 			"--auth", "username", "--username", "operator", "--password", "secret"}, secure...)...)
 		wantContains(t, out, "hello from opcuactl")
-		out = mustRun(t, append([]string{"write", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "--value", "33", "--type", "double", "--yes",
+		out = ctl.mustRun(t, append([]string{"write", "value", "-e", tcp, "-n", s.node(serve.DemoLevel), "--value", "33", "--type", "double", "--yes",
 			"--auth", "username", "--username", "operator", "--password", "secret"}, secure...)...)
 		wantContains(t, out, "Good")
-		out = mustRun(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "-q"}, secure...)...)
+		out = ctl.mustRun(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32), "-q"}, secure...)...)
 		wantContains(t, out, "42")
 
-		_, errOut, err := runCLI(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32),
+		_, errOut, err := ctl.run(t, append([]string{"get", "value", "-e", tcp, "-n", s.node(serve.DemoInt32),
 			"--auth", "username", "--username", "operator", "--password", "wrong"}, secure...)...)
 		if err == nil || ExitCode(err) != 9 {
 			t.Errorf("a wrong password: %v %s", err, errOut)
 		}
 		// Basic256Sha256 Sign and auto.
-		out = mustRun(t, "get", "server", "-e", tcp, "--format", "json", "--security-policy", "auto", "--security-mode", "auto",
+		out = ctl.mustRun(t, "get", "server", "-e", tcp, "--format", "json", "--security-policy", "auto", "--security-mode", "auto",
 			"--cert", cli.certFile, "--key", cli.keyFile, "--trusted-cert", certOut)
 		wantContains(t, out, "SignAndEncrypt")
 	})
@@ -234,26 +236,26 @@ func TestE2E_Serve(t *testing.T) {
 				}
 				return a
 			}
-			wantContains(t, mustRun(t, args("get", "value", "-n", s.node(serve.DemoInt32), "-q")...), "42")
-			wantContains(t, mustRun(t, args("write", "value", "-n", s.node(serve.DemoLevel), "--value", "12.5", "--type", "double", "--yes")...), "Good")
-			wantContains(t, mustRun(t, args("monitor", "value", "-n", s.node(serve.DemoCounter), "--count", "2", "--duration", "20s")...), "Demo.Counter")
-			wantContains(t, mustRun(t, args("call", "method", "--object", s.node(serve.DemoFolder), "--method", s.node(serve.DemoAdd),
+			wantContains(t, ctl.mustRun(t, args("get", "value", "-n", s.node(serve.DemoInt32), "-q")...), "42")
+			wantContains(t, ctl.mustRun(t, args("write", "value", "-n", s.node(serve.DemoLevel), "--value", "12.5", "--type", "double", "--yes")...), "Good")
+			wantContains(t, ctl.mustRun(t, args("monitor", "value", "-n", s.node(serve.DemoCounter), "--count", "2", "--duration", "20s")...), "Demo.Counter")
+			wantContains(t, ctl.mustRun(t, args("call", "method", "--object", s.node(serve.DemoFolder), "--method", s.node(serve.DemoAdd),
 				"--arg", "1", "--arg", "2", "--types", "int32,int32")...), "3")
 		})
 	}
 
 	t.Run("user over https-uajson None", func(t *testing.T) {
-		out := mustRun(t, append([]string{"get", "value", "-e", s.url(t, ua.TransportProfileHTTPSJSON), "--transport", "https-uajson",
+		out := ctl.mustRun(t, append([]string{"get", "value", "-e", s.url(t, ua.TransportProfileHTTPSJSON), "--transport", "https-uajson",
 			"-n", s.node(serve.DemoInt32), "-q", "--auth", "username", "--username", "admin", "--password", "admin"}, ca...)...)
 		wantContains(t, out, "42")
 	})
 
 	t.Run("discover endpoints", func(t *testing.T) {
-		out := mustRun(t, "discover", "endpoints", "-e", tcp)
+		out := ctl.mustRun(t, "discover", "endpoints", "-e", tcp)
 		wantContains(t, out, "opc.tcp", "Basic256Sha256")
-		out = mustRun(t, append([]string{"discover", "endpoints", "-e", s.url(t, ua.TransportProfileHTTPS)}, ca...)...)
+		out = ctl.mustRun(t, append([]string{"discover", "endpoints", "-e", s.url(t, ua.TransportProfileHTTPS)}, ca...)...)
 		wantContains(t, out, "opc.https (json)")
-		out = mustRun(t, append([]string{"discover", "endpoints", "-e", s.url(t, ua.TransportProfileWSS)}, ca...)...)
+		out = ctl.mustRun(t, append([]string{"discover", "endpoints", "-e", s.url(t, ua.TransportProfileWSS)}, ca...)...)
 		wantContains(t, out, "opc.wss (json)")
 	})
 }
@@ -424,6 +426,8 @@ func TestE2E_ServeLimits(t *testing.T) {
 
 // TestE2E_ServeFlagValidation checks the flags before anything starts.
 func TestE2E_ServeFlagValidation(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	dir := t.TempDir()
 	srvCert := newIdentity(t, "rsa", serverURI)
 	other := newIdentity(t, "p256", serverURI)
@@ -481,7 +485,7 @@ func TestE2E_ServeFlagValidation(t *testing.T) {
 		{[]string{"--cert-out", filepath.Join(dir, "none.pem"), "--security-policy", "None"}, ""},
 	} {
 		args := append([]string{"serve", "--listen", "127.0.0.1:0", "--duration", "1ms"}, tc.args...)
-		_, errOut, err := runCLI(t, args...)
+		_, errOut, err := ctl.run(t, args...)
 		if tc.want == "" {
 			if err != nil {
 				t.Errorf("%v: %v %s", tc.args, err, errOut)
@@ -504,7 +508,7 @@ func TestE2E_ServeFlagValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = l.Close() }()
-		_, errOut, err := runCLI(t, "serve", "--listen", l.Addr().String(), "--security-policy", "None")
+		_, errOut, err := ctl.run(t, "serve", "--listen", l.Addr().String(), "--security-policy", "None")
 		if ExitCode(err) != 4 || !strings.Contains(errOut, "starting the server") {
 			t.Errorf("exit %d: %s", ExitCode(err), errOut)
 		}
@@ -517,8 +521,10 @@ func TestE2E_ServeSignals(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no SIGTERM / SIGINT on Windows")
 	}
+	t.Parallel()
 	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGINT} {
 		t.Run(sig.String(), func(t *testing.T) {
+			t.Parallel()
 			p := startCLI(t, "serve", "--listen", "127.0.0.1:0", "--security-policy", "None", "-q")
 			p.waitStderr(t, "Serving")
 			p.waitStdout(t, "\n")

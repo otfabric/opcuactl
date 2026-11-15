@@ -132,6 +132,8 @@ func startGDSServer(t *testing.T, srvID, cli *identity) *testServer {
 }
 
 func TestE2E_GDS(t *testing.T) {
+	t.Parallel()
+	ctl := startCLIWorker(t)
 	srvID := newIdentity(t, "rsa", serverURI)
 	cli := newIdentity(t, "rsa", clientURI)
 	ca := newTestCA(t)
@@ -144,11 +146,11 @@ func TestE2E_GDS(t *testing.T) {
 	admin := append(secure(cli), "--auth", "username", "--username", gdsAdmin, "--password", gdsAdminPwd)
 	run := func(t *testing.T, args ...string) string {
 		t.Helper()
-		return mustRun(t, append(args, admin...)...)
+		return ctl.mustRun(t, append(args, admin...)...)
 	}
 	fail := func(t *testing.T, code int, wantStderr string, args ...string) {
 		t.Helper()
-		_, errOut, err := runCLI(t, args...)
+		_, errOut, err := ctl.run(t, args...)
 		if err == nil {
 			t.Fatalf("opcuactl %s succeeded", strings.Join(args, " "))
 		}
@@ -217,7 +219,7 @@ func TestE2E_GDS(t *testing.T) {
 	strangerRead := append([]string{"get", "value", "-n", s.node("Int32"), "-q"}, secure(stranger)...)
 
 	t.Run("rejected and add", func(t *testing.T) {
-		if _, _, err := runCLI(t, strangerRead...); err == nil {
+		if _, _, err := ctl.run(t, strangerRead...); err == nil {
 			t.Fatal("an untrusted client connected")
 		}
 		dir := t.TempDir()
@@ -230,12 +232,12 @@ func TestE2E_GDS(t *testing.T) {
 
 		// --no-apply leaves the change in the transaction of the session,
 		// which the server drops with it.
-		_, errOut, err := runCLI(t, append([]string{"gds", "trustlist", "add", file, "--no-apply"}, admin...)...)
+		_, errOut, err := ctl.run(t, append([]string{"gds", "trustlist", "add", file, "--no-apply"}, admin...)...)
 		if err != nil {
 			t.Fatal(err)
 		}
 		wantContains(t, errOut, "pending")
-		out, errOut, err = runCLI(t, append([]string{"gds", "trustlist", "add", file, "--no-apply", "--format", "json"}, admin...)...)
+		out, errOut, err = ctl.run(t, append([]string{"gds", "trustlist", "add", file, "--no-apply", "--format", "json"}, admin...)...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +252,7 @@ func TestE2E_GDS(t *testing.T) {
 		if len(trusted()) != 2 {
 			t.Fatalf("trusted = %d certificates", len(trusted()))
 		}
-		wantContains(t, mustRun(t, strangerRead...), "42")
+		wantContains(t, ctl.mustRun(t, strangerRead...), "42")
 	})
 
 	t.Run("remove", func(t *testing.T) {
@@ -269,7 +271,7 @@ func TestE2E_GDS(t *testing.T) {
 		if len(trusted()) != 1 {
 			t.Fatalf("trusted = %d certificates", len(trusted()))
 		}
-		if _, _, err := runCLI(t, strangerRead...); err == nil {
+		if _, _, err := ctl.run(t, strangerRead...); err == nil {
 			t.Fatal("a removed client connected")
 		}
 		fail(t, 6, "not in the trusted certificates", append([]string{"gds", "trustlist", "remove", stranger.certFile}, admin...)...)
@@ -301,7 +303,7 @@ func TestE2E_GDS(t *testing.T) {
 		if len(tl.TrustedCertificates) != 2 || len(tl.IssuerCertificates) != 1 || len(tl.IssuerCrls) != 1 {
 			t.Fatalf("trust list = %d trusted, %d issuers, %d issuer CRLs", len(tl.TrustedCertificates), len(tl.IssuerCertificates), len(tl.IssuerCrls))
 		}
-		wantContains(t, mustRun(t, strangerRead...), "42")
+		wantContains(t, ctl.mustRun(t, strangerRead...), "42")
 		out = run(t, "gds", "trustlist", "get", "--masks", "issuer-crls")
 		wantContains(t, out, "issuer-crl", "CN=opcuactl test CA", "(0 revoked)")
 
@@ -349,7 +351,7 @@ func TestE2E_GDS(t *testing.T) {
 			t.Fatal(err)
 		}
 		fail(t, 2, "a CRL in", append([]string{"gds", "trustlist", "set", bad}, admin...)...)
-		_, errOut, _ := runCLI(t, append([]string{"gds", "trustlist", "set", "--masks", "trusted", "--issuer", ca.certFile}, admin...)...)
+		_, errOut, _ := ctl.run(t, append([]string{"gds", "trustlist", "set", "--masks", "trusted", "--issuer", ca.certFile}, admin...)...)
 		wantContains(t, errOut, "--masks does not replace")
 	})
 
@@ -387,7 +389,7 @@ func TestE2E_GDS(t *testing.T) {
 			t.Fatal("the endpoints do not carry the new certificate")
 		}
 		// A new connection validates it against the CA.
-		wantContains(t, mustRun(t, "get", "value", "-n", s.node("Int32"), "-q", "-e", s.url, "--security-policy", "Basic256Sha256",
+		wantContains(t, ctl.mustRun(t, "get", "value", "-n", s.node("Int32"), "-q", "-e", s.url, "--security-policy", "Basic256Sha256",
 			"--security-mode", "SignAndEncrypt", "--cert", cli.certFile, "--key", cli.keyFile, "--trusted-cert", ca.certFile), "42")
 	})
 
