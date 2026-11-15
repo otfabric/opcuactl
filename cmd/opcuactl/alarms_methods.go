@@ -532,7 +532,7 @@ With --format json (or --jsonl) every line is a JSON object. Stop with
 Ctrl+C, --duration or --count.
 
 Examples:
-  opcuactl alarms audit -e opc.tcp://localhost:4840 --auth username --username auditor --password ...
+  opcuactl alarms audit -e opc.tcp://localhost:4840 --auth username --username auditor --password-file auditor.txt
   opcuactl alarms audit -e opc.tcp://localhost:4840 --jsonl --duration 1h
   opcuactl alarms audit -e opc.tcp://localhost:4840 --entry-id ticket-4711`,
 		Args: cobra.NoArgs,

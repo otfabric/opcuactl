@@ -105,7 +105,7 @@ For production servers, prefer secure connect with endpoint auto-selection:
 
 ```sh
 opcuactl get value -e opc.tcp://plc.example:4840 -n i=2258 \
-  --auth username --username operator --password "$OPCUACTL_PASSWORD" \
+  --auth username --username operator --password-file operator.txt \
   --security-policy auto --security-mode auto \
   --cert ./pki/client.pem --key ./pki/client.key \
   --trusted-cert ./pki/server-ca.pem
@@ -345,6 +345,8 @@ opcuactl browse path -e opc.tcp://localhost:4840 --path MyFolder.Sensor.Temperat
 opcuactl browse refs -e opc.tcp://localhost:4840 -n i=2253 --direction both
 ```
 
+The recursive walks (`browse tree`, `get vars --recursive`, `find node`, `find type`, `export nodes`, `export values --start-node`) visit each node once, also where references loop (Part 3 allows loops of hierarchical references). `--depth 0` means no depth limit in each of them. A walk stops after `--max-nodes` nodes (default 100000; `0` is no limit) with the output so far, a message on stderr and exit 7, and ends after `--walk-timeout` (default 10m; `0` is no limit) with exit 5.
+
 ### Reading Values and Nodes
 
 ```sh
@@ -494,7 +496,7 @@ opcuactl monitor event -e opc.tcp://localhost:4840 -n i=2253 \
 opcuactl monitor alarm -e opc.tcp://localhost:4840 -n i=2253
 ```
 
-`monitor` does not reconnect: a lost connection ends it with exit 4, after what arrived before it.
+`monitor` does not reconnect: a lost connection ends it with exit 4, after what arrived before it. So does a subscription that the server ends (a StatusChangeNotification with a Bad status, e.g. `BadTimeout` when its lifetime expired) or transfers to another session (`GoodSubscriptionTransferred`); stderr names the status. So does an error after which the client publishes no more (`subscription lost: …`); a notification the client cannot decode is reported on stderr and the stream goes on.
 
 ### Alarms and Conditions
 
@@ -549,7 +551,7 @@ opcuactl alarms ack -e opc.tcp://localhost:4840 "ns=2;s=Tank.LevelAlarm" --audit
 opcuactl alarms audit -e opc.tcp://localhost:4840 --entry-id ticket-4711 --jsonl
 ```
 
-`alarms watch` does not reconnect: a lost connection ends it with exit 4, after what arrived before it. `--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A BRANCH column appears when the server reports branches; `-v` adds the optional states (suppressed, out of service, silenced, latched, dialog). `-m` (also `--comment`) on `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `reset` and `respond` calls the Part 9 1.05 method variant that takes a comment. A refused method exits with code 6 (9 for `the user may not call this method`) and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
+`alarms watch` does not reconnect: a lost connection, or a subscription that the server ends or transfers to another session, ends it with exit 4, after what arrived before it. `--node` takes the events from another notifier than the Server object (an area, the source of the conditions). The table shows `-` for a state the condition does not have (a plain ConditionType has no ActiveState or AckedState). A BRANCH column appears when the server reports branches; `-v` adds the optional states (suppressed, out of service, silenced, latched, dialog). `-m` (also `--comment`) on `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `reset` and `respond` calls the Part 9 1.05 method variant that takes a comment. A refused method exits with code 6 (9 for `the user may not call this method`) and says why, e.g. `already acknowledged`, `the EventId is not one of the recent events of the condition`, or `the user may not call this method`.
 
 ### Server Diagnostics
 
@@ -562,7 +564,7 @@ opcuactl diagnostics sessions -e opc.tcp://localhost:4840
 
 # One session in detail with the request counts per service (self: the session of opcuactl)
 opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --session self
-opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --session "ns=3;g=5f1c..." --auth username --username admin --password "$P"
+opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --session "ns=3;g=5f1c..." --auth username --username admin --password-file admin.txt
 
 # User, authentication, transport and security of a session
 opcuactl diagnostics sessions -e opc.tcp://localhost:4840 --security --session self
@@ -572,8 +574,8 @@ opcuactl diagnostics subscriptions -e opc.tcp://localhost:4840
 opcuactl diagnostics sampling -e opc.tcp://localhost:4840
 
 # Switch the collection off and on (resets the counters); needs an administrator
-opcuactl diagnostics disable -e opc.tcp://localhost:4840 --auth username --username admin --password "$P"
-opcuactl diagnostics enable -e opc.tcp://localhost:4840 --auth username --username admin --password "$P"
+opcuactl diagnostics disable -e opc.tcp://localhost:4840 --auth username --username admin --password-file admin.txt
+opcuactl diagnostics enable -e opc.tcp://localhost:4840 --auth username --username admin --password-file admin.txt
 
 # DiagnosticInfos of a failed request: the server explains a Bad status
 opcuactl get value -e opc.tcp://localhost:4840 -n "ns=2;s=Missing" --return-diagnostics all
@@ -594,7 +596,7 @@ What a client may read is up to the server: usually everyone reads the summary, 
 # A SecurityAdmin session over an encrypted channel; opcuactl's certificate must be trusted by the server
 SEC=(-e opc.tcp://plc:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
      --cert client.pem --key client.key --trusted-cert plc-ca.pem
-     --auth username --username secadmin --password "$P")
+     --auth username --username secadmin --password-file secadmin.txt)
 
 # What the server supports: private key formats, certificate types, MaxTrustListSize
 opcuactl gds props "${SEC[@]}"
@@ -628,7 +630,7 @@ opcuactl gds update-cert "${SEC[@]}" --group https plc-https.pem --issuer ca.pem
 opcuactl gds trustlist add "${SEC[@]}" --group usertoken idp-ca.pem
 
 # A certificate made elsewhere, with its key as PKCS #12
-opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.pfx --key-format pfx --pfx-password "$PFX" --yes
+opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.pfx --key-format pfx --pfx-password-file plc-pfx.txt --yes
 
 # A self-signed certificate made by the server; delete one; back to the defaults
 opcuactl gds self-signed "${SEC[@]}" --type ecc-p256 --subject "CN=plc" --dns plc --yes
@@ -648,7 +650,7 @@ The commands that change something call ApplyChanges in their own session (a ser
 # issues; an application may also manage its own record and certificates in its own session
 GDS=(-e opc.tcp://gds:58810 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
      --cert client.pem --key client.key --trusted-cert gds.pem
-     --auth username --username gdsadmin --password "$P")
+     --auth username --username gdsadmin --password-file gdsadmin.txt)
 
 # One step: register (or find) the application, request a certificate, wait for the approval,
 # write certificate, private key and trust list
@@ -790,8 +792,8 @@ opcuactl pubsub subscribe --url mqtt://broker:1883 --topic 'plant/#' --show-meta
 
 # Secured UADP: keys of SecurityGroup sg1 from the Security Key Service (SignAndEncrypt session)
 opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --security-group sg1 --message-security sign-and-encrypt \
-  -e opc.tcp://sks:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
-  --cert client.pem --key client.key --auth username --username subscriber --password "$OPCUACTL_PASSWORD"
+  -e opc.tcp://sks:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt --trusted-cert sks.der \
+  --cert client.pem --key client.key --auth username --username subscriber --password-file subscriber.txt
 
 # Publish a test DataSet: 10 messages, one every 500 ms
 opcuactl pubsub publish --url opc.udp://224.0.0.22:4840 --publisher-id 2234 --writer-group-id 100 --writer-id 1 \
@@ -802,7 +804,7 @@ opcuactl pubsub publish --url mqtt://broker:1883 --topic plant/line1 --encoding 
   --field Temp:Double=21.5 --metadata-topic plant/line1/meta
 
 # MQTT 5.0 with QoS 1 and broker credentials: content type, UAMessageType and user properties are shown
-OPCUACTL_BROKER_PASSWORD=secret opcuactl pubsub subscribe --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 \
+OPCUACTL_BROKER_PASSWORD="$(cat broker.txt)" opcuactl pubsub subscribe --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 \
   --broker-username plant --topic 'plant/#'
 
 # AMQP 1.0: a RabbitMQ queue (vhost via connection-hostname) and an Artemis anycast queue
@@ -839,8 +841,8 @@ opcuactl pubsub decode chunk1.bin chunk2.bin chunk3.bin
 
 # Keys of a SecurityGroup; --show-keys --format json writes a --keys-file
 opcuactl pubsub sks get-keys -e opc.tcp://sks:4840 --security-group sg1 --future-keys 2 \
-  --security-policy Basic256Sha256 --security-mode SignAndEncrypt --cert client.pem --key client.key \
-  --auth username --username subscriber --password "$OPCUACTL_PASSWORD" --show-keys --format json > keys.json
+  --security-policy Basic256Sha256 --security-mode SignAndEncrypt --trusted-cert sks.der --cert client.pem --key client.key \
+  --auth username --username subscriber --password-file subscriber.txt --show-keys --format json > keys.json
 
 # The PubSub configuration of a server, and changing it
 opcuactl pubsub config show -e opc.tcp://localhost:4840
@@ -870,7 +872,8 @@ Every networked command supports these connection and output flags:
 | `--security-mode` | `OPCUACTL_SECURITY_MODE` | Security mode (`None`, `Sign`, `SignAndEncrypt`, or `auto`) |
 | `--auth` | `OPCUACTL_AUTH` | Auth mode (`anonymous`, `username`, `certificate`, `issued`) |
 | `--username` | `OPCUACTL_USERNAME` | Username for username auth |
-| `--password` | `OPCUACTL_PASSWORD` | Password for username auth |
+| `--password` | `OPCUACTL_PASSWORD` | Password for username auth (visible in the process list) |
+| `--password-file` | `OPCUACTL_PASSWORD_FILE` | File with the password for username auth, `-` for stdin |
 | `--auth-policy-id` | `OPCUACTL_AUTH_POLICY_ID` | User token PolicyId (usually set via security `auto`) |
 | `--token` | `OPCUACTL_TOKEN` | Issued token (raw or base64) for `--auth issued` |
 | `--token-file` | `OPCUACTL_TOKEN_FILE` | Issued token file for `--auth issued` |
@@ -906,6 +909,8 @@ Every networked command supports these connection and output flags:
 
 All data goes to stdout, all errors go to stderr.
 
+Text output escapes the control characters in strings from the server or the network: `table` output, `--quiet`, the lines of `monitor`, `alarms watch` and `pubsub`, and the messages on stderr show C0 and C1 control characters (TAB, CR and LF included), DEL, the bidirectional embeddings, overrides and isolates and bytes that are not UTF-8 as `\x1b`, `\t`, `\r`, `\n`, `\u009b`, `\u202e`. A value stays on its line, and the terminal shows it instead of acting on it. `json`, `jsonl`, `yaml` and `csv` keep the value as it is: use `-f json` for the raw value.
+
 In `table` output (and `--quiet`), values are printed as `json` prints them: arrays as comma-separated elements, a ByteString in base64, a DateTime in RFC 3339, a StatusCode by its name, a NodeId, QualifiedName or LocalizedText by its text. An ExtensionObject is the name of its decoded type and its fields as JSON, e.g. `ServerStatusDataType {"StartTime":"2026-10-26T10:00:00Z",...,"BuildInfo":{"ProductName":"opcuactl",...}}`; one whose type opcuactl cannot decode is `ExtensionObject{TypeId: ns=2;i=5001, binary, 24 bytes}`.
 
 ## Exit Codes
@@ -916,10 +921,10 @@ In `table` output (and `--quiet`), values are printed as `json` prints them: arr
 | `1` | `gds pull check-revocation`: the certificate is not valid |
 | `2` | Usage or validation error |
 | `3` | Input file that cannot be read |
-| `4` | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch` |
+| `4` | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch`, and a subscription of `monitor` or `alarms watch` that the server ends or transfers |
 | `5` | Timeout |
 | `6` | OPC UA service or status-code failure |
-| `7` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events) |
+| `7` | Partial success (batch/export operations, `history update-events` / `delete-events` with some failed events, a recursive walk that reached `--max-nodes`) |
 | `8` | Service not supported by the server |
 | `9` | Permission: `Bad_UserAccessDenied`, or the operating system refused |
 | `130` | Interrupted by SIGINT or SIGTERM before a result |
@@ -963,16 +968,17 @@ opcuactl discover endpoints -e opc.tcp://host:4840 --best -v
 
 # 2) Username over auto-selected secure endpoint
 opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
-  --auth username --username operator --password secret \
+  --auth username --username operator --password-file operator.txt \
   --security-policy auto --security-mode auto \
   --cert client.pem --key client.key \
   --trusted-cert server-ca.pem
 
 # Explicit policy/mode (skip auto) — keep username off None/None channels
 opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
-  --auth username --username operator --password secret \
+  --auth username --username operator --password-file operator.txt \
   --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
-  --cert client.pem --key client.key
+  --cert client.pem --key client.key \
+  --trusted-cert server.der
 
 # ECC: an ECDSA P-256 certificate over an authenticated-encryption policy
 opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
@@ -990,10 +996,13 @@ opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
 opcuactl get value -e opc.tcp://host:4840 -n i=2258 \
   --auth issued --token-file ./token.jwt \
   --security-policy auto --security-mode auto \
-  --cert client.pem --key client.key
+  --cert client.pem --key client.key \
+  --trusted-cert server-ca.pem
 ```
 
-Store secrets in the environment when scripting (`OPCUACTL_PASSWORD`, `OPCUACTL_TOKEN`, …). Env vars apply when the matching flag is not set on the CLI. See [RECIPES.md](RECIPES.md) for copy-paste `CONN=(...)` blocks.
+`--trusted-cert` takes the server certificate (`server.der`) or the CA certificate that issued it (`server-ca.pem`). Get it from the operator of the server, or from the server itself (`opcuactl serve --cert-out`, a GDS trust list with `gds trustlist get`). `opcuactl discover endpoints -v` shows the SHA-1 thumbprint of the certificate of each endpoint: compare it with the one the operator gives you. Without a matching `--trusted-cert` the connection fails with exit 4 and `server certificate not trusted`, naming that thumbprint.
+
+Keep secrets off the command line, where the process list and the shell history show them: `--password-file` (`-` reads stdin), `--token-file`, `--pfx-password-file` and `--key-password-file` read them from a file, and the environment variables `OPCUACTL_PASSWORD`, `OPCUACTL_TOKEN`, `OPCUACTL_PFX_PASSWORD`, `OPCUACTL_KEY_PASSWORD` and `OPCUACTL_BROKER_PASSWORD` hold them (`OPCUACTL_PASSWORD_FILE`, `OPCUACTL_PFX_PASSWORD_FILE` and `OPCUACTL_KEY_PASSWORD_FILE` name a file). The command line wins over the environment. `--password`, `--token`, `--pfx-password`, `--key-password` and `--broker-password` still take the secret itself, visible to other users of the machine. See [RECIPES.md](RECIPES.md) for copy-paste `CONN=(...)` blocks.
 
 ### HTTPS and WebSocket
 
@@ -1007,7 +1016,7 @@ opcuactl discover endpoints -e opc.wss://plc.example:4843 --tls-ca ./pki/tls-ca.
 
 # Read over HTTPS: TLS protects the connection, the None endpoint is usual there
 opcuactl get value -e opc.https://plc.example:4443 -n i=2258 --tls-ca ./pki/tls-ca.pem \
-  --auth username --username operator --password "$OPCUACTL_PASSWORD"
+  --auth username --username operator --password-file operator.txt
 
 # Secure channel over a WebSocket; auto selects among the opc.wss endpoints
 opcuactl get value -e opc.wss://plc.example:4843 -n i=2258 --tls-ca ./pki/tls-ca.pem \
@@ -1081,7 +1090,7 @@ opcuactl alarms list -e opc.tcp://localhost:4840
 opcuactl call method -e opc.tcp://localhost:4840 --object "ns=1;s=Demo" --method "ns=1;s=Demo.Add" --arg 2 --arg 3 --types int32,int32
 opcuactl get value -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.String" \
   --security-policy Basic256Sha256 --security-mode SignAndEncrypt --cert client.pem --key client.key \
-  --trusted-cert server.pem --auth username --username operator --password secret
+  --trusted-cert server.pem --auth username --username operator --password-file operator.txt
 
 # opc.wss and opc.https next to opc.tcp, with their UA JSON mappings; the RSA certificate serves TLS
 opcuactl serve --wss 0.0.0.0:4843 --https 0.0.0.0:4443 --uajson --cert-out server.pem
@@ -1161,7 +1170,7 @@ Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BR
 | Diagnostics | `--diagnostics`, `--diagnostics-interval`, `--diagnostics-level basic\|advanced\|info\|log\|debug`; `pubsub config diagnostics` |
 | Message mapping | `--encoding auto\|uadp\|json` (subscribe and decode detect it) |
 | Which DataSets | `--publisher-id`, `--writer-group-id` (UADP), `--writer-id` |
-| Field names and types | `--field Name:Type` (repeatable, `Type[]` for arrays), `--metadata file`, `--metadata-node NodeId`, or announced on the wire |
+| Field names and types | `--field Name:Type` (repeatable, `Type[]` for arrays), `--metadata file`, `--metadata-node NodeId`, or announced on the wire (kept for `--max-learned-metadata` writers, default 1024; the one used least recently makes room, and one with more than 4096 fields is not kept) |
 | Message security | `--security-group`, `--message-security none\|sign\|sign-and-encrypt`, `--keys-file` |
 | Actions | `pubsub call` and `pubsub respond`, see [PubSub Actions](#pubsub-actions) |
 | Session (SKS, metadata, config) | the [global flags](#global-flags): `-e`, `--security-*`, `--auth`, `--cert`, … |
@@ -1170,7 +1179,7 @@ Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BR
 
 **DataSetMetaData.** UADP messages carry no field names and, with the RawData field encoding, no types. `subscribe` and `decode` print unnamed fields as `#0`, `#1`, … unless they know the metadata: from `--field`, from a file (`--metadata`: a `ua-metadata` JSON message or a `DataSetMetaDataType` in the OPC UA JSON encoding), from a server (`--metadata-node`: the `DataSetMetaData` property of a PublishedDataSet or DataSetReader), or announced by the publisher (`ua-metadata` messages on a broker, UADP DataSetMetaData announcements). `publish` announces its own with `--announce-metadata` (UDP) or `--metadata-topic` (MQTT).
 
-**Message security.** Secured UADP messages (Sign or SignAndEncrypt with PubSub-Aes128-CTR or PubSub-Aes256-CTR) need the keys of their SecurityGroup. `--security-group` pulls them with GetSecurityKeys from the Security Key Service at `--endpoint` and keeps them fresh; the SKS only hands out keys over a SignAndEncrypt session, usually not to anonymous users. `--keys-file` reads keys saved with `pubsub sks get-keys --show-keys --format json` instead — treat that file like a password. A subscriber's `--message-security` is the minimum it accepts; weaker messages are reported on stderr. JSON messages have no message security.
+**Message security.** Secured UADP messages (Sign or SignAndEncrypt with PubSub-Aes128-CTR or PubSub-Aes256-CTR) need the keys of their SecurityGroup. `--security-group` pulls them with GetSecurityKeys from the Security Key Service at `--endpoint` and keeps them fresh; the SKS only hands out keys over a SignAndEncrypt session, usually not to anonymous users. `--keys-file` reads keys saved with `pubsub sks get-keys --show-keys --format json` instead — treat that file like a password. A subscriber's `--message-security` is the minimum it accepts; weaker messages are reported on stderr and not printed. With `--security-group` or `--keys-file` and no `--message-security`, `subscribe` takes `sign` as the minimum; `--message-security none` accepts unsigned messages next to secured ones. JSON messages have no message security.
 
 **Configuration.** `pubsub config` calls the methods of the server's PublishSubscribe object (AddConnection, AddPublishedDataItems, AddWriterGroup, AddDataSetWriter, AddReaderGroup, AddDataSetReader, the Remove methods, Enable / Disable); components are addressed by the NodeIds `config show` and the add commands print (`-q` prints only the NodeId). It works with go-opcua (`server.WithPubSub`) and open62541 servers. `config export` reads the server's PubSubConfiguration file (the whole configuration in the OPC UA JSON or XML encoding), `config reserve-ids` reserves WriterGroupIds and DataSetWriterIds and shows the default PublisherId, and `config add-action` adds a PublishedAction with CloseAndUpdate (Part 14 §9.1.3.7; go-opcua servers v1.11.0 and later).
 
@@ -1178,11 +1187,11 @@ Broker credentials are `--broker-username`, `--broker-password` (or `OPCUACTL_BR
 
 **Chunked NetworkMessages.** UADP NetworkMessages larger than `--max-message-size` (default: the transport's limit, such as the UDP datagram size) are split into chunks (Part 14 §7.2.4.4.4), each secured on its own. `subscribe` and `decode` reassemble them; `--chunk-max-message-size` (default 2 MiB), `--chunk-max-pending` (512), `--chunk-max-pending-bytes` (32 MiB) and `--chunk-timeout` (5 s) bound the memory the reassembly uses. JSON messages have no chunks.
 
-**Discovery.** UADP discovery (Part 14 §7.2.4.6) works on UDP and Ethernet. `pubsub discover` sends probes (`--probe applications|endpoints|metadata|writers|group|connections`) and prints the announcements; `subscribe --probe` asks for the DataSetMetaData of writers it sees without one; `publish --answer-probes` answers probes for its application state, DataSetMetaData, writer and group configuration and connection, and `--announce-metadata` / `--announce-interval` announce the DataSetMetaData. Probes go to the multicast group or Ethernet address of `--url`, or to `--discovery-url` (the DiscoveryAddress). A unicast DiscoveryAddress is bound by the publisher, so other tools on the same host only send probes to it. `--discovery-layout dotnet` speaks the layout of the OPC Foundation .NET stack 2.x (which has no group and connections probes).
+**Discovery.** UADP discovery (Part 14 §7.2.4.6) works on UDP and Ethernet. `pubsub discover` sends probes (`--probe applications|endpoints|metadata|writers|group|connections`) and prints the announcements; `subscribe --probe` asks for the DataSetMetaData of writers it sees without one (at most 1024 writers at a time, each while its messages arrive); `publish --answer-probes` answers probes for its application state, DataSetMetaData, writer and group configuration and connection, and `--announce-metadata` / `--announce-interval` announce the DataSetMetaData. Probes go to the multicast group or Ethernet address of `--url`, or to `--discovery-url` (the DiscoveryAddress). A unicast DiscoveryAddress is bound by the publisher, so other tools on the same host only send probes to it. `--discovery-layout dotnet` speaks the layout of the OPC Foundation .NET stack 2.x (which has no group and connections probes).
 
 **Diagnostics.** `subscribe`, `publish` and `discover` count what they send and receive with the counters of the Part 14 diagnostics objects (§9.1.11: SentNetworkMessages, FailedTransmissions, ReceivedNetworkMessages, ReceivedInvalidNetworkMessages, DecryptionErrors, …) plus counters for chunks and discovery messages, and print them on stderr when done (`--diagnostics`), every `--diagnostics-interval`, as a JSON line with `--format json`. `--diagnostics-level` selects the counters by DiagnosticsLevel. `pubsub config diagnostics [--node X] [--reset]` reads the diagnostics object of a server's PublishSubscribe object, connection, group, writer or reader: the totals, every counter with its classification, level and first change, and the LiveValues.
 
-**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). gzip-compressed JSON (`application/json+gzip`, or a gzip stream without a content type) is decompressed before decoding.
+**Output.** `subscribe` streams one line per DataSetMessage (`--jsonl` or `--format json` for JSON Lines) until Ctrl+C, `--count` or `--duration`; messages that cannot be decoded are reported on stderr (the first 10, or all with `--show-errors`). When the output is slower than the messages arrive, the queue in between (1024 messages) drops what does not fit, and stderr says how many: at once, then at most every 10 s, and the total at the end. gzip-compressed JSON (`application/json+gzip`, or a gzip stream without a content type) is decompressed before decoding.
 
 ### PubSub Actions
 

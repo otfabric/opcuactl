@@ -17,6 +17,7 @@ import (
 	"github.com/otfabric/go-opcua/pubsub/message"
 	"github.com/otfabric/go-opcua/pubsub/transport"
 	"github.com/otfabric/go-opcua/pubsub/uadp"
+	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/parse"
 	"github.com/spf13/cobra"
@@ -69,6 +70,7 @@ func newPubSubSubscribeCmd() *cobra.Command {
 		showMeta  bool
 		showError bool
 		probe     bool
+		maxMeta   int
 	)
 
 	cmd := &cobra.Command{
@@ -95,9 +97,13 @@ UADP carries no field names and, with the RawData field encoding, no types:
 give the DataSetMetaData with --field, --metadata or --metadata-node. The
 metadata publishers announce (ua-metadata messages on a broker, UADP
 DataSetMetaData announcements) is learned and used for later messages;
---show-metadata prints it, and the other discovery announcements. --probe
-asks publishers for the DataSetMetaData of the writers it sees without one
-(UADP discovery probes on a multicast --url or on --discovery-url).
+--show-metadata prints it, and the other discovery announcements. The
+DataSetMetaData of at most --max-learned-metadata writers (default 1024) is
+kept, the one used least recently makes room, and one with more than 4096
+fields is reported on stderr and not kept. --probe asks publishers for the
+DataSetMetaData of the writers it sees without one (UADP discovery probes on
+a multicast --url or on --discovery-url), of at most 1024 writers at a time,
+each while its messages arrive.
 
 Chunked UADP NetworkMessages are reassembled within the --chunk-* limits.
 
@@ -105,7 +111,11 @@ Chunked UADP NetworkMessages are reassembled within the --chunk-* limits.
 
 Secured UADP messages are verified and decrypted with the keys of
 --security-group (pulled from the SKS at --endpoint) or --keys-file;
---message-security rejects messages with weaker security.
+--message-security rejects messages with weaker security. With keys it is
+sign unless given: an unsigned UADP message is reported on stderr and not
+printed; --message-security none accepts it. Without keys, and for JSON
+messages, which have no message security, anyone who can reach --url can send
+what is printed.
 
 Output streams one line per DataSetMessage; --jsonl or --format json prints
 newline-delimited JSON. Stop with Ctrl+C, --duration or --count. Messages that
@@ -121,12 +131,12 @@ Examples:
   sudo opcuactl pubsub subscribe --url opc.eth://01-00-5E-00-00-01 --interface eth0
   opcuactl pubsub subscribe --url mqtt://broker:1883 --topic 'plant/line1/#' --jsonl
   opcuactl pubsub subscribe --url mqtt://broker:1883 --mqtt-version 5.0 --qos 2 --topic 'plant/#'
-  opcuactl pubsub subscribe --url amqp://rabbitmq:5672 --topic /queues/opcua --broker-username opcua --broker-password secret
+  OPCUACTL_BROKER_PASSWORD="$(cat broker.txt)" opcuactl pubsub subscribe --url amqp://rabbitmq:5672 --topic /queues/opcua --broker-username opcua
   opcuactl pubsub subscribe --url amqp://artemis:5672 --topic opcua.data --transport-property source-capabilities=queue
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --metadata-node "ns=1;i=50001" -e opc.tcp://plc:4840
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --security-group sg1 --message-security sign-and-encrypt \
-      -e opc.tcp://sks:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
-      --auth username --username subscriber --password secret --cert client.pem --key client.key
+      -e opc.tcp://sks:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt --trusted-cert sks.der \
+      --auth username --username subscriber --password-file subscriber.txt --cert client.pem --key client.key
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --duration 1m --diagnostics --diagnostics-level advanced
   opcuactl pubsub subscribe --url opc.udp://224.0.0.22:4840 --count 10 --format json`,
 		Args: cobra.NoArgs,
@@ -139,9 +149,17 @@ Examples:
 			if err != nil {
 				return exitCode(exitUsage, err)
 			}
+			// With the keys of a SecurityGroup the minimum is Sign, unless
+			// --message-security says otherwise.
+			if !cmd.Flags().Changed("message-security") && (sf.group != "" || sf.keysFile != "") {
+				minMode = ua.MessageSecurityModeSign
+			}
 			reasm, err := cf.options()
 			if err != nil {
 				return err
+			}
+			if maxMeta < 1 {
+				return exitCodef(exitUsage, "--max-learned-metadata %d: at least 1", maxMeta)
 			}
 			if err := gf.validate(); err != nil {
 				return err
@@ -173,6 +191,12 @@ Examples:
 				return exitCode(exitUsage, err)
 			}
 			dec.reasm = uadp.NewReassembler(reasm)
+			dec.learned = newLearnedMetaData(maxMeta)
+			defer func() {
+				if n := dec.learned.evictions(); n > 0 {
+					format.Infof("%d learned DataSetMetaData dropped to make room for others (--max-learned-metadata %d)", n, maxMeta)
+				}
+			}()
 			dec.diag = newPubSubDiagnostics("reader-group",
 				[]pubsub.DiagnosticsCounterID{pubsub.CounterReceivedNetworkMessages, pubsub.CounterReceivedInvalidNetworkMessages, pubsub.CounterDecryptionErrors},
 				ctrChunksReceived, ctrChunkedMessagesReceived, ctrChunksDiscarded, ctrDiscoveryRequestsSent, ctrDiscoveryResponsesReceived)
@@ -185,15 +209,9 @@ Examples:
 			defer gf.print(dec.diag)
 			defer gf.start(dec.diag)()
 
-			msgs := make(chan *transport.Message, 1024)
-			var dropped atomic.Int64
-			deliver := func(m *transport.Message) {
-				select {
-				case msgs <- m:
-				default:
-					dropped.Add(1)
-				}
-			}
+			queue := newPubSubQueue(1024)
+			defer queue.final()
+			deliver := queue.deliver
 			cancelSub, err := tf.subscribe(ctx, conn, topic, deliver)
 			if err != nil {
 				return err
@@ -262,7 +280,7 @@ Examples:
 					return nil
 				case <-deadline:
 					return nil
-				case m := <-msgs:
+				case m := <-queue.ch:
 					res, err := dec.decode(m.Payload, m)
 					if errors.Is(err, errFiltered) {
 						continue
@@ -306,9 +324,7 @@ Examples:
 							return nil
 						}
 					}
-					if n := dropped.Swap(0); n > 0 && verbose {
-						format.Infof("%d message(s) dropped: output too slow", n)
-					}
+					queue.report(time.Now())
 				}
 			}
 		},
@@ -316,7 +332,7 @@ Examples:
 
 	fs := cmd.Flags()
 	tf.register(fs)
-	sf.register(cmd, "Minimum security of the messages (none|sign|sign-and-encrypt)")
+	sf.register(cmd, "Minimum security of the UADP messages (none|sign|sign-and-encrypt); sign when --security-group or --keys-file is given")
 	mf.register(cmd)
 	ff.register(fs)
 	cf.register(fs)
@@ -330,9 +346,56 @@ Examples:
 	fs.BoolVar(&showMeta, "show-metadata", false, "Also print DataSetMetaData and other discovery announcements and status messages")
 	fs.BoolVar(&showError, "show-errors", false, "Report every message that cannot be decoded (default: the first 10)")
 	fs.BoolVar(&probe, "probe", false, "Probe for the DataSetMetaData of writers seen without one (UADP discovery)")
+	fs.IntVar(&maxMeta, "max-learned-metadata", defaultMaxLearnedMetaData, "Writers whose DataSetMetaData learned from the network is kept; the one used least recently makes room")
 	_ = cmd.RegisterFlagCompletionFunc("encoding", fixedCompletion(pubsubEncodingValues))
 	_ = cmd.RegisterFlagCompletionFunc("mqtt-version", fixedCompletion(pubsubMQTTVersionValues))
 	_ = cmd.RegisterFlagCompletionFunc("discovery-layout", fixedCompletion(pubsubDiscoveryLayoutValues))
 	_ = cmd.RegisterFlagCompletionFunc("diagnostics-level", fixedCompletion(pubsubDiagnosticsLevelValues))
 	return cmd
+}
+
+// dropReportInterval is the least time between two lines that report
+// dropped messages; the first drop is reported at once.
+const dropReportInterval = 10 * time.Second
+
+// pubsubQueue is the bounded queue between the transport and the output of
+// pubsub subscribe. A message that finds it full is dropped and counted; the
+// count goes to stderr, with or without --verbose.
+type pubsubQueue struct {
+	ch      chan *transport.Message
+	dropped atomic.Int64 // since the last report
+	total   int64        // reported so far
+	last    time.Time    // of the last report
+}
+
+func newPubSubQueue(size int) *pubsubQueue {
+	return &pubsubQueue{ch: make(chan *transport.Message, size)}
+}
+
+// deliver queues m, or drops it when the queue is full. It does not block.
+func (q *pubsubQueue) deliver(m *transport.Message) {
+	select {
+	case q.ch <- m:
+	default:
+		q.dropped.Add(1)
+	}
+}
+
+// report prints the number of messages dropped since the last report, at
+// most once per dropReportInterval.
+func (q *pubsubQueue) report(now time.Time) {
+	if q.dropped.Load() == 0 || (!q.last.IsZero() && now.Sub(q.last) < dropReportInterval) {
+		return
+	}
+	n := q.dropped.Swap(0)
+	q.total += n
+	q.last = now
+	format.Infof("%d message(s) dropped: output too slow", n)
+}
+
+// final prints the number of messages dropped in all, if any.
+func (q *pubsubQueue) final() {
+	if total := q.total + q.dropped.Swap(0); total > 0 {
+		format.Infof("%d message(s) dropped in all: output too slow", total)
+	}
 }

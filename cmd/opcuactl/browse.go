@@ -244,6 +244,7 @@ func newBrowseTreeCmd() *cobra.Command {
 		nodeStr   string
 		maxDepth  int
 		nodeClass string
+		wf        walkFlags
 	)
 
 	cmd := &cobra.Command{
@@ -251,11 +252,18 @@ func newBrowseTreeCmd() *cobra.Command {
 		Short: "Recursively browse the address space",
 		Long: `Recursively print an address-space tree from a start node.
 
+Each node appears once, also where references loop. The walk stops after
+--max-nodes nodes, with the tree so far and exit 7, and after --walk-timeout
+with exit 5. --depth 0 has no depth limit.
+
 Examples:
   opcuactl browse tree --endpoint opc.tcp://localhost:4840
   opcuactl browse tree --endpoint opc.tcp://localhost:4840 --depth 3
   opcuactl browse tree -e opc.tcp://localhost:4840 -n i=2253 --node-class variable --format json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := wf.validate(); err != nil {
+				return err
+			}
 			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
@@ -283,28 +291,38 @@ Examples:
 			w := newWriter()
 			f := format.ParseFormat(outputFormat)
 
+			walkCtx, walkCancel := wf.context(ctx)
+			defer walkCancel()
 			if f == format.Table {
-				return browseTreeTable(ctx, n, maxDepth, classMask)
+				return browseTreeTable(walkCtx, &wf, n, maxDepth, classMask)
 			}
 			// JSON/YAML: collect tree structure
-			tree, err := browseTreeJSON(ctx, n, maxDepth, classMask, 0)
-			if err != nil {
+			tree, err := browseTreeJSON(walkCtx, wf.treeWalk(c, nodeID), n, maxDepth, classMask, 0)
+			partial := partialWalk("browsing tree", err)
+			if err != nil && partial == nil {
 				format.Errf("browsing tree: %v", err)
 				return exitCode(exitProtocol, err)
 			}
-			return w.Write(tree)
+			if err := w.Write(tree); err != nil {
+				return err
+			}
+			return partial
 		},
 	}
 
 	cmd.Flags().StringVarP(&nodeStr, "node", "n", "", "Start node ID (default: Objects folder ns=0;i=85)")
-	cmd.Flags().IntVar(&maxDepth, "depth", 5, "Maximum tree depth")
+	cmd.Flags().IntVar(&maxDepth, "depth", 5, "Maximum tree depth (0 = no limit)")
 	cmd.Flags().StringVar(&nodeClass, "node-class", "all", "Filter by node class")
+	wf.register(cmd.Flags())
 	_ = cmd.RegisterFlagCompletionFunc("node-class", fixedCompletion(nodeClassValues))
 	return cmd
 }
 
-func browseTreeTable(ctx context.Context, n *opcua.Node, maxDepth int, classMask ua.NodeClass) error {
-	for wr, err := range n.WalkLimitDedup(ctx, walkLimitDepth(maxDepth)) {
+func browseTreeTable(ctx context.Context, wf *walkFlags, n *opcua.Node, maxDepth int, classMask ua.NodeClass) error {
+	for wr, err := range wf.walk(ctx, n, walkLimitDepth(maxDepth)) {
+		if partial := partialWalk("walk", err); partial != nil {
+			return partial
+		}
 		if err != nil {
 			format.Errf("walk: %v", err)
 			return exitCode(exitProtocol, err)
@@ -322,12 +340,14 @@ func browseTreeTable(ctx context.Context, n *opcua.Node, maxDepth int, classMask
 		if ref.DisplayName != nil {
 			name = ref.DisplayName.Text
 		}
-		fmt.Printf("%s%s (%s) [%s]\n", indent, name, nid, ref.NodeClass)
+		format.Printf("%s%s (%s) [%s]\n", indent, name, nid, ref.NodeClass)
 	}
 	return nil
 }
 
-func browseTreeJSON(ctx context.Context, n *opcua.Node, maxDepth int, classMask ua.NodeClass, depth int) (model.TreeNode, error) {
+// browseTreeJSON returns the tree under n. A node the walk saw before is
+// left out; with a *nodeLimitError it returns the tree so far.
+func browseTreeJSON(ctx context.Context, walk *treeWalk, n *opcua.Node, maxDepth int, classMask ua.NodeClass, depth int) (model.TreeNode, error) {
 	opCtx, cancel := connCfg.TimeoutContext(ctx)
 	defer cancel()
 
@@ -356,19 +376,30 @@ func browseTreeJSON(ctx context.Context, n *opcua.Node, maxDepth int, classMask 
 
 	// A browse that fails (an unknown node, Bad_NodeIdUnknown) is an error,
 	// as in the table form, which walks the same references.
-	children, err := n.Children(opCtx, id.HierarchicalReferences, classMask)
-	if err != nil {
-		return tn, fmt.Errorf("%s: %w", n.ID, err)
+	var children []*opcua.Node
+	var limit error
+	for ref, err := range n.BrowseAll(opCtx, id.HierarchicalReferences, ua.BrowseDirectionForward, classMask, true) {
+		if err != nil {
+			return tn, fmt.Errorf("%s: %w", n.ID, err)
+		}
+		isNew, err := walk.add(ref)
+		if err != nil {
+			limit = err
+			break
+		}
+		if isNew {
+			children = append(children, walk.c.NodeFromExpandedNodeID(ref.NodeID))
+		}
 	}
 
 	for _, child := range children {
-		childNode, err := browseTreeJSON(ctx, child, maxDepth, classMask, depth+1)
+		childNode, err := browseTreeJSON(ctx, walk, child, maxDepth, classMask, depth+1)
+		tn.Children = append(tn.Children, childNode)
 		if err != nil {
 			return tn, err
 		}
-		tn.Children = append(tn.Children, childNode)
 	}
-	return tn, nil
+	return tn, limit
 }
 
 func newBrowsePathCmd() *cobra.Command {

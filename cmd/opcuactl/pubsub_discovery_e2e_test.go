@@ -232,9 +232,9 @@ func TestE2E_PubSubDiscovery(t *testing.T) {
 
 	t.Run("announce interval", func(t *testing.T) {
 		url := freeUDPURL(t)
+		conn := listenUDP(t, url)
 		done := make(chan string, 1)
-		go func() { done <- collectUDP(t, url, 6) }()
-		time.Sleep(200 * time.Millisecond)
+		go func() { done <- collectUDP(t, conn, 6) }()
 		mustRun(t, "pubsub", "publish", "--url", url, "--field", "A:Int16=1", "--announce-interval", "60ms",
 			"--count", "4", "--interval", "100ms")
 		announcements := 0

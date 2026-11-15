@@ -5,6 +5,7 @@ package opcuactl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-opcua"
+	uaerrors "github.com/otfabric/go-opcua/errors"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
@@ -59,7 +61,8 @@ func newMonitorValueCmd() *cobra.Command {
 
 Output streams line-by-line to stdout. Use --jsonl for newline-delimited JSON.
 Cancel with Ctrl+C. Optionally limit by --duration or --count.
-A lost connection ends the stream with exit 4; opcuactl does not reconnect.
+A lost connection, or a subscription that the server ends or transfers to
+another session, ends the stream with exit 4; opcuactl does not reconnect.
 
 --queue-size and --discard-oldest control the server-side monitored-item queue
 (Part 4 window semantics). Overflow is reported when the queue drops samples.
@@ -245,10 +248,21 @@ func newStreamClient(ctx context.Context) (*opcua.Client, <-chan struct{}, error
 }
 
 // streamNotifications passes the notifications of ch to handle until ctx ends,
-// deadline passes, handle reports it is done (count reached) or lost is closed,
-// which fails with exitTransport after what arrived before it. what names the
-// stream in that failure.
+// deadline passes, handle reports it is done (count reached), the server ends
+// the subscription (streamEnd) or lost is closed. The last two fail with
+// exitTransport after what arrived before them. what names the stream in that
+// failure.
 func streamNotifications(ctx context.Context, deadline <-chan time.Time, lost <-chan struct{}, ch <-chan *opcua.PublishNotificationData, what string, handle func(*opcua.PublishNotificationData) bool) error {
+	// next handles one notification: done when the handler is, or when the
+	// stream ended (err).
+	next := func(notif *opcua.PublishNotificationData) (done bool, err error) {
+		if reason := streamEnd(notif); reason != "" {
+			err := exitCodef(exitTransport, "%s: %s", what, reason)
+			format.Errf("%v", err)
+			return true, err
+		}
+		return handle(notif), nil
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -260,8 +274,8 @@ func streamNotifications(ctx context.Context, deadline <-chan time.Time, lost <-
 			for {
 				select {
 				case notif := <-ch:
-					if handle(notif) {
-						return nil
+					if done, err := next(notif); done {
+						return err
 					}
 				default:
 					err := exitCodef(exitTransport, "%s: connection lost", what)
@@ -270,11 +284,45 @@ func streamNotifications(ctx context.Context, deadline <-chan time.Time, lost <-
 				}
 			}
 		case notif := <-ch:
-			if handle(notif) {
-				return nil
+			if done, err := next(notif); done {
+				return err
 			}
 		}
 	}
+}
+
+// streamEnd says why no notification of the subscription will arrive again,
+// "" when the stream goes on:
+//   - a StatusChangeNotification (Part 4 §7.20.4) with a Bad status: the
+//     server closed the subscription, Bad_Timeout when its lifetime expired;
+//   - one with Good_SubscriptionTransferred: another session took it over
+//     (TransferSubscriptions, Part 4 §5.13.7);
+//   - an error of the client's publishing other than a NotificationData it
+//     could not use: the client stops publishing after it (streams do not
+//     reconnect).
+//
+// A StatusChangeNotification with another status is passed on.
+func streamEnd(notif *opcua.PublishNotificationData) string {
+	if notif == nil {
+		return ""
+	}
+	if err := notif.Error; err != nil {
+		if errors.Is(err, uaerrors.ErrEmptyResponse) || errors.Is(err, uaerrors.ErrInvalidResponseType) {
+			return ""
+		}
+		return fmt.Sprintf("subscription lost: %v", err)
+	}
+	sc, ok := notif.Value.(*ua.StatusChangeNotification)
+	if !ok || sc == nil {
+		return ""
+	}
+	switch {
+	case sc.Status == ua.StatusGoodSubscriptionTransferred:
+		return fmt.Sprintf("the server transferred the subscription to another session (%s)", sc.Status.Symbol())
+	case isBadStatus(sc.Status):
+		return fmt.Sprintf("the server ended the subscription (%s)", sc.Status.Symbol())
+	}
+	return ""
 }
 
 // valuePrinter returns the handler of monitor value: it prints the data
@@ -324,7 +372,7 @@ func valuePrinter(handleMap map[uint32]string, count int, useJSON bool) func(*op
 				if overflow {
 					overflowMark = "  [OVERFLOW]"
 				}
-				fmt.Printf("%s  %s  %s  [%s]%s\n", outTS, mv.NodeID, format.FormatValue(mv.Value), mv.Status, overflowMark)
+				format.Printf("%s  %s  %s  [%s]%s\n", outTS, mv.NodeID, format.FormatValue(mv.Value), mv.Status, overflowMark)
 			}
 
 			received++
@@ -377,7 +425,7 @@ func eventPrinter(node string, fields []string, count int, useJSON bool) func(*o
 						parts = append(parts, fmt.Sprintf("%s=%s", name, format.FormatValue(v)))
 					}
 				}
-				fmt.Printf("%s  %s  %s\n", me.Timestamp, me.NodeID, strings.Join(parts, "  "))
+				format.Printf("%s  %s  %s\n", me.Timestamp, me.NodeID, strings.Join(parts, "  "))
 			}
 
 			received++
@@ -470,7 +518,7 @@ Examples:
 			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
 			// A notifier the server rejects (an unknown node, one that is
-			// no event notifier) exits 3.
+			// no event notifier) exits 6.
 			sub, notifyCh, err := eventSubscription(ctx, c, &notifierFlags{node: nodeStr, interval: interval, queueSize: eventQueueSize}, filter)
 			if err != nil {
 				return err
@@ -573,7 +621,7 @@ Examples:
 			defer func() { _ = c.Close(context.WithoutCancel(ctx)) }()
 
 			// A notifier the server rejects (an unknown node, one that is
-			// no event notifier) exits 3.
+			// no event notifier) exits 6.
 			sub, notifyCh, err := eventSubscription(ctx, c, &notifierFlags{node: nodeStr, interval: interval, queueSize: eventQueueSize}, filter)
 			if err != nil {
 				return err

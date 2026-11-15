@@ -169,7 +169,7 @@ func outputValues(w *format.Writer, nodeIDs []*ua.NodeID, dvs []*ua.DataValue, t
 	f := format.ParseFormat(outputFormat)
 	if quiet {
 		for _, v := range values {
-			fmt.Println(format.FormatValue(v.Value))
+			format.Printf("%s\n", format.FormatValue(v.Value))
 		}
 		return nil
 	}
@@ -406,14 +406,14 @@ Examples:
 			f := format.ParseFormat(outputFormat)
 			if f == format.Table {
 				fmt.Printf("Server Status\n")
-				fmt.Printf("  State:          %s\n", status.State)
-				fmt.Printf("  Start Time:     %s\n", status.StartTime)
-				fmt.Printf("  Current Time:   %s\n", status.CurrentTime)
-				fmt.Printf("  Security:       %s / %s\n", status.SecurityPolicy, status.SecurityMode)
+				format.Printf("  State:          %s\n", status.State)
+				format.Printf("  Start Time:     %s\n", status.StartTime)
+				format.Printf("  Current Time:   %s\n", status.CurrentTime)
+				format.Printf("  Security:       %s / %s\n", status.SecurityPolicy, status.SecurityMode)
 				if status.BuildInfo != nil {
-					fmt.Printf("  Product:        %s %s\n", status.BuildInfo.ProductName, status.BuildInfo.SoftwareVersion)
-					fmt.Printf("  Manufacturer:   %s\n", status.BuildInfo.ManufacturerName)
-					fmt.Printf("  Build:          %s (%s)\n", status.BuildInfo.BuildNumber, status.BuildInfo.BuildDate)
+					format.Printf("  Product:        %s %s\n", status.BuildInfo.ProductName, status.BuildInfo.SoftwareVersion)
+					format.Printf("  Manufacturer:   %s\n", status.BuildInfo.ManufacturerName)
+					format.Printf("  Build:          %s (%s)\n", status.BuildInfo.BuildNumber, status.BuildInfo.BuildDate)
 				}
 				return nil
 			}

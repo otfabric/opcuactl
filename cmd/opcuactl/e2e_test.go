@@ -32,6 +32,7 @@ import (
 	"github.com/otfabric/go-opcua/server"
 	"github.com/otfabric/go-opcua/server/attrs"
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/go-opcua/uasc"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -542,9 +543,33 @@ func TestE2E_DiscoveryOnNetwork(t *testing.T) {
 	wantContains(t, out, "Servers on network (FindServersOnNetwork, mDNS):", "LDSME")
 }
 
-// writeLoop writes the given values to a node, one every interval, after
-// giving the command under test time to create its subscription.
-func writeLoop(t *testing.T, s *testServer, name string, interval time.Duration, values ...any) {
+// monitorServer is a test server that reports the node of every item a
+// CreateMonitoredItems created, once the server answered it.
+func monitorServer(t *testing.T) (*testServer, <-chan string) {
+	t.Helper()
+	created := make(chan string, 64)
+	s := startServerWith(t, func(srv *server.Server) {
+		srv.RegisterHandler(id.CreateMonitoredItemsRequestEncodingDefaultBinary, func(ctx context.Context, sc *uasc.SecureChannel, r ua.Request, reqID uint32) (ua.Response, error) {
+			resp, err := srv.MonitoredItemService.CreateMonitoredItems(ctx, sc, r, reqID)
+			if err == nil {
+				for _, item := range r.(*ua.CreateMonitoredItemsRequest).ItemsToCreate {
+					select {
+					case created <- item.ItemToMonitor.NodeID.String():
+					default:
+					}
+				}
+			}
+			return resp, err
+		})
+	})
+	return s, created
+}
+
+// writeLoop writes the given values to a node, one after the other, once
+// the command under test has created its monitored item on it (created
+// comes from monitorServer). The items sample every change (--sampling 0s)
+// and queue up to 10 values, so each write is a sample of its own.
+func writeLoop(t *testing.T, s *testServer, created <-chan string, name string, values ...any) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	c, err := opcua.NewClient(s.url, opcua.InsecureNoSecurity())
@@ -558,9 +583,14 @@ func writeLoop(t *testing.T, s *testServer, name string, interval time.Duration,
 	go func() {
 		defer cancel()
 		defer func() { _ = c.Close(context.Background()) }()
-		time.Sleep(time.Second)
+		for n := ""; n != nodeID.String(); {
+			select {
+			case n = <-created:
+			case <-ctx.Done():
+				return
+			}
+		}
 		for _, v := range values {
-			time.Sleep(interval)
 			_, _ = c.WriteNodeValue(ctx, nodeID, v)
 		}
 	}()
@@ -608,11 +638,11 @@ func checkDeadband(t *testing.T, got []float64, deadband, last float64) {
 // TestE2E_MonitorDataChangeFilter checks that the deadband flags reach the
 // server and that rejected items are reported.
 func TestE2E_MonitorDataChangeFilter(t *testing.T) {
-	s := startServer(t)
+	s, created := monitorServer(t)
 
 	t.Run("absolute deadband", func(t *testing.T) {
 		// 100 → 101 (inside the deadband of 5) → 110 (outside) → 112 (inside).
-		writeLoop(t, s, "Double", 400*time.Millisecond, float64(101), float64(110), float64(112))
+		writeLoop(t, s, created, "Double", float64(101), float64(110), float64(112))
 		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Double"), "--jsonl",
 			"--interval", "50ms", "--sampling", "0s",
 			"--deadband-type", "absolute", "--deadband", "5", "--duration", "4s")
@@ -621,7 +651,7 @@ func TestE2E_MonitorDataChangeFilter(t *testing.T) {
 
 	t.Run("percent deadband", func(t *testing.T) {
 		// EURange is [0, 200]: 10 % is 20. 100 → 110 (inside) → 150 (outside).
-		writeLoop(t, s, "Analog", 400*time.Millisecond, float64(110), float64(150))
+		writeLoop(t, s, created, "Analog", float64(110), float64(150))
 		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Analog"), "--jsonl",
 			"--interval", "50ms", "--sampling", "0s",
 			"--deadband-type", "percent", "--deadband", "10", "--duration", "3500ms")
@@ -629,7 +659,7 @@ func TestE2E_MonitorDataChangeFilter(t *testing.T) {
 	})
 
 	t.Run("no filter reports every change", func(t *testing.T) {
-		writeLoop(t, s, "Int32", 300*time.Millisecond, int32(43), int32(44))
+		writeLoop(t, s, created, "Int32", int32(43), int32(44))
 		out := mustRun(t, "monitor", "value", "-e", s.url, "-n", s.node("Int32"), "--jsonl",
 			"--interval", "50ms", "--sampling", "0s", "--duration", "3s")
 		// Without a filter every write arrives, also the ones a deadband

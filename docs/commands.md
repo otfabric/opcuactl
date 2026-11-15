@@ -20,7 +20,8 @@ Every command accepts these flags of the root command.
 | `--json-content-type` | `string` | https-uajson: Content-Type of the requests (standard: application/json \| legacy: application/opcua+uajson, for UA-.NETStandard) |
 | `--key` | `string` | Client private key file (PEM/DER) |
 | `--namespace` | `string` | Default namespace (index or URI) for node ID shorthand |
-| `--password` | `string` | Password for --auth username |
+| `--password` | `string` | Password for --auth username (visible in the process list: prefer --password-file or OPCUACTL_PASSWORD) |
+| `--password-file` | `string` | File with the password for --auth username, - for stdin (or OPCUACTL_PASSWORD_FILE) |
 | `--pretty` |  | Pretty-print structured output |
 | `--quiet`, `-q` |  | Quiet mode: emit only the primary value (for scripting) |
 | `--return-diagnostics` | `string` | Ask the server for DiagnosticInfos and print them on failures (none\|service\|operation\|all) |
@@ -34,7 +35,7 @@ Every command accepts these flags of the root command.
 | `--tls-cert` | `string` | opc.wss/opc.https: client TLS certificate (PEM) for mutual TLS |
 | `--tls-insecure-skip-verify` |  | opc.wss/opc.https: do not verify the server's TLS certificate (INSECURE, development only) |
 | `--tls-key` | `string` | opc.wss/opc.https: private key (PEM) of --tls-cert |
-| `--token` | `string` | Issued token (raw or base64) for --auth issued |
+| `--token` | `string` | Issued token (raw or base64) for --auth issued (visible in the process list: prefer --token-file or OPCUACTL_TOKEN) |
 | `--token-file` | `string` | Issued token file for --auth issued |
 | `--transport` | `string` | Transport mapping (tcp\|wss\|https\|wss-uajson\|https-uajson; default: UA Binary over the scheme of --endpoint) |
 | `--trusted-cert` | `stringArray` | Trusted CA or self-signed server cert (repeatable; PEM/DER) |
@@ -399,9 +400,11 @@ opcuactl browse tree [flags]
 
 | Flag | Value | Meaning |
 |---|---|---|
-| `--depth` | `int` | Maximum tree depth (default 5) |
+| `--depth` | `int` | Maximum tree depth (0 = no limit) (default 5) |
+| `--max-nodes` | `int` | Stop the walk after this many nodes, with the output so far and exit 7 (0 = no limit) (default 100000) |
 | `--node`, `-n` | `string` | Start node ID (default: Objects folder ns=0;i=85) |
 | `--node-class` | `string` | Filter by node class (default "all") |
+| `--walk-timeout` | `duration` | Time limit of the whole walk, exit 5 (0 = no limit) (default 10m0s) |
 
 ## opcuactl call
 
@@ -588,11 +591,13 @@ opcuactl export nodes [flags]
 
 | Flag | Value | Meaning |
 |---|---|---|
-| `--depth` | `int` | Maximum tree depth (default 5) |
+| `--depth` | `int` | Maximum tree depth (0 = no limit) (default 5) |
 | `--include-attrs` |  | Include additional attributes (WriteMask, ValueRank, etc.) |
+| `--max-nodes` | `int` | Stop the walk after this many nodes, with the output so far and exit 7 (0 = no limit) (default 100000) |
 | `--node`, `-n` | `string` | Start node ID (default: Objects folder ns=0;i=85) |
 | `--node-class` | `string` | Filter by node class (default "all") |
 | `--output` | `string` | Write output to file instead of stdout |
+| `--walk-timeout` | `duration` | Time limit of the whole walk, exit 5 (0 = no limit) (default 10m0s) |
 
 ## opcuactl export values
 
@@ -606,16 +611,18 @@ opcuactl export values [flags]
 |---|---|---|
 | `--aggregate` | `string` | Aggregate for processed history (average\|min\|max\|count) (default "average") |
 | `--at` | `stringArray` | Timestamp for attime mode (repeatable, RFC3339) |
-| `--depth` | `int` | Maximum depth for subtree discovery (default 5) |
+| `--depth` | `int` | Maximum depth for subtree discovery (0 = no limit) (default 5) |
 | `--end` | `string` | End time in RFC3339 format (required with --history except attime) |
 | `--history` |  | Export historical values instead of current snapshot |
 | `--interval` | `duration` | Aggregate interval for processed history |
+| `--max-nodes` | `int` | Stop the walk after this many nodes, with the output so far and exit 7 (0 = no limit) (default 100000) |
 | `--mode` | `string` | History mode with --history (raw\|modified\|processed\|attime) (default "raw") |
 | `--node`, `-n` | `stringArray` | Node ID to export (repeatable) |
 | `--nodes-file` | `string` | Read node IDs from a text file (one per line) |
 | `--output` | `string` | Write output to file instead of stdout |
 | `--start` | `string` | Start time in RFC3339 format (required with --history except attime) |
 | `--start-node` | `string` | Start node for subtree discovery (exports all variable children) |
+| `--walk-timeout` | `duration` | Time limit of the whole walk, exit 5 (0 = no limit) (default 10m0s) |
 
 ## opcuactl find
 
@@ -653,9 +660,11 @@ opcuactl find node [flags]
 | `--depth` | `int` | Maximum search depth (0 = unlimited) |
 | `--display-name` | `string` | Match display name (exact, contains, or regex with --regex) |
 | `--limit` | `int` | Maximum number of results (0 = unlimited) |
+| `--max-nodes` | `int` | Stop the walk after this many nodes, with the output so far and exit 7 (0 = no limit) (default 100000) |
 | `--name` | `string` | Match browse name (exact, contains, or regex with --regex) |
 | `--regex` |  | Treat --name and --display-name as regex patterns |
 | `--start-node` | `string` | Start node ID (default: Objects folder) |
+| `--walk-timeout` | `duration` | Time limit of the whole walk, exit 5 (0 = no limit) (default 10m0s) |
 
 ## opcuactl find type
 
@@ -671,8 +680,10 @@ opcuactl find type [flags]
 | `--data-type` | `string` | Match data type by NodeID or name |
 | `--depth` | `int` | Maximum search depth (0 = unlimited) |
 | `--limit` | `int` | Maximum number of results (0 = unlimited) |
+| `--max-nodes` | `int` | Stop the walk after this many nodes, with the output so far and exit 7 (0 = no limit) (default 100000) |
 | `--start-node` | `string` | Start node ID (default: Objects folder) |
 | `--type-definition` | `string` | Match type definition by NodeID or name |
+| `--walk-timeout` | `duration` | Time limit of the whole walk, exit 5 (0 = no limit) (default 10m0s) |
 
 ## opcuactl gds
 
@@ -952,7 +963,8 @@ opcuactl gds pull request <applicationId> [flags]
 | `--csr` | `string` | PKCS #10 certificate request of the application (PEM or DER) |
 | `--dns` | `stringArray` | Host name or IP address of the certificate (repeatable; default those of the discovery URLs) |
 | `--group` | `string` | Certificate group of the GDS (NodeId; default its DefaultApplicationGroup) |
-| `--key-password` | `string` | Password that encrypts the private key the GDS generates |
+| `--key-password` | `string` | Password that encrypts the private key the GDS generates; visible in the process list: prefer --key-password-file or OPCUACTL_KEY_PASSWORD |
+| `--key-password-file` | `string` | File with the password that encrypts the private key the GDS generates, - for stdin (or OPCUACTL_KEY_PASSWORD_FILE) |
 | `--private-key` | `string` | Private key to make the certificate request from |
 | `--subject` | `string` | Subject (CN=App/O=Company; default chosen by the GDS) |
 | `--type` | `string` | Certificate type (rsa\|ecc-p256\|...\|ed448 or a NodeId; default the first type of the group) |
@@ -1179,7 +1191,8 @@ opcuactl gds update-cert <cert> [flags]
 | `--issuer` | `stringArray` | Issuer (CA) certificate file (repeatable) |
 | `--key-format` | `string` | Format to send the private key in: pem\|pfx (default: pem, pfx for a PKCS #12 file) |
 | `--no-apply` |  | Do not call ApplyChanges |
-| `--pfx-password` | `string` | Password of the PFX key (the one the server expects; opens a PKCS #12 --private-key) |
+| `--pfx-password` | `string` | Password of the PFX key (the one the server expects; opens a PKCS #12 --private-key); visible in the process list: prefer --pfx-password-file or OPCUACTL_PFX_PASSWORD |
+| `--pfx-password-file` | `string` | File with the password of the PFX key, - for stdin (or OPCUACTL_PFX_PASSWORD_FILE) |
 | `--private-key` | `string` | Private key of the certificate, if the server did not make it (PEM, DER or PKCS #12) |
 | `--type` | `string` | Certificate type to replace (default: the type of the certificate's key) |
 | `--yes` |  | Skip the confirmation prompt |
@@ -1258,13 +1271,15 @@ opcuactl get vars [flags]
 | Flag | Value | Meaning |
 |---|---|---|
 | `--depth` | `int` | Max recursion depth (0 = unlimited when --recursive) |
-| `--exclude-ns` | `int` | Exclude nodes in this namespace (-1 = none) (default -1) |
+| `--exclude-ns` | `int` | Exclude nodes in this namespace index (0-65535; -1 = none) (default -1) |
 | `--match` | `string` | Filter by browse name / display name substring |
+| `--max-nodes` | `int` | Stop the walk after this many nodes, with the output so far and exit 7 (0 = no limit) (default 100000) |
 | `--no-read` |  | Do not read Value attribute (metadata only) |
 | `--node`, `-n` | `string` | Start node ID (default: Objects folder ns=0;i=85) |
-| `--only-ns` | `int` | Only return nodes in this namespace (-1 = all) (default -1) |
+| `--only-ns` | `int` | Only return nodes in this namespace index (0-65535; -1 = all) (default -1) |
 | `--paths` |  | Include browse path from start node |
 | `--recursive` |  | Traverse subtree recursively |
+| `--walk-timeout` | `duration` | Time limit of the whole walk, exit 5 (0 = no limit) (default 10m0s) |
 
 ## opcuactl history
 
@@ -1898,7 +1913,8 @@ opcuactl pubsub subscribe [flags]
 | `--interface` | `string` | Network interface: for UDP multicast (default: system choice); required for opc.eth:// |
 | `--jsonl` |  | Output newline-delimited JSON (JSONL) |
 | `--keys-file` | `string` | Keys of the SecurityGroup saved with 'pubsub sks get-keys --show-keys --format json' (instead of an SKS) |
-| `--message-security` | `string` | Minimum security of the messages (none\|sign\|sign-and-encrypt) (default "none") |
+| `--max-learned-metadata` | `int` | Writers whose DataSetMetaData learned from the network is kept; the one used least recently makes room (default 1024) |
+| `--message-security` | `string` | Minimum security of the UADP messages (none\|sign\|sign-and-encrypt); sign when --security-group or --keys-file is given (default "none") |
 | `--metadata` | `string` | DataSetMetaData file: a ua-metadata message or a DataSetMetaDataType in the OPC UA JSON encoding |
 | `--metadata-node` | `string` | Read the DataSetMetaData of this PublishedDataSet or DataSetReader node from the server at --endpoint |
 | `--mqtt-version` | `string` | MQTT protocol version (3.1.1\|5.0\|BestAvailable; default 3.1.1) |

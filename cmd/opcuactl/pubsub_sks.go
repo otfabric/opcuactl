@@ -25,8 +25,8 @@ anonymous users.
 
 Examples:
   opcuactl pubsub sks get-keys -e opc.tcp://sks:4840 --security-group sg1 \
-      --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
-      --cert client.pem --key client.key --auth username --username pub --password secret`,
+      --security-policy Basic256Sha256 --security-mode SignAndEncrypt --trusted-cert sks.der \
+      --cert client.pem --key client.key --auth username --username pub --password-file pub.txt`,
 	}
 	cmd.AddCommand(newPubSubSKSGetKeysCmd())
 	return cmd
@@ -57,8 +57,8 @@ keys after it (the SKS may return fewer).
 
 Examples:
   opcuactl pubsub sks get-keys -e opc.tcp://sks:4840 --security-group sg1 \
-      --security-mode SignAndEncrypt --security-policy Basic256Sha256 \
-      --cert client.pem --key client.key --auth username --username pub --password secret
+      --security-mode SignAndEncrypt --security-policy Basic256Sha256 --trusted-cert sks.der \
+      --cert client.pem --key client.key --auth username --username pub --password-file pub.txt
   opcuactl pubsub sks get-keys ... --future-keys 3 --show-keys --format json > keys.json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

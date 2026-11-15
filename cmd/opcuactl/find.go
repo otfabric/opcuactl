@@ -98,12 +98,17 @@ func newFindNodeCmd() *cobra.Command {
 		nodeClass   string
 		maxDepth    int
 		limit       int
+		wf          walkFlags
 	)
 
 	cmd := &cobra.Command{
 		Use:   "node",
 		Short: "Search nodes by name or pattern",
 		Long: `Recursively search for nodes matching a browse name, display name, or pattern.
+
+Each node is visited once, also where references loop. The walk stops after
+--max-nodes nodes, with the results so far and exit 7, and after
+--walk-timeout with exit 5.
 
 Examples:
   opcuactl find node --endpoint opc.tcp://localhost:4840 --name ServerStatus
@@ -112,6 +117,9 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" && displayName == "" {
 				return exitCodef(exitUsage, "at least one of --name or --display-name is required")
+			}
+			if err := wf.validate(); err != nil {
+				return err
 			}
 
 			ctx, cancel := context.WithCancel(rootContext())
@@ -154,8 +162,14 @@ Examples:
 			}
 			n := c.Node(nodeID)
 			var results []model.NodeInfo
+			var partial error
+			walkCtx, walkCancel := wf.context(ctx)
+			defer walkCancel()
 
-			for wr, walkErr := range n.WalkLimitDedup(ctx, walkLimitDepth(maxDepth)) {
+			for wr, walkErr := range wf.walk(walkCtx, n, walkLimitDepth(maxDepth)) {
+				if partial = partialWalk("walk", walkErr); partial != nil {
+					break
+				}
 				if walkErr != nil {
 					format.Errf("walk: %v", walkErr)
 					return exitCode(exitProtocol, walkErr)
@@ -196,7 +210,7 @@ Examples:
 					info.TypeDefinition = ua.TypeDefinitionDisplayName(ref.TypeDefinition.NodeID)
 				}
 				// Optionally enrich with summary
-				results = append(results, enrichNodeInfo(ctx, c, info))
+				results = append(results, enrichNodeInfo(walkCtx, c, info))
 
 				if limit > 0 && len(results) >= limit {
 					break
@@ -211,9 +225,15 @@ Examples:
 				for i, r := range results {
 					rows[i] = []string{r.NodeID, r.NodeClass, r.BrowseName, r.DisplayName, r.TypeDefinition}
 				}
-				return w.WriteTable(headers, rows)
+				if err := w.WriteTable(headers, rows); err != nil {
+					return err
+				}
+				return partial
 			}
-			return w.Write(results)
+			if err := w.Write(results); err != nil {
+				return err
+			}
+			return partial
 		},
 	}
 
@@ -224,6 +244,7 @@ Examples:
 	cmd.Flags().StringVar(&nodeClass, "class", "all", "Filter by node class")
 	cmd.Flags().IntVar(&maxDepth, "depth", 0, "Maximum search depth (0 = unlimited)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of results (0 = unlimited)")
+	wf.register(cmd.Flags())
 	_ = cmd.RegisterFlagCompletionFunc("class", fixedCompletion(nodeClassValues))
 	return cmd
 }
@@ -280,6 +301,7 @@ func newFindTypeCmd() *cobra.Command {
 		nodeClass   string
 		maxDepth    int
 		limit       int
+		wf          walkFlags
 	)
 
 	cmd := &cobra.Command{
@@ -289,6 +311,10 @@ func newFindTypeCmd() *cobra.Command {
 
 Match by NodeID (e.g. i=2041) or by friendly/display name substring.
 
+Each node is visited once, also where references loop. The walk stops after
+--max-nodes nodes, with the results so far and exit 7, and after
+--walk-timeout with exit 5.
+
 Examples:
   opcuactl find type -e opc.tcp://localhost:4840 --type-definition i=58
   opcuactl find type -e opc.tcp://localhost:4840 --data-type Double
@@ -297,6 +323,9 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if typeDefStr == "" && dataTypeStr == "" {
 				return exitCodef(exitUsage, "at least one of --type-definition or --data-type is required")
+			}
+			if err := wf.validate(); err != nil {
+				return err
 			}
 
 			ctx, cancel := context.WithCancel(rootContext())
@@ -343,8 +372,14 @@ Examples:
 			}
 			n := c.Node(nodeID)
 			var results []model.NodeInfo
+			var partial error
+			walkCtx, walkCancel := wf.context(ctx)
+			defer walkCancel()
 
-			for wr, walkErr := range n.WalkLimitDedup(ctx, walkLimitDepth(maxDepth)) {
+			for wr, walkErr := range wf.walk(walkCtx, n, walkLimitDepth(maxDepth)) {
+				if partial = partialWalk("walk", walkErr); partial != nil {
+					break
+				}
 				if walkErr != nil {
 					format.Errf("walk: %v", walkErr)
 					return exitCode(exitProtocol, walkErr)
@@ -363,7 +398,7 @@ Examples:
 				}
 
 				// Get summary for type matching
-				opCtx, opCancel := connCfg.TimeoutContext(ctx)
+				opCtx, opCancel := connCfg.TimeoutContext(walkCtx)
 				summary, summErr := c.Node(ref.NodeID.NodeID).Summary(opCtx)
 				opCancel()
 				if summErr != nil {
@@ -442,9 +477,15 @@ Examples:
 				for i, r := range results {
 					rows[i] = []string{r.NodeID, r.NodeClass, r.DisplayName, r.DataType, r.TypeDefinition}
 				}
-				return w.WriteTable(headers, rows)
+				if err := w.WriteTable(headers, rows); err != nil {
+					return err
+				}
+				return partial
 			}
-			return w.Write(results)
+			if err := w.Write(results); err != nil {
+				return err
+			}
+			return partial
 		},
 	}
 
@@ -454,6 +495,7 @@ Examples:
 	cmd.Flags().StringVar(&nodeClass, "class", "all", "Filter by node class")
 	cmd.Flags().IntVar(&maxDepth, "depth", 0, "Maximum search depth (0 = unlimited)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of results (0 = unlimited)")
+	wf.register(cmd.Flags())
 	_ = cmd.RegisterFlagCompletionFunc("class", fixedCompletion(nodeClassValues))
 	return cmd
 }

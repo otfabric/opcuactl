@@ -55,7 +55,7 @@ CONN=(-e opc.tcp://your-server:4840 --auth anonymous \
 
 # Username / password
 CONN=(-e opc.tcp://your-server:4840 --auth username \
-  --username operator --password "$OPCUACTL_PASSWORD" \
+  --username operator --password-file operator.txt \
   --security-policy auto --security-mode auto \
   --cert client.pem --key client.key --trusted-cert server-ca.pem)
 
@@ -78,7 +78,7 @@ CONN=(-e opc.tcp://your-server:4840 \
 # WebSocket (opc.wss) or HTTPS (opc.https): TLS verified against the CA of the server's TLS certificate
 CONN=(-e opc.wss://your-server:4843 --tls-ca ./pki/tls-ca.pem)
 CONN=(-e opc.https://your-server:4443 --tls-ca ./pki/tls-ca.pem \
-  --auth username --username operator --password "$OPCUACTL_PASSWORD")
+  --auth username --username operator --password-file operator.txt)
 
 # The same in UA JSON (wss-uajson / https-uajson) instead of UA Binary
 CONN=(-e opc.wss://your-server:4843 --transport wss-uajson --tls-ca ./pki/tls-ca.pem)
@@ -102,7 +102,7 @@ Useful when you do not want secrets on the command line:
 |----------|------|
 | `OPCUACTL_ENDPOINT` | `-e` / `--endpoint` |
 | `OPCUACTL_AUTH` | `--auth` |
-| `OPCUACTL_USERNAME` / `OPCUACTL_PASSWORD` | `--username` / `--password` |
+| `OPCUACTL_USERNAME` / `OPCUACTL_PASSWORD` / `OPCUACTL_PASSWORD_FILE` | `--username` / `--password` / `--password-file` |
 | `OPCUACTL_TOKEN` / `OPCUACTL_TOKEN_FILE` | `--token` / `--token-file` |
 | `OPCUACTL_CERT` / `OPCUACTL_KEY` | `--cert` / `--key` |
 | `OPCUACTL_SERVER_CERT` | `--server-cert` |
@@ -115,6 +115,8 @@ Useful when you do not want secrets on the command line:
 | `OPCUACTL_TRANSPORT` | `--transport` (`tcp`, `wss`, `https`, `wss-uajson`, `https-uajson`) |
 | `OPCUACTL_JSON_CONTENT_TYPE` | `--json-content-type` (`standard`, `legacy`; https-uajson) |
 | `OPCUACTL_RETURN_DIAGNOSTICS` | `--return-diagnostics` (`none`, `service`, `operation`, `all`) |
+| `OPCUACTL_PFX_PASSWORD` / `OPCUACTL_PFX_PASSWORD_FILE` | `gds update-cert --pfx-password` / `--pfx-password-file` |
+| `OPCUACTL_KEY_PASSWORD` / `OPCUACTL_KEY_PASSWORD_FILE` | `gds pull --key-password` / `--key-password-file` |
 | `OPCUACTL_BROKER_PASSWORD` (or the older `OPCUACTL_MQTT_PASSWORD`) | `pubsub --broker-password` (MQTT and AMQP brokers) |
 | `OPCUACTL_SERVE_USERS` | `serve --user` (comma-separated `name:password`) |
 
@@ -122,7 +124,7 @@ Useful when you do not want secrets on the command line:
 export OPCUACTL_ENDPOINT=opc.tcp://your-server:4840
 export OPCUACTL_AUTH=username
 export OPCUACTL_USERNAME=operator
-export OPCUACTL_PASSWORD='...'
+export OPCUACTL_PASSWORD_FILE=./pki/operator.txt
 export OPCUACTL_CERT=./pki/client.pem
 export OPCUACTL_KEY=./pki/client.key
 export OPCUACTL_TRUSTED_CERT=./pki/server-ca.pem
@@ -564,7 +566,7 @@ SKS=(
   -e opc.tcp://sks.example:4840
   --security-policy Basic256Sha256 --security-mode SignAndEncrypt
   --cert ./pki/client.pem --key ./pki/client.key --trusted-cert ./pki/sks.pem
-  --auth username --username subscriber --password "$OPCUACTL_PASSWORD"
+  --auth username --username subscriber --password-file subscriber.txt
 )
 
 # Which policy, which token, how long until the next key?
@@ -641,7 +643,7 @@ The add-connection command also takes Ethernet and broker connections: `--url op
 `--broker-username` and `--broker-password` (or `OPCUACTL_BROKER_PASSWORD`) log in to the broker. `--username` and `--password` are for the OPC UA session, for example to an SKS. The 0.4 flags `--mqtt-username`, `--mqtt-password` and `--mqtt-client-id` still work.
 
 ```sh
-export OPCUACTL_BROKER_PASSWORD='...'
+export OPCUACTL_BROKER_PASSWORD="$(cat broker.txt)"
 
 # MQTT 5.0, QoS 1: each message shows its topic, content type, UAMessageType and user properties
 opcuactl pubsub subscribe --url mqtts://broker:8883 --mqtt-version 5.0 --qos 1 \
@@ -774,7 +776,7 @@ PubSub Actions (Part 14 §6.2.11.2 in 1.05) let a Requestor call a function of a
 The Responder takes its requests from the request queue of its writer group, by default `<prefix>/<encoding>/action-request/<publisher-id>/<writer-group-name>`, and answers on the matching `action-response` topic. `call` builds the same queue name from the same flags, so they meet without addressing flags:
 
 ```sh
-export OPCUACTL_BROKER_PASSWORD='...'
+export OPCUACTL_BROKER_PASSWORD="$(cat broker.txt)"
 B=(--url mqtts://broker:8883 --broker-username plant --mqtt-version 5.0 --encoding json --publisher-id line1-drive)
 
 # Terminal 1: a Responder with target 1 "Start" that takes a speed and answers with a state
@@ -908,7 +910,7 @@ opcuactl diagnostics sessions "${CONN[@]}" --format json |
 Diagnostics collection can be switched off on servers that care about the overhead; switching it on resets the counters. Both need an administrator (SecurityAdmin or ConfigureAdmin); a refusal says so:
 
 ```sh
-ADMIN=(--auth username --username admin --password "$ADMIN_PASSWORD")
+ADMIN=(--auth username --username admin --password-file admin.txt)
 opcuactl diagnostics enable "${CONN[@]}" "${ADMIN[@]}"
 opcuactl diagnostics disable "${CONN[@]}" "${ADMIN[@]}"
 ```
@@ -961,7 +963,7 @@ Servers with push certificate management (OPC UA Part 12 §7: go-opcua with `Wit
 ```sh
 SEC=(-e opc.tcp://plc:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
      --cert ./pki/opcuactl.pem --key ./pki/opcuactl.key --trusted-cert ./pki/ca.pem
-     --auth username --username secadmin --password "$SECADMIN_PASSWORD")
+     --auth username --username secadmin --password-file secadmin.txt)
 
 # Does the server do it, and with which keys and certificate types?
 opcuactl gds props "${SEC[@]}"
@@ -1033,7 +1035,7 @@ opcuactl gds trustlist add "${SEC[@]}" --group usertoken idp-ca.pem   # trust X.
 **A key as PKCS #12, a self-signed certificate, starting over:**
 
 ```sh
-opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.pfx --pfx-password "$PFX" --yes   # sent as PFX
+opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.pfx --pfx-password-file plc-pfx.txt --yes   # sent as PFX
 opcuactl gds update-cert "${SEC[@]}" plc.pem --private-key plc.key --key-format pfx --yes        # PEM key, sent as PFX
 opcuactl gds self-signed "${SEC[@]}" --type ecc-p256 --subject "CN=plc/O=Plant" --dns plc --days 365 --out plc.pem --yes
 opcuactl gds delete-cert "${SEC[@]}" --type ecc-p256 --yes     # refused while an endpoint uses it
@@ -1096,7 +1098,7 @@ A Global Discovery Server (Part 12 §7.9; go-opcua `gdsserver`, UA-.NETStandard 
 ```sh
 GDS=(-e opc.tcp://gds:58810 --security-policy Basic256Sha256 --security-mode SignAndEncrypt
      --cert ./pki/opcuactl.pem --key ./pki/opcuactl.key --trusted-cert ./pki/gds.pem
-     --auth username --username gdsadmin --password "$GDS_PASSWORD")
+     --auth username --username gdsadmin --password-file gdsadmin.txt)
 ```
 
 **One step for a new device**: register it (or find it by its ApplicationUri), make a key here, request the certificate, wait for an administrator's approval, and write certificate, key and the trust list in the PKI layout:
@@ -1183,7 +1185,7 @@ opcuactl history update-events -e $EP -n "ns=1;s=Demo" --event '{"Message":"cali
 opcuactl get value -e $EP -n "ns=1;s=Demo.String" \
   --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
   --cert ./pki/client.pem --key ./pki/client.key --trusted-cert ./pki/server.pem \
-  --auth username --username operator --password secret
+  --auth username --username operator --password-file operator.txt
 ```
 
 **UA JSON** over the same listeners: wss-uajson is None only (TLS protects it), https-uajson also signs the session with Basic256Sha256. The server certificate is the TLS certificate, so it is the `--tls-ca` too:
@@ -1194,7 +1196,7 @@ opcuactl get value -e opc.wss://localhost:4843 --transport wss-uajson --tls-ca .
 opcuactl monitor value -e opc.https://localhost:4443 --transport https-uajson --tls-ca ./pki/server.pem \
   -n "ns=1;s=Demo.Counter" --count 5
 opcuactl write value -e opc.https://localhost:4443 --transport https-uajson --tls-ca ./pki/server.pem \
-  -n "ns=1;s=Demo.Level" --value 85 --type double --yes --auth username --username operator --password secret
+  -n "ns=1;s=Demo.Level" --value 85 --type double --yes --auth username --username operator --password-file operator.txt
 ```
 
 **In CI**: a free port, the endpoint from the JSON output, and a clean stop:

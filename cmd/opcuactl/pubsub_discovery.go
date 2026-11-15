@@ -35,6 +35,14 @@ const (
 	probeDelayMax        = 500 * time.Millisecond
 )
 
+// A subscriber probes for at most maxProbePending writers at a time, each
+// while its messages arrive: a writer not seen for probeExpiry is no longer
+// probed for.
+const (
+	maxProbePending = 1024
+	probeExpiry     = time.Minute
+)
+
 var pubsubDiscoveryLayoutValues = []string{"spec", "dotnet"}
 
 // sharedAddress tells whether a datagram address reaches every peer: a
@@ -139,6 +147,7 @@ type pubsubProber struct {
 	mu      sync.Mutex
 	pending map[string]*probeState
 	wake    chan struct{}
+	now     func() time.Time
 }
 
 type probeState struct {
@@ -146,31 +155,61 @@ type probeState struct {
 	writer uint16
 	next   time.Time
 	wait   time.Duration
+	seen   time.Time // the last message of the writer
 }
 
 func newPubSubProber(conn transport.Connection, layout message.DiscoveryLayout, diag *pubsubDiagnostics,
 	known func(message.PublisherID, uint16) bool) *pubsubProber {
 	return &pubsubProber{conn: conn, layout: layout, diag: diag, known: known,
-		pending: map[string]*probeState{}, wake: make(chan struct{}, 1)}
+		pending: map[string]*probeState{}, wake: make(chan struct{}, 1), now: time.Now}
 }
 
-// want schedules probes for the DataSetMetaData of a writer.
+// want schedules probes for the DataSetMetaData of a writer whose message
+// arrived, unless maxProbePending writers are probed for already.
 func (p *pubsubProber) want(pub message.PublisherID, writerID uint16) {
 	if writerID == 0 {
 		return
 	}
 	k := metaKey(pub, writerID)
+	now := p.now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if _, ok := p.pending[k]; ok {
+	if s, ok := p.pending[k]; ok {
+		s.seen = now
+		return
+	}
+	if len(p.pending) >= maxProbePending {
 		return
 	}
 	delay := probeDelayMin + rand.N(probeDelayMax-probeDelayMin)
-	p.pending[k] = &probeState{pub: pub, writer: writerID, next: time.Now().Add(delay), wait: discoveryMinInterval}
+	p.pending[k] = &probeState{pub: pub, writer: writerID, next: now.Add(delay), wait: discoveryMinInterval, seen: now}
 	select {
 	case p.wake <- struct{}{}:
 	default:
 	}
+}
+
+// due forgets the writers whose DataSetMetaData arrived and those not seen
+// for probeExpiry. It returns the probes due at now and when the next one is.
+func (p *pubsubProber) due(now time.Time) (due []*probeState, next time.Time) {
+	next = now.Add(time.Hour)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for k, s := range p.pending {
+		if p.known(s.pub, s.writer) || now.Sub(s.seen) > probeExpiry {
+			delete(p.pending, k)
+			continue
+		}
+		if !s.next.After(now) {
+			due = append(due, &probeState{pub: s.pub, writer: s.writer})
+			s.next = now.Add(s.wait)
+			s.wait = min(2*s.wait, maxProbeInterval)
+		}
+		if s.next.Before(next) {
+			next = s.next
+		}
+	}
+	return due, next
 }
 
 // run sends the probes that are due until ctx ends.
@@ -178,25 +217,7 @@ func (p *pubsubProber) run(ctx context.Context) {
 	t := time.NewTimer(time.Hour)
 	defer t.Stop()
 	for {
-		now := time.Now()
-		var due []*probeState
-		next := now.Add(time.Hour)
-		p.mu.Lock()
-		for k, s := range p.pending {
-			if p.known(s.pub, s.writer) {
-				delete(p.pending, k)
-				continue
-			}
-			if !s.next.After(now) {
-				due = append(due, &probeState{pub: s.pub, writer: s.writer})
-				s.next = now.Add(s.wait)
-				s.wait = min(2*s.wait, maxProbeInterval)
-			}
-			if s.next.Before(next) {
-				next = s.next
-			}
-		}
-		p.mu.Unlock()
+		due, next := p.due(p.now())
 		for _, s := range due {
 			p.probe(ctx, s.pub, s.writer)
 		}
@@ -376,7 +397,7 @@ func announcementLine(a model.PubSubAnnouncement) string {
 		}
 		fmt.Fprintf(&b, " %s=%v", k, v)
 	}
-	return b.String()
+	return format.Sanitize(b.String())
 }
 
 // probeWanted tells whether a probe asks for a writer.

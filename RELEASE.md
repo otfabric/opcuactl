@@ -1,5 +1,42 @@
 # opcuactl Releases
 
+## v0.17.0
+
+**Date:** 2026-11-15
+**Previous release:** v0.16.1
+
+Secrets from files, bounded recursive walks and PubSub state, text output that shows control characters as escapes, and streams that end when their subscription ends. Some exit codes and outputs change; each item under Breaking says what a script sees and whether there is a way to keep the old behaviour.
+
+### Breaking
+
+- **`monitor value`, `monitor event`, `monitor alarm` and `alarms watch` end with exit 4 when the server ends their subscription or transfers it to another session**, after printing what arrived before it, as README "Monitoring" and "Alarms and Conditions" and docs/exitcodes.md (code 4) say for a lost connection. The server reports it with a StatusChangeNotification: a Bad status such as `BadTimeout` (the lifetime of the subscription expired) or `GoodSubscriptionTransferred`; stderr names it. An error after which the client publishes no more ends the stream the same way (`subscription lost: …`); a notification the client cannot decode is still reported and the stream goes on. Before, the stream kept running without output until `--duration` or Ctrl+C. There is no way to keep the old behaviour: restart the stream to continue.
+- **`pubsub subscribe` with `--security-group` or `--keys-file` requires signed UADP messages** when `--message-security` is not given: an unsigned message is reported on stderr (`message security MessageSecurityModeNone, required MessageSecurityModeSign`) and not printed. `--message-security none` keeps the old behaviour and prints unsigned messages next to the secured ones.
+- **Recursive walks are bounded and visit each node once**: `get vars --recursive`, `browse tree`, `find node`, `find type`, `export nodes` and `export values --start-node`. They stop after `--max-nodes` nodes (default 100000) with the output so far and exit 7, and end after `--walk-timeout` (default 10m) with exit 5. A node reached over several references appears once, so `get vars --recursive` and `browse tree --format json|yaml` can print fewer entries than before for an address space with loops or shared nodes. `--max-nodes 0 --walk-timeout 0` removes both limits; there is no way to get a node printed once per path.
+- **Text and table output show control characters as escapes.** A string from the server or the network (values, display names, browse names, event fields, PubSub fields, messages on stderr) is printed with its C0 and C1 control characters, DEL, the bidirectional controls U+202A-U+202E and U+2066-U+2069, and bytes that are not UTF-8 replaced by `\t`, `\r`, `\n`, `\xNN` or `\uNNNN`, so each value stays on its line. `get value -q` does the same. JSON, JSONL, YAML and CSV output are unchanged: use `--format json` (or `csv`) for the value as the server sent it.
+- **`discover endpoints -v` prints the SHA-1 thumbprint of the server certificate** (the first certificate of the chain, 40 upper-case hex digits), the value `serve` and the GDS commands print, in the CERT THUMBPRINT column and as `certThumbprint` in JSON and YAML. It was 16 hex digits of a SHA-256 over the whole chain. There is no option for the old value.
+- **`write value` exits 6 when the response does not carry exactly one result**, with `writing value to <node>: N results for 1 write` on stderr. It exited 0 and printed `Good 0`. There is no way to keep the old behaviour.
+- **`get vars --only-ns` and `--exclude-ns` take 0 to 65535, or -1**; another value is a usage error (exit 2) before anything is browsed. Before, a larger value was taken modulo 65536. The value is read in 64 bits, also on 32-bit builds. There is no way to keep the old behaviour.
+
+### Added
+
+- `--password-file` (`-` reads stdin) and `OPCUACTL_PASSWORD_FILE` for the password of `--auth username`.
+- `gds update-cert --pfx-password-file`, `OPCUACTL_PFX_PASSWORD` and `OPCUACTL_PFX_PASSWORD_FILE`; `gds pull --key-password-file`, `OPCUACTL_KEY_PASSWORD` and `OPCUACTL_KEY_PASSWORD_FILE`. The command line wins over the environment; a flag and its `-file` flag together are a usage error (exit 2), a file that cannot be read is exit 3, and the message names the flag, variable or file, never the secret.
+- `--max-nodes` and `--walk-timeout` on `get vars`, `browse tree`, `find node`, `find type`, `export nodes` and `export values` (above).
+- `pubsub subscribe --max-learned-metadata` (default 1024, at least 1): the writers whose DataSetMetaData learned from the network is kept; the one used least recently makes room, and stderr gives the number dropped at the end.
+- `.github/workflows/e2e.yml` runs `make e2e` weekly and on dispatch. The suite of the built binary checks exit 4 for a server that cannot be reached, 6 for a Bad write, 130 for SIGINT before a result and 0 for a `monitor` stream ended by SIGINT.
+
+### Changed
+
+- `--insecure-skip-verify` prints `Warning: --insecure-skip-verify: the application certificate of the server is not verified (INSECURE, development only)` on stderr, as `--tls-insecure-skip-verify` does. stdout is unchanged.
+- A server certificate that is not in the trust list fails with exit 4 and `server certificate not trusted`, the SHA-1 thumbprint of the certificate, and how to trust it with `--trusted-cert`.
+- `pubsub subscribe` reports messages dropped because the output is slower than they arrive on stderr without `--verbose`: `N message(s) dropped: output too slow` at once, then at most every 10 s, and the total at the end. stdout is unchanged.
+- `pubsub subscribe` keeps the DataSetMetaData of a writer only up to 4096 fields; a larger one is reported on stderr. `--probe` probes for at most 1024 writers at a time, each until its DataSetMetaData arrives or a minute after its last message.
+- The help of `--password`, `--token`, `--pfx-password` and `--key-password` says that their value is visible in the process list and names the file and environment alternatives. The flags work as before.
+- An invalid `serve --user` entry (or `OPCUACTL_SERVE_USERS` entry) is named by its position: `invalid --user value 2: want name:password`.
+- The examples in the help, README, RECIPES and EXAMPLES read secrets from files or the environment, and those with an explicit secure `--security-mode` pass `--trusted-cert`. README says how to get the certificate to trust. SECURITY.md describes the file and environment options, `--broker-password` / `OPCUACTL_BROKER_PASSWORD`, PubSub input, the defaults of `serve` and the flags that change them, the escaped text output and the walk limits.
+
+---
+
 ## v0.16.1
 
 **Date:** 2026-11-14

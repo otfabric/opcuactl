@@ -227,12 +227,12 @@ func TestE2E_PubSubUDP(t *testing.T) {
 
 	t.Run("cli to cli with metadata announcement", func(t *testing.T) {
 		url := freeUDPURL(t)
+		conn := listenUDP(t, url)
 		done := make(chan string, 1)
 		go func() {
 			// A UADP listener that collects what the CLI sends.
-			done <- collectUDP(t, url, 2)
+			done <- collectUDP(t, conn, 2)
 		}()
-		time.Sleep(200 * time.Millisecond)
 		out := mustRun(t, "pubsub", "publish", "--url", url, "--field", "A:Int16=-3", "--field", "B:Boolean=true",
 			"--announce-metadata", "--field-encoding", "rawdata", "--format", "json")
 		wantContains(t, out, `"messages":1`)
@@ -259,15 +259,20 @@ func TestE2E_PubSubUDP(t *testing.T) {
 	})
 }
 
-// collectUDP receives n datagrams on url and returns them as hex lines.
-func collectUDP(t *testing.T, url string, n int) string {
+// listenUDP binds the UDP address of url, before anything is sent to it.
+func listenUDP(t *testing.T, url string) net.PacketConn {
+	t.Helper()
 	addr := strings.TrimPrefix(url, "opc.udp://")
 	c, err := net.ListenPacket("udp4", addr)
 	if err != nil {
-		t.Errorf("listen %s: %v", addr, err)
-		return ""
+		t.Fatalf("listen %s: %v", addr, err)
 	}
-	defer func() { _ = c.Close() }()
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// collectUDP receives n datagrams on c and returns them as hex lines.
+func collectUDP(t *testing.T, c net.PacketConn, n int) string {
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 	var lines []string
 	buf := make([]byte, 65536)

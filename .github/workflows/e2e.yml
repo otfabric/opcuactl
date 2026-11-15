@@ -1,0 +1,26 @@
+# The e2e suite against the built binary (make e2e): version, usage error,
+# transport and protocol failures, and SIGINT, as the exit status of the
+# process. Weekly and on demand; the in-process tests of cmd/opcuactl run on
+# every pull request (ci.yml).
+name: E2E
+run-name: "E2E (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Binary e2e suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make e2e

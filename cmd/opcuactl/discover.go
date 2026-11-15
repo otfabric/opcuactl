@@ -4,7 +4,6 @@ package opcuactl
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"sort"
@@ -378,10 +377,9 @@ func endpointModel(ep *ua.EndpointDescription) model.Endpoint {
 	if ep.Server != nil {
 		e.ApplicationURI = ep.Server.ApplicationURI
 	}
-	if len(ep.ServerCertificate) > 0 {
-		h := sha256.Sum256(ep.ServerCertificate)
-		e.CertThumbprint = fmt.Sprintf("%x", h[:8]) // first 8 bytes = 16 hex chars
-	}
+	// The SHA-1 thumbprint of the server's own certificate, the first of
+	// a chain: the one serve, the GDS commands and the trust hint print.
+	e.CertThumbprint = conn.Thumbprint(conn.LeafCertificate(ep.ServerCertificate))
 	for _, tp := range ep.UserIdentityTokens {
 		e.UserTokenPolicies = append(e.UserTokenPolicies, model.UserTokenPolicy{
 			PolicyID:  tp.PolicyID,

@@ -53,7 +53,7 @@ leaves the change pending for servers that keep transactions across
 sessions (gds apply or gds cancel then completes it).
 
 Examples:
-  SEC="--security-mode SignAndEncrypt --security-policy Basic256Sha256 --cert app.pem --key app.key --auth username --username secadmin --password ..."
+  SEC="--security-mode SignAndEncrypt --security-policy Basic256Sha256 --cert app.pem --key app.key --trusted-cert server.der --auth username --username secadmin --password-file secadmin.txt"
   opcuactl gds props -e opc.tcp://plc:4840 $SEC
   opcuactl gds trustlist get -e opc.tcp://plc:4840 $SEC --out ./pki
   opcuactl gds trustlist add -e opc.tcp://plc:4840 $SEC client.der
@@ -1059,6 +1059,8 @@ file is converted to PFX protected with --pfx-password, the password the
 server expects for PFX keys (Part 12 sends none; servers keep it in their
 configuration); a PKCS #12 file is sent as it is and --pfx-password opens it
 to check the key. By default the key goes as PEM, a PKCS #12 file as PFX.
+--pfx-password-file (- for stdin) or OPCUACTL_PFX_PASSWORD gives the
+password without showing it in the process list.
 
 --type selects the certificate to replace, by default the type of the
 certificate's key; --group the certificate group (https: the TLS
@@ -1073,7 +1075,7 @@ Examples:
   # ... the CA issues plc.pem for plc.csr ...
   opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.pem --issuer ca.pem
   opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.der --private-key plc.key --yes
-  opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.der --private-key plc.p12 --pfx-password secret
+  opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC plc.der --private-key plc.p12 --pfx-password-file plc-p12.txt
   opcuactl gds update-cert -e opc.tcp://plc:4840 $SEC https.pem --private-key https.key --group https --type https`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1103,10 +1105,13 @@ Examples:
 			}
 			switch {
 			case keyFile != "":
+				if err := resolveSecret(cmd.Flags(), "pfx-password", "OPCUACTL_PFX_PASSWORD", &pfxPassword); err != nil {
+					return err
+				}
 				if u.PrivateKey, u.PrivateKeyFormat, err = readPrivateKey(keyFile, u.Certificate, keyFormat, pfxPassword); err != nil {
 					return exitCode(exitUsage, err)
 				}
-			case keyFormat != "" || pfxPassword != "":
+			case keyFormat != "" || pfxPassword != "" || cmd.Flags().Changed("pfx-password-file"):
 				return exitCodef(exitUsage, "--key-format and --pfx-password need --private-key")
 			}
 			e := describe("certificate", u.Certificate)
@@ -1126,7 +1131,8 @@ Examples:
 	cmd.Flags().StringArrayVar(&issuers, "issuer", nil, "Issuer (CA) certificate file (repeatable)")
 	cmd.Flags().StringVar(&keyFile, "private-key", "", "Private key of the certificate, if the server did not make it (PEM, DER or PKCS #12)")
 	cmd.Flags().StringVar(&keyFormat, "key-format", "", "Format to send the private key in: pem|pfx (default: pem, pfx for a PKCS #12 file)")
-	cmd.Flags().StringVar(&pfxPassword, "pfx-password", "", "Password of the PFX key (the one the server expects; opens a PKCS #12 --private-key)")
+	cmd.Flags().StringVar(&pfxPassword, "pfx-password", "", "Password of the PFX key (the one the server expects; opens a PKCS #12 --private-key); visible in the process list: prefer --pfx-password-file or OPCUACTL_PFX_PASSWORD")
+	cmd.Flags().String("pfx-password-file", "", "File with the password of the PFX key, - for stdin (or OPCUACTL_PFX_PASSWORD_FILE)")
 	cmd.Flags().StringVar(&certType, "type", "", "Certificate type to replace (default: the type of the certificate's key)")
 	cmd.Flags().BoolVar(&noApply, "no-apply", false, "Do not call ApplyChanges")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip the confirmation prompt")

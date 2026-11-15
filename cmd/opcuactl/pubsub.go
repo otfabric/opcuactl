@@ -3,6 +3,7 @@
 package opcuactl
 
 import (
+	"container/list"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
@@ -316,8 +317,8 @@ type pubsubDecoder struct {
 	// without DataSetMetaData.
 	missing func(p message.PublisherID, writerID uint16)
 
-	mu      sync.Mutex
-	learned map[string]*ua.DataSetMetaDataType
+	// learned is the DataSetMetaData learned from the network.
+	learned *learnedMetaData
 }
 
 func newPubSubDecoder(enc parse.PubSubEncoding, filter pubsubFilterFlags, static *ua.DataSetMetaDataType,
@@ -329,7 +330,7 @@ func newPubSubDecoder(enc parse.PubSubEncoding, filter pubsubFilterFlags, static
 		keys:     keys,
 		minMode:  minMode,
 		reasm:    uadp.NewReassembler(nil),
-		learned:  make(map[string]*ua.DataSetMetaDataType),
+		learned:  newLearnedMetaData(defaultMaxLearnedMetaData),
 	}
 	if filter.publisherID != "" {
 		p, err := parse.PublisherID(filter.publisherID)
@@ -357,10 +358,7 @@ func metaKey(p message.PublisherID, writerID uint16) string {
 }
 
 func (d *pubsubDecoder) lookup(p message.PublisherID, _ uint16, writerID uint16) *ua.DataSetMetaDataType {
-	d.mu.Lock()
-	md := d.learned[metaKey(p, writerID)]
-	d.mu.Unlock()
-	if md != nil {
+	if md := d.learned.get(metaKey(p, writerID)); md != nil {
 		return md
 	}
 	if d.static != nil && (d.filter.writerID == 0 || d.filter.writerID == writerID || writerID == 0) {
@@ -369,13 +367,84 @@ func (d *pubsubDecoder) lookup(p message.PublisherID, _ uint16, writerID uint16)
 	return nil
 }
 
-func (d *pubsubDecoder) learn(p message.PublisherID, writerID uint16, md *ua.DataSetMetaDataType) {
+// learn keeps the DataSetMetaData of a writer for its later messages. One
+// with more than maxLearnedFields fields is not kept.
+func (d *pubsubDecoder) learn(p message.PublisherID, writerID uint16, md *ua.DataSetMetaDataType) error {
 	if md == nil {
+		return nil
+	}
+	if n := len(md.Fields); n > maxLearnedFields {
+		return fmt.Errorf("the DataSetMetaData of pub=%s writer=%d has %d fields, more than the %d that are kept", p, writerID, n, maxLearnedFields)
+	}
+	d.learned.put(metaKey(p, writerID), md)
+	return nil
+}
+
+// Bounds of the DataSetMetaData learned from the network.
+const (
+	defaultMaxLearnedMetaData = 1024 // writers, --max-learned-metadata
+	maxLearnedFields          = 4096 // fields of one DataSetMetaData
+)
+
+// learnedMetaData holds the DataSetMetaData of at most max writers. When it
+// is full, the one used least recently makes room, and is counted.
+type learnedMetaData struct {
+	mu      sync.Mutex
+	max     int
+	entries map[string]*list.Element
+	order   *list.List // of *learnedEntry, the most recently used first
+	evicted int64
+}
+
+type learnedEntry struct {
+	key string
+	md  *ua.DataSetMetaDataType
+}
+
+func newLearnedMetaData(maxEntries int) *learnedMetaData {
+	return &learnedMetaData{max: max(maxEntries, 1), entries: map[string]*list.Element{}, order: list.New()}
+}
+
+func (l *learnedMetaData) get(key string) *ua.DataSetMetaDataType {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, ok := l.entries[key]
+	if !ok {
+		return nil
+	}
+	l.order.MoveToFront(e)
+	return e.Value.(*learnedEntry).md
+}
+
+func (l *learnedMetaData) put(key string, md *ua.DataSetMetaDataType) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e, ok := l.entries[key]; ok {
+		e.Value.(*learnedEntry).md = md
+		l.order.MoveToFront(e)
 		return
 	}
-	d.mu.Lock()
-	d.learned[metaKey(p, writerID)] = md
-	d.mu.Unlock()
+	for l.order.Len() >= l.max {
+		oldest := l.order.Back()
+		delete(l.entries, oldest.Value.(*learnedEntry).key)
+		l.order.Remove(oldest)
+		l.evicted++
+	}
+	l.entries[key] = l.order.PushFront(&learnedEntry{key: key, md: md})
+}
+
+// size and evictions report the number of writers held, and how many made
+// room for others.
+func (l *learnedMetaData) size() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.order.Len()
+}
+
+func (l *learnedMetaData) evictions() int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.evicted
 }
 
 func (d *pubsubDecoder) publisherMatches(p message.PublisherID) bool {
@@ -500,7 +569,9 @@ func (d *pubsubDecoder) decodeUADP(b []byte, msg *transport.Message) (*pubsubRes
 			if !d.writerMatches(nm.Discovery.DataSetWriterID) {
 				return nil, errFiltered
 			}
-			d.learn(nm.PublisherID, nm.Discovery.DataSetWriterID, nm.Discovery.MetaData)
+			if err := d.learn(nm.PublisherID, nm.Discovery.DataSetWriterID, nm.Discovery.MetaData); err != nil {
+				return nil, err
+			}
 			res.MetaData = append(res.MetaData, metaDataModel(msg, "uadp", nm.PublisherID, nm.Discovery.DataSetWriterID, nm.Discovery.MetaData))
 			return res, nil
 		}
@@ -557,7 +628,9 @@ func (d *pubsubDecoder) decodeJSON(b []byte, msg *transport.Message) (*pubsubRes
 		if !d.publisherMatches(m.PublisherID) || !d.writerMatches(m.DataSetWriterID) {
 			return nil, errFiltered
 		}
-		d.learn(m.PublisherID, m.DataSetWriterID, m.MetaData)
+		if err := d.learn(m.PublisherID, m.DataSetWriterID, m.MetaData); err != nil {
+			return nil, err
+		}
 		res.MetaData = append(res.MetaData, metaDataModel(msg, "json", m.PublisherID, m.DataSetWriterID, m.MetaData))
 	case *jsonmsg.StatusMessage:
 		if !d.publisherMatches(m.PublisherID) {
@@ -834,7 +907,7 @@ func dataSetLine(ds model.PubSubDataSet) string {
 		}
 	}
 	// A message without fields (an action acknowledgement, a keep-alive).
-	return strings.TrimRight(b.String(), " ")
+	return format.Sanitize(strings.TrimRight(b.String(), " "))
 }
 
 // actionSuffix is the table form of the action header of a message.
@@ -876,8 +949,8 @@ func metaDataLine(md model.PubSubMetaData) string {
 	for i, f := range md.Fields {
 		fields[i] = f.Name + ":" + f.Type
 	}
-	return fmt.Sprintf("metadata pub=%s writer=%d %q version=%s%s fields: %s",
-		md.PublisherID, md.DataSetWriterID, md.Name, md.Version, receivedSuffix(md.PubSubReceived), strings.Join(fields, ", "))
+	return format.Sanitize(fmt.Sprintf("metadata pub=%s writer=%d %q version=%s%s fields: %s",
+		md.PublisherID, md.DataSetWriterID, md.Name, md.Version, receivedSuffix(md.PubSubReceived), strings.Join(fields, ", ")))
 }
 
 func statusLine(st map[string]interface{}) string {
@@ -890,5 +963,5 @@ func statusLine(st map[string]interface{}) string {
 	for i, k := range keys {
 		parts[i] = fmt.Sprintf("%s=%v", k, st[k])
 	}
-	return "status " + strings.Join(parts, " ")
+	return format.Sanitize("status " + strings.Join(parts, " "))
 }

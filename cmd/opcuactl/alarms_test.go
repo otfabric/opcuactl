@@ -5,6 +5,7 @@ package opcuactl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-opcua"
+	uaerrors "github.com/otfabric/go-opcua/errors"
 	"github.com/otfabric/go-opcua/id"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/opcuactl/internal/model"
@@ -307,18 +309,37 @@ func TestWatchConditions(t *testing.T) {
 	})
 
 	t.Run("a bad notification is reported and the watch goes on", func(t *testing.T) {
+		// A response the client could not use; publishing goes on.
+		unusable := fmt.Errorf("%w: *ua.DataChangeNotification", uaerrors.ErrInvalidResponseType)
 		out, errOut, err := runWatchConditions(t, context.Background(), nil, nil, 1,
-			&opcua.PublishNotificationData{Error: errors.New("publish failed")},
+			&opcua.PublishNotificationData{Error: unusable},
 			watchNotification(&ua.EventFieldList{}),
 			watchNotification(watchEvent(a, nil)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(errOut, "condition event: publish failed") || !strings.Contains(errOut, "condition event: opcua: condition event: 0 fields") {
+		if !strings.Contains(errOut, "condition event: "+unusable.Error()) || !strings.Contains(errOut, "condition event: opcua: condition event: 0 fields") {
 			t.Errorf("stderr %q", errOut)
 		}
 		if !strings.Contains(out, a.String()) {
 			t.Errorf("stdout %q", out)
+		}
+	})
+
+	t.Run("a publishing error ends the watch with exit 4", func(t *testing.T) {
+		// After it the client publishes no more (streams do not reconnect).
+		out, _, err := runWatchConditions(t, context.Background(), nil, nil, 0,
+			watchNotification(watchEvent(a, nil)),
+			&opcua.PublishNotificationData{Error: errors.New("publish failed")},
+			watchNotification(watchEvent(b, nil)))
+		if got := ExitCode(err); got != exitTransport {
+			t.Fatalf("exit %d, want %d (%v)", got, exitTransport, err)
+		}
+		if !strings.Contains(err.Error(), "subscription lost: publish failed") {
+			t.Errorf("err %v", err)
+		}
+		if !strings.Contains(out, a.String()) || strings.Contains(out, b.String()) {
+			t.Errorf("stdout %q, want the event before the error only", out)
 		}
 	})
 

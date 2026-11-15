@@ -40,6 +40,7 @@ func newExportNodesCmd() *cobra.Command {
 		nodeClass    string
 		output       string
 		includeAttrs bool
+		wf           walkFlags
 	)
 
 	cmd := &cobra.Command{
@@ -49,6 +50,10 @@ func newExportNodesCmd() *cobra.Command {
 
 Each node is enriched with its summary attributes (data type, access level, etc.).
 Output is a flat list of ExportedNode records.
+
+Each node is visited once, also where references loop. The walk stops after
+--max-nodes nodes, with the results so far and exit 7, and after
+--walk-timeout with exit 5.
 
 Use --output to write directly to a file instead of stdout.
 Use --include-attrs to include additional attributes (WriteMask, ValueRank, etc.).
@@ -61,6 +66,9 @@ Examples:
   opcuactl export nodes -e opc.tcp://localhost:4840 --format csv --output nodes.csv
   opcuactl export nodes -e opc.tcp://localhost:4840 --format yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := wf.validate(); err != nil {
+				return err
+			}
 			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
 
@@ -85,8 +93,9 @@ Examples:
 			}
 			n := c.Node(nodeID)
 
-			nodes, err := collectExportNodes(ctx, c, n, maxDepth, classMask)
-			if err != nil {
+			nodes, err := collectExportNodes(ctx, &wf, c, n, maxDepth, classMask)
+			partial := partialWalk("exporting nodes", err)
+			if err != nil && partial == nil {
 				format.Errf("exporting nodes: %v", err)
 				return exitCode(exitProtocol, err)
 			}
@@ -124,22 +133,33 @@ Examples:
 						fmt.Sprintf("%d", n.Depth),
 					}
 				}
-				return w.WriteTable(headers, rows)
+				if err := w.WriteTable(headers, rows); err != nil {
+					return err
+				}
+				return partial
 			}
-			return w.Write(nodes)
+			if err := w.Write(nodes); err != nil {
+				return err
+			}
+			return partial
 		},
 	}
 
 	cmd.Flags().StringVarP(&nodeStr, "node", "n", "", "Start node ID (default: Objects folder ns=0;i=85)")
-	cmd.Flags().IntVar(&maxDepth, "depth", 5, "Maximum tree depth")
+	cmd.Flags().IntVar(&maxDepth, "depth", 5, "Maximum tree depth (0 = no limit)")
 	cmd.Flags().StringVar(&nodeClass, "node-class", "all", "Filter by node class")
 	cmd.Flags().StringVar(&output, "output", "", "Write output to file instead of stdout")
 	cmd.Flags().BoolVar(&includeAttrs, "include-attrs", false, "Include additional attributes (WriteMask, ValueRank, etc.)")
+	wf.register(cmd.Flags())
 	_ = cmd.RegisterFlagCompletionFunc("node-class", fixedCompletion(nodeClassValues))
 	return cmd
 }
 
-func collectExportNodes(ctx context.Context, c *opcua.Client, n *opcua.Node, maxDepth int, classMask ua.NodeClass) ([]model.ExportedNode, error) {
+// collectExportNodes walks n. With a *nodeLimitError it returns the nodes
+// so far.
+func collectExportNodes(ctx context.Context, wf *walkFlags, c *opcua.Client, n *opcua.Node, maxDepth int, classMask ua.NodeClass) ([]model.ExportedNode, error) {
+	ctx, cancel := wf.context(ctx)
+	defer cancel()
 	var results []model.ExportedNode
 
 	// Include the root node at depth 0
@@ -156,7 +176,7 @@ func collectExportNodes(ctx context.Context, c *opcua.Client, n *opcua.Node, max
 		walkDepth = -1 // unlimited
 	}
 
-	for wr, err := range n.WalkLimitDedup(ctx, walkDepth) {
+	for wr, err := range wf.walk(ctx, n, walkDepth) {
 		if err != nil {
 			return results, err
 		}
@@ -231,6 +251,7 @@ func newExportValuesCmd() *cobra.Command {
 		aggregate   string
 		aggInterval time.Duration
 		output      string
+		wf          walkFlags
 	)
 
 	cmd := &cobra.Command{
@@ -245,6 +266,10 @@ values within a time range. Use --mode raw|modified|processed|attime (default ra
 Use --nodes-file to read node IDs from a text file (one per line).
 Use --output to write directly to a file instead of stdout.
 Supports --format csv and --format jsonl in addition to table/json/yaml.
+
+The walk of --start-node visits each node once. It stops after --max-nodes
+nodes, exports the values of the variables found so far and exits 7, and
+ends after --walk-timeout with exit 5.
 
 Examples:
   opcuactl export values -e opc.tcp://localhost:4840 -n i=2258 -n i=2259
@@ -266,6 +291,9 @@ Examples:
 			if len(nodes) == 0 && startNode == "" {
 				return exitCodef(exitUsage, "at least one --node, --nodes-file, or --start-node is required")
 			}
+			if err := wf.validate(); err != nil {
+				return err
+			}
 
 			ctx, cancel := context.WithCancel(rootContext())
 			defer cancel()
@@ -279,6 +307,7 @@ Examples:
 
 			// Collect node IDs
 			var nodeIDs []*ua.NodeID
+			var partial error
 			if len(nodes) > 0 {
 				nodeIDs, err = parse.NodeIDs(nodes)
 				if err != nil {
@@ -291,8 +320,9 @@ Examples:
 					return exitCode(exitUsage, err)
 				}
 				n := c.Node(startID)
-				exported, err := collectExportNodes(ctx, c, n, maxDepth, ua.NodeClassVariable)
-				if err != nil {
+				exported, err := collectExportNodes(ctx, &wf, c, n, maxDepth, ua.NodeClassVariable)
+				partial = partialWalk("discovering variables", err)
+				if err != nil && partial == nil {
 					format.Errf("discovering variables: %v", err)
 					return exitCode(exitProtocol, err)
 				}
@@ -306,25 +336,34 @@ Examples:
 			}
 
 			if len(nodeIDs) == 0 {
+				if partial != nil {
+					return partial
+				}
 				format.Errf("no variable nodes found")
 				return exitCodef(exitUsage, "no nodes to export")
 			}
 
 			if history {
-				return exportHistoryValues(ctx, c, nodeIDs, exportHistoryOpts{
+				err = exportHistoryValues(ctx, c, nodeIDs, exportHistoryOpts{
 					startStr: startStr, endStr: endStr, atTimes: atTimes,
 					mode: mode, aggregate: aggregate, aggInterval: aggInterval,
 					output: output,
 				})
+			} else {
+				err = exportSnapshotValues(ctx, c, nodeIDs, output)
 			}
-			return exportSnapshotValues(ctx, c, nodeIDs, output)
+			if err != nil {
+				return err
+			}
+			return partial
 		},
 	}
 
 	cmd.Flags().StringArrayVarP(&nodes, "node", "n", nil, "Node ID to export (repeatable)")
 	cmd.Flags().StringVar(&nodesFile, "nodes-file", "", "Read node IDs from a text file (one per line)")
 	cmd.Flags().StringVar(&startNode, "start-node", "", "Start node for subtree discovery (exports all variable children)")
-	cmd.Flags().IntVar(&maxDepth, "depth", 5, "Maximum depth for subtree discovery")
+	cmd.Flags().IntVar(&maxDepth, "depth", 5, "Maximum depth for subtree discovery (0 = no limit)")
+	wf.register(cmd.Flags())
 	cmd.Flags().BoolVar(&history, "history", false, "Export historical values instead of current snapshot")
 	cmd.Flags().StringVar(&startStr, "start", "", "Start time in RFC3339 format (required with --history except attime)")
 	cmd.Flags().StringVar(&endStr, "end", "", "End time in RFC3339 format (required with --history except attime)")
