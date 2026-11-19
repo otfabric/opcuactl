@@ -1,5 +1,19 @@
 # opcuactl Releases
 
+## v0.18.1
+
+**Date:** 2026-11-19
+**Previous release:** v0.18.0
+
+Moves to go-opcua v1.34.0 (was v1.33.0), with server fixes contributed by Matthew Reed. The commands and their exit codes are unchanged; `opcuactl serve` answers two services as OPC UA Part 4 requires.
+
+### Fixed
+
+- `opcuactl serve`: a Write of the Value of a Variable that is not writable now fails with `Bad_NotWritable`, or with `Bad_UserAccessDenied` when only the user's access level rules it out (Part 3 §5.6.2, Part 4 §5.10.4), also when the client sends a StatusCode or timestamps with the value. Before, it answered `Bad_WriteNotSupported`.
+- `opcuactl serve`: SetTriggering now keeps the links it is given. The samples queued by a linked item in Sampling mode are published with the notifications of its triggering item (Part 4 §5.12.1.6). A request with nothing to add or remove is answered with `Bad_NothingToDo`.
+
+---
+
 ## v0.18.0
 
 **Date:** 2026-11-15
