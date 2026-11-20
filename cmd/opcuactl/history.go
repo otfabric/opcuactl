@@ -19,15 +19,18 @@ func newHistoryCmd() *cobra.Command {
 		Use:   "history",
 		Short: "Read and update historical data and events",
 		Long: `Read historical values and events from the server, and insert, replace,
-update or delete historical events (Part 11).
+update or delete historical values and events (Part 11).
 
 Examples:
   opcuactl history value -e opc.tcp://localhost:4840 -n i=2258 --start 2026-03-01T00:00:00Z --end 2026-03-11T00:00:00Z
   opcuactl history event -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --start 2026-03-01T00:00:00Z --end 2026-03-11T00:00:00Z
   opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event '{"Message":"note","Severity":200}' --yes
-  opcuactl history delete-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event-id +LbyRwxcuik8Tz1iutx3ug== --yes`,
+  opcuactl history delete-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event-id +LbyRwxcuik8Tz1iutx3ug== --yes
+  opcuactl history update-values -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Sine" --sample 2026-03-01T12:00:00Z=0.5 --yes
+  opcuactl history delete-values -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Sine" --at 2026-03-01T12:00:00Z --yes`,
 	}
-	cmd.AddCommand(newHistoryValueCmd(), newHistoryEventCmd(), newHistoryUpdateEventsCmd(), newHistoryDeleteEventsCmd())
+	cmd.AddCommand(newHistoryValueCmd(), newHistoryEventCmd(), newHistoryUpdateEventsCmd(), newHistoryDeleteEventsCmd(),
+		newHistoryUpdateValuesCmd(), newHistoryDeleteValuesCmd())
 	return cmd
 }
 
@@ -54,7 +57,11 @@ except for --mode attime which uses repeatable --at timestamps instead.
 
 Use --mode to select the history read mode (raw, modified, processed, attime).
 Use --interval with --mode processed to set the aggregate interval (ProcessingInterval in ms).
-Use --aggregate with --mode processed (average|min|max|count; default average).
+Use --aggregate with --mode processed (default average): average, min, max,
+count, interpolative, timeaverage, total, minimum, maximum, minimumactualtime,
+maximumactualtime, range, annotationcount, numberoftransitions, start, end,
+delta, durationgood, durationbad, percentgood, percentbad, worstquality (Part
+13), or the NodeId of an aggregate function of the server.
 Use --continuation to control pagination for raw mode (all = auto-follow, single = one page only).
 
 Examples:
@@ -221,7 +228,7 @@ Examples:
 	cmd.Flags().StringArrayVar(&atTimes, "at", nil, "Timestamp for attime mode (repeatable, RFC3339)")
 	cmd.Flags().Uint32Var(&maxValues, "max-values", 0, "Maximum values to return (0 = all, uses pagination)")
 	cmd.Flags().StringVar(&mode, "mode", "raw", "History read mode (raw|modified|processed|attime)")
-	cmd.Flags().StringVar(&aggregate, "aggregate", "average", "Aggregate for processed mode (average|min|max|count)")
+	cmd.Flags().StringVar(&aggregate, "aggregate", "average", "Aggregate for processed mode (average|min|max|count|timeaverage|total|range|delta|... or a NodeId; see the help)")
 	cmd.Flags().DurationVar(&aggInterval, "interval", 0, "Aggregate interval for processed mode (ProcessingInterval)")
 	cmd.Flags().StringVar(&continuation, "continuation", "all", "Paging control (all = auto-follow, single = one page only)")
 	_ = cmd.RegisterFlagCompletionFunc("mode", fixedCompletion(historyModeValues))

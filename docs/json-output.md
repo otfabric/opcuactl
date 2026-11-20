@@ -57,6 +57,10 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `discoveryServerUrl`, `multicastSupported`, `servers`, `serversOnNetwork`
 
+**RegisterResult** — the outcome of `discover register`. `online` is false for `--offline`; `service` is RegisterServer2 or RegisterServer; `configurationResults` are the results of the discovery configurations of RegisterServer2 (BadNotSupported: the discovery server ignored it).
+
+`discoveryServerUrl`, `serverUri`, `online`, `service`, `securityPolicy`, `securityMode`, `status`, `configurationResults`?
+
 **Endpoint** — a server endpoint. `certThumbprint` is the SHA-1 thumbprint of the server certificate (the first certificate of the chain), 40 upper-case hex digits, as `serve` and the GDS commands print it.
 
 `endpointUrl`, `securityPolicy`, `securityMode`, `securityLevel`, `hasCertificate`, `userTokenPolicies`, `transportProfile`?, `applicationUri`?, `certThumbprint`?, `urlMismatch`?
@@ -99,11 +103,11 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 **WriteResult** — the result of a write operation.
 
-`nodeId`, `status`, `statusCode`
+`nodeId`, `attribute`? (`write attr`), `status`, `statusCode`
 
 **DryRunResult** — enriched dry-run output for a write operation.
 
-`nodeId`, `displayName`?, `dataType`?, `accessLevel`?, `currentValue`?, `newValue`, `newType`, `status`
+`nodeId`, `attribute`? (`write attr`), `displayName`?, `dataType`?, `accessLevel`?, `currentValue`?, `newValue`, `newType`, `status`
 
 **MethodArgument** — a method input/output argument definition.
 
@@ -140,6 +144,10 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 **HistoryEventUpdate** — the result of inserting, replacing, updating or deleting one historical event (HistoryUpdate UpdateEventDetails, DeleteEventDetails).
 
 `nodeId`, `operation`, `index`, `eventId`?, `status`, `statusCode`, `fields`?
+
+**HistoryValueUpdate** — the result of inserting, replacing or updating one historical value, or of deleting values (HistoryUpdate UpdateDataDetails, DeleteRawModifiedDetails, DeleteAtTimeDetails). `operation` is insert, replace, update, delete or delete-modified; `time` is the SourceTimestamp of a sample or a `--at` time, `start` and `end` the range of a delete by range.
+
+`nodeId`, `operation`, `index`, `time`?, `start`?, `end`?, `value`?, `status`, `statusCode`
 
 **ExportedValue** — a snapshot or historical value export entry.
 
@@ -343,7 +351,7 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 **ServeInfo** — a server started by `opcuactl serve`.
 
-`applicationUri`, `demoNamespace`?, `demoNamespaceIndex`?, `namespaces`, `certificates`?, `clientTrust`, `anonymous`, `users`?, `limits` (`maxSessions`, `maxSubscriptions`, `maxSubscriptionsPerSession`, `maxOperations`: 0 is no limit), `endpoints`
+`applicationUri`, `demoNamespace`?, `demoNamespaceIndex`?, `namespaces`, `certificates`?, `clientTrust`, `anonymous`, `users`?, `limits` (`maxSessions`, `maxSubscriptions`, `maxSubscriptionsPerSession`, `maxOperations`: 0 is no limit), `lds`? (a Local Discovery Server, `--lds`), `registeredWith`? (the `--register-with` URLs), `nodeManagement`? (`--node-management`), `endpoints`
 
 **ServeCertificate** — an application instance certificate of the server.
 

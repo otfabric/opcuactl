@@ -4,9 +4,11 @@ package opcuactl
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/otfabric/go-opcua/id"
 	"github.com/otfabric/go-opcua/ua"
+	"github.com/otfabric/opcuactl/internal/parse"
 )
 
 // buildEventFilter constructs an EventFilter with SelectClauses and an optional
@@ -100,18 +102,23 @@ func elementOperand(index uint32) *ua.ExtensionObject {
 	}
 }
 
-// aggregateNodeID maps a CLI aggregate name to the standard NodeId.
-// Supported: average, minimum|min, maximum|max, count.
+// aggregateNodeID maps a CLI aggregate to its NodeId: a name of
+// aggregateValues (any case; min and max for minimum and maximum) or the
+// NodeId of an aggregate function (i=2342, ns=2;s=MyAggregate).
 func aggregateNodeID(name string) (*ua.NodeID, error) {
-	switch name {
+	switch strings.ToLower(name) {
 	case "min":
 		name = "minimum"
 	case "max":
 		name = "maximum"
 	}
-	n, ok := id.AggregateType(name)
-	if !ok {
-		return nil, fmt.Errorf("unknown --aggregate %q (use average|min|max|count)", name)
+	if n, ok := id.AggregateType(name); ok {
+		return ua.NewNumericNodeID(0, n), nil
 	}
-	return ua.NewNumericNodeID(0, n), nil
+	if strings.Contains(name, "=") {
+		if nid, err := parse.NodeID(name); err == nil {
+			return nid, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown --aggregate %q (%s, or the NodeId of an aggregate function)", name, strings.Join(aggregateValues, "|"))
 }

@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -600,4 +602,85 @@ func TestLimits(t *testing.T) {
 	if err := subscribe(); !errors.Is(err, ua.StatusBadTooManySubscriptions) {
 		t.Errorf("second subscription of the session: %v, want BadTooManySubscriptions", err)
 	}
+}
+
+// TestNodeManagement adds and deletes a node with NodeManagement, and gets
+// Bad_ServiceUnsupported without it.
+func TestNodeManagement(t *testing.T) {
+	ctx := context.Background()
+	add := func(c *opcua.Client, ns uint16) (*ua.AddNodesResponse, error) {
+		attrs := ua.NewExtensionObject(&ua.VariableAttributes{
+			SpecifiedAttributes: uint32(ua.NodeAttributesMaskDisplayName | ua.NodeAttributesMaskValue),
+			DisplayName:         ua.NewLocalizedText("Added"),
+			Value:               ua.MustVariant(int32(7)),
+		})
+		return c.AddNodes(ctx, &ua.AddNodesRequest{NodesToAdd: []*ua.AddNodesItem{{
+			ParentNodeID:       ua.NewExpandedNodeID(ua.NewStringNodeID(ns, DemoFolder), "", 0),
+			ReferenceTypeID:    ua.NewNumericNodeID(0, id.HasComponent),
+			RequestedNewNodeID: ua.NewExpandedNodeID(ua.NewStringNodeID(ns, "Demo.Added"), "", 0),
+			BrowseName:         &ua.QualifiedName{NamespaceIndex: ns, Name: "Added"},
+			NodeClass:          ua.NodeClassVariable,
+			NodeAttributes:     attrs,
+			TypeDefinition:     ua.NewExpandedNodeID(ua.NewNumericNodeID(0, id.BaseDataVariableType), "", 0),
+		}}})
+	}
+
+	off := start(t, Config{Anonymous: true, Demo: true})
+	_, idx, _ := off.DemoNamespace()
+	if _, err := add(connect(t, endpointURL(t, off, "opc.tcp")), idx); !errors.Is(err, ua.StatusBadServiceUnsupported) {
+		t.Errorf("AddNodes without NodeManagement: %v, want BadServiceUnsupported", err)
+	}
+
+	on := start(t, Config{Anonymous: true, Demo: true, NodeManagement: true, ECCSignLegacyKeyLength: true})
+	_, idx, _ = on.DemoNamespace()
+	c := connect(t, endpointURL(t, on, "opc.tcp"))
+	resp, err := add(c, idx)
+	if err != nil || len(resp.Results) != 1 || resp.Results[0].StatusCode != ua.StatusOK {
+		t.Fatalf("AddNodes: %v %+v", err, resp)
+	}
+	dv, err := c.ReadValue(ctx, ua.NewStringNodeID(idx, "Demo.Added"))
+	if err != nil || dv.Value == nil || dv.Value.Value() != int32(7) {
+		t.Errorf("the added node: %v %v", dv, err)
+	}
+}
+
+// TestDiscoveryOptions registers one server with another that is a Local
+// Discovery Server, and logs both sides.
+func TestDiscoveryOptions(t *testing.T) {
+	var ldsLog, regLog syncLog
+	lds := start(t, Config{Anonymous: true, LDS: true, LDSAllowInsecure: true, LDSSkipServerURICheck: true,
+		ApplicationURI: "urn:otfabric:opcuactl:test:lds", Registrations: slog.New(slog.NewTextHandler(&ldsLog, nil))})
+	ldsURL := endpointURL(t, lds, "opc.tcp")
+	start(t, Config{Anonymous: true, ApplicationURI: testURI, RegisterWith: []string{ldsURL, "opc.tcp://127.0.0.1:1"},
+		RegisterInterval: time.Minute, RegisterInsecure: true, Registrations: slog.New(slog.NewTextHandler(&regLog, nil))})
+
+	deadline := time.Now().Add(20 * time.Second)
+	for !strings.Contains(ldsLog.String(), testURI) || !strings.Contains(regLog.String(), "registration failed") ||
+		!strings.Contains(regLog.String(), "msg=registered") {
+		if time.Now().After(deadline) {
+			t.Fatalf("no registration logged\nLDS: %s\nserver: %s", ldsLog.String(), regLog.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := New(Config{Anonymous: true, Listen: "127.0.0.1:0", RegisterWith: []string{"not a url"}}); err == nil {
+		t.Error("an invalid RegisterWith URL was accepted")
+	}
+}
+
+// syncLog is a log buffer safe for concurrent use.
+type syncLog struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *syncLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *syncLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }

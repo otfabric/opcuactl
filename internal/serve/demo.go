@@ -106,13 +106,17 @@ func newDemo(srv *server.Server) (*demo, error) {
 	d.sine.Store(sample(0.0, started))
 	add(DemoCounter, id.UInt32, func() *ua.DataValue { return d.counter.Load() }, readOnly)
 	sine := add(DemoSine, id.Double, func() *ua.DataValue { return d.sine.Load() },
-		readOnly|byte(ua.AccessLevelTypeHistoryRead))
+		readOnly|byte(ua.AccessLevelTypeHistoryRead|ua.AccessLevelTypeHistoryWrite))
 	_ = sine.SetAttribute(ua.AttributeIDHistorizing, server.DataValueFromValue(true))
 	d.hist.EnableNode(sine.ID(), demoHistory)
 	d.hist.RecordValue(sine.ID(), d.sine.Load())
 	srv.SetHistorian(d.hist)
 
 	d.level = add(DemoLevel, id.Double, demoLevelStart, readOnly|byte(ua.AccessLevelTypeCurrentWrite))
+	// Its DisplayName and Description may be written as well (write attr).
+	writeMask := uint32(ua.AttributeWriteMaskDisplayName | ua.AttributeWriteMaskDescription)
+	_ = d.level.SetAttribute(ua.AttributeIDWriteMask, server.DataValueFromValue(writeMask))
+	_ = d.level.SetAttribute(ua.AttributeIDUserWriteMask, server.DataValueFromValue(writeMask))
 
 	hi, hihi := DemoLevelHigh, DemoLevelHighHigh
 	if d.alarm, err = srv.AddCondition(server.ConditionConfig{

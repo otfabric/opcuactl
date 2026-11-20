@@ -13,6 +13,7 @@ Every command accepts these flags of the root command.
 | `--auth` | `string` | Authentication mode (anonymous\|username\|certificate\|issued) (default "anonymous") |
 | `--auth-policy-id` | `string` | User token PolicyId (usually set automatically with security auto) |
 | `--cert` | `string` | Client certificate file (PEM/DER; RSA, ECDSA incl. Brainpool, Ed25519 or Ed448) for secure channel and/or certificate auth |
+| `--ecc-sign-legacy-key-length` |  | Security mode Sign with ECC_nistP256/P384 or ECC_brainpoolP256r1/P384r1: derive the keys as open62541 v1.5.9 and earlier (and opcuactl v0.18.1 and earlier) do, not as Part 6 §6.8.1 asks |
 | `--endpoint`, `-e` | `string` | OPC UA server endpoint (opc.tcp://host:port, opc.wss://host:port or opc.https://host:port) |
 | `--format`, `-f` | `string` | Output format (table\|json\|yaml\|csv\|jsonl) (default "table") |
 | `--insecure-no-security` |  | Allow no message security (policy and mode None): anyone on the network can read and change the traffic, passwords included |
@@ -525,7 +526,7 @@ Discover OPC UA servers and endpoints.
 opcuactl discover [command]
 ```
 
-Subcommands: [`endpoints`](#opcuactl-discover-endpoints), [`lds`](#opcuactl-discover-lds), [`servers`](#opcuactl-discover-servers).
+Subcommands: [`endpoints`](#opcuactl-discover-endpoints), [`lds`](#opcuactl-discover-lds), [`register`](#opcuactl-discover-register), [`servers`](#opcuactl-discover-servers).
 
 ## opcuactl discover endpoints
 
@@ -553,6 +554,28 @@ opcuactl discover lds [flags]
 | Flag | Value | Meaning |
 |---|---|---|
 | `--host` | `string` | Host name, IP address or opc.tcp URL of the discovery server (port 4840 by default) |
+
+## opcuactl discover register
+
+Register a server with a discovery server.
+
+```text
+opcuactl discover register [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--capability` | `stringArray` | Server capability identifier for mDNS (repeatable, e.g. DA, HD, AC) |
+| `--discovery-url` | `stringArray` | Discovery URL of the server (repeatable, required) |
+| `--gateway-server-uri` | `string` | GatewayServerUri, for a server behind a gateway |
+| `--legacy` |  | Send RegisterServer, without discovery configuration, instead of RegisterServer2 |
+| `--mdns-name` | `string` | mDNS server name, for a discovery server with the multicast extension (default: the first --server-name) |
+| `--offline` |  | Unregister the server (IsOnline false) |
+| `--product-uri` | `string` | ProductUri of the server |
+| `--semaphore-file` | `string` | File on the discovery server's host whose removal ends the registration |
+| `--server-name` | `stringArray` | Name of the server, [locale:]text (repeatable; default: --server-uri) |
+| `--server-type` | `string` | ApplicationType of the server (server\|clientandserver\|discoveryserver) (default "server") |
+| `--server-uri` | `string` | ServerUri to register (default: the ApplicationUri of --cert) |
 
 ## opcuactl discover servers
 
@@ -609,7 +632,7 @@ opcuactl export values [flags]
 
 | Flag | Value | Meaning |
 |---|---|---|
-| `--aggregate` | `string` | Aggregate for processed history (average\|min\|max\|count) (default "average") |
+| `--aggregate` | `string` | Aggregate for processed history (average\|min\|max\|count\|timeaverage\|total\|range\|delta\|... or a NodeId; see history value --help) (default "average") |
 | `--at` | `stringArray` | Timestamp for attime mode (repeatable, RFC3339) |
 | `--depth` | `int` | Maximum depth for subtree discovery (0 = no limit) (default 5) |
 | `--end` | `string` | End time in RFC3339 format (required with --history except attime) |
@@ -1289,7 +1312,7 @@ Read and update historical data and events.
 opcuactl history [command]
 ```
 
-Subcommands: [`delete-events`](#opcuactl-history-delete-events), [`event`](#opcuactl-history-event), [`update-events`](#opcuactl-history-update-events), [`value`](#opcuactl-history-value).
+Subcommands: [`delete-events`](#opcuactl-history-delete-events), [`delete-values`](#opcuactl-history-delete-values), [`event`](#opcuactl-history-event), [`update-events`](#opcuactl-history-update-events), [`update-values`](#opcuactl-history-update-values), [`value`](#opcuactl-history-value).
 
 ## opcuactl history delete-events
 
@@ -1302,6 +1325,24 @@ opcuactl history delete-events [flags]
 | `--dry-run` |  | Print what would be deleted, do not send it |
 | `--event-id` | `stringArray` | EventId to delete, base64 or 0x hex (repeatable, required) |
 | `--node`, `-n` | `string` | Event notifier node ID (required) |
+| `--yes` |  | Skip the confirmation prompt |
+
+## opcuactl history delete-values
+
+Delete historical values.
+
+```text
+opcuactl history delete-values [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--at` | `stringArray` | Delete the sample at this time, RFC 3339 (repeatable) |
+| `--dry-run` |  | Print what would be deleted, do not send it |
+| `--end` | `string` | End of the range to delete, RFC 3339 |
+| `--modified` |  | With --start/--end: delete the modified values of the range, not the samples |
+| `--node`, `-n` | `string` | Variable node ID (required) |
+| `--start` | `string` | Start of the range to delete, RFC 3339 |
 | `--yes` |  | Skip the confirmation prompt |
 
 ## opcuactl history event
@@ -1342,6 +1383,24 @@ opcuactl history update-events [flags]
 | `--node`, `-n` | `string` | Event notifier node ID (required) |
 | `--yes` |  | Skip the confirmation prompt |
 
+## opcuactl history update-values
+
+Insert, replace or update historical values.
+
+```text
+opcuactl history update-values [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--dry-run` |  | Print the samples, do not send them |
+| `--mode` | `string` | PerformUpdateType (insert\|replace\|update) (default "insert") |
+| `--node`, `-n` | `string` | Variable node ID (required) |
+| `--sample` | `stringArray` | Sample TIME=VALUE, TIME in RFC 3339 or now (repeatable) |
+| `--samples-file` | `string` | JSON file with an array of {"time": ..., "value": ...} (- for stdin) |
+| `--type` | `string` | Value type, as write value --type (default "double") |
+| `--yes` |  | Skip the confirmation prompt |
+
 ## opcuactl history value
 
 Read historical values for a node.
@@ -1352,7 +1411,7 @@ opcuactl history value [flags]
 
 | Flag | Value | Meaning |
 |---|---|---|
-| `--aggregate` | `string` | Aggregate for processed mode (average\|min\|max\|count) (default "average") |
+| `--aggregate` | `string` | Aggregate for processed mode (average\|min\|max\|count\|timeaverage\|total\|range\|delta\|... or a NodeId; see the help) (default "average") |
 | `--at` | `stringArray` | Timestamp for attime mode (repeatable, RFC3339) |
 | `--continuation` | `string` | Paging control (all = auto-follow, single = one page only) (default "all") |
 | `--end` | `string` | End time in RFC3339 format (required except attime) |
@@ -1941,15 +2000,19 @@ opcuactl serve [flags]
 | Flag | Value | Meaning |
 |---|---|---|
 | `--allow-anonymous` |  | Allow anonymous sessions (default true) |
-| `--application-uri` | `string` | ApplicationUri (default: the one of --cert, or urn:&lt;hostname&gt;:opcuactl:serve) |
+| `--application-uri` | `string` | ApplicationUri (default: the one of --cert, or urn:<hostname>:opcuactl:serve) |
 | `--cert` | `stringArray` | Application instance certificate file (PEM/DER, repeatable; default: self-signed ones) |
 | `--cert-out` | `string` | Write the application certificates (PEM) to this file |
 | `--duration` | `duration` | Stop after this time (default: run until Ctrl+C / SIGTERM) |
+| `--ecc-sign-legacy-key-length` |  | Security mode Sign with ECC_nistP256/P384 or ECC_brainpoolP256r1/P384r1: derive the keys as open62541 v1.5.9 and earlier do, not as Part 6 §6.8.1 asks |
 | `--hostname` | `string` | Host name of the endpoint URLs (default: the host of --listen, or this machine's name for a wildcard address) |
 | `--https` | `string` | Also listen for opc.https (UA Binary over HTTPS) on this address (host:port) |
 | `--insecure-no-security` |  | Offer endpoints without message security (--security-policy None): anyone on the network can read and change the traffic |
 | `--key` | `stringArray` | Private key file of --cert (PEM/DER, repeatable) |
 | `--key-out` | `string` | Write the private keys of the application certificates (PEM, mode 0600) to this file |
+| `--lds` |  | Be a Local Discovery Server: accept RegisterServer and RegisterServer2 |
+| `--lds-allow-insecure-registration` |  | --lds: also accept registrations on channels without security: anyone on the network can register and remove servers |
+| `--lds-skip-server-uri-check` |  | --lds: accept registrations of a ServerUri that is not the one of the client certificate |
 | `--listen` | `string` | opc.tcp address to listen on (opc.tcp://host:port or host:port; port 0 picks a free port) (default "opc.tcp://0.0.0.0:4840") |
 | `--log-clients` |  | Log each client connection, session and refused request on stderr, whatever --log-level |
 | `--log-level` | `string` | Server log on stderr (debug\|info\|warn\|error\|off) (default "error") |
@@ -1958,9 +2021,13 @@ opcuactl serve [flags]
 | `--max-subscriptions` | `int` | Subscriptions of all sessions together at most (BadTooManySubscriptions beyond) (default 1024) |
 | `--max-subscriptions-per-session` | `int` | Subscriptions of one session at most (BadTooManySubscriptions beyond) (default 64) |
 | `--no-demo` |  | Leave out the demo namespace |
+| `--node-management` |  | Let clients add and delete nodes and references outside namespace 0 |
 | `--nodeset` | `stringArray` | Import a NodeSet2 XML file (repeatable) |
-| `--security-mode` | `strings` | Security modes of the policies other than None (Sign\|SignAndEncrypt; default Sign,SignAndEncrypt) |
-| `--security-policy` | `strings` | Security policies to offer (repeatable or comma-separated; default Basic256Sha256) |
+| `--register-insecure` |  | --register-with: register over a channel without security when the discovery server offers no secure endpoint this server's certificates fit |
+| `--register-interval` | `duration` | --register-with: renew the registration this often (default 10m) |
+| `--register-with` | `stringArray` | Register with the discovery server at this URL (repeatable) |
+| `--security-mode` | `stringSlice` | Security modes of the policies other than None (Sign\|SignAndEncrypt; default Sign,SignAndEncrypt) |
+| `--security-policy` | `stringSlice` | Security policies to offer (repeatable or comma-separated; default Basic256Sha256) |
 | `--sim-interval` | `duration` | Update interval of the simulated demo values (default 1s) |
 | `--tls-cert` | `string` | opc.wss/opc.https: TLS certificate (PEM; default: the RSA application certificate) |
 | `--tls-key` | `string` | opc.wss/opc.https: private key (PEM) of --tls-cert |
@@ -1990,7 +2057,24 @@ Write values to OPC UA nodes.
 opcuactl write [command]
 ```
 
-Subcommands: [`value`](#opcuactl-write-value).
+Subcommands: [`attr`](#opcuactl-write-attr), [`value`](#opcuactl-write-value).
+
+## opcuactl write attr
+
+Write an attribute of a node.
+
+```text
+opcuactl write attr [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--attr` | `string` | Attribute name or numeric id (required; e.g. DisplayName, Description, AccessLevel) |
+| `--dry-run` |  | Read the current attribute and show the conversion, do not write |
+| `--node`, `-n` | `string` | Target node ID (required) |
+| `--type` | `string` | Value type (auto\|bool\|byte\|uint16\|int32\|uint32\|double\|string\|localizedtext\|qualifiedname\|nodeid\|uint32-array\|ua-json\|ua-xml); auto: the data type of the attribute (default "auto") |
+| `--value` | `string` | Value to write (required) |
+| `--yes` |  | Skip write confirmation prompt |
 
 ## opcuactl write value
 

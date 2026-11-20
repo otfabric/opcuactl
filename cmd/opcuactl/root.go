@@ -116,6 +116,7 @@ func init() {
 	pf.StringArrayVar(&connCfg.TrustedCertFiles, "trusted-cert", nil, "Trusted CA or self-signed server cert (repeatable; PEM/DER)")
 	pf.BoolVar(&connCfg.InsecureNoSecurity, "insecure-no-security", false, "Allow no message security (policy and mode None): anyone on the network can read and change the traffic, passwords included")
 	pf.BoolVar(&connCfg.InsecureSkipVerify, "insecure-skip-verify", false, "Skip server certificate verification (INSECURE)")
+	pf.BoolVar(&connCfg.ECCSignLegacyKeyLength, "ecc-sign-legacy-key-length", false, "Security mode Sign with ECC_nistP256/P384 or ECC_brainpoolP256r1/P384r1: derive the keys as open62541 v1.5.9 and earlier (and opcuactl v0.18.1 and earlier) do, not as Part 6 §6.8.1 asks")
 	pf.StringVar(&connCfg.ReverseListen, "reverse-listen", "", "Reverse connect: listen on this address (host:port) and wait for the server to connect")
 	pf.StringVar(&connCfg.ReverseServerURI, "reverse-server-uri", "", "Reverse connect: only accept the server announcing this ApplicationUri")
 	pf.StringVar(&connCfg.TLSCAFile, "tls-ca", "", "opc.wss/opc.https: PEM file with the roots for the server's TLS certificate (default: system roots)")

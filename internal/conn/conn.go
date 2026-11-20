@@ -71,6 +71,12 @@ type Config struct {
 	// the library default (application/json).
 	JSONContentType string
 
+	// ECCSignLegacyKeyLength derives the keys of ECC_nistP256/P384 and
+	// ECC_brainpoolP256r1/P384r1 channels in the security mode Sign as
+	// open62541 v1.5.9 and earlier do, for servers that still derive them
+	// that way (--ecc-sign-legacy-key-length).
+	ECCSignLegacyKeyLength bool
+
 	// ReturnDiagnostics is the ReturnDiagnostics mask of every request
 	// (Part 4 §7.33); 0 asks for none.
 	ReturnDiagnostics uint32
@@ -146,6 +152,18 @@ func (cfg *Config) SelectEndpoint(endpoints []*ua.EndpointDescription, policy st
 // NewClient creates a connected OPC UA client from the config; extra options
 // apply after those of the config.
 func (cfg *Config) NewClient(ctx context.Context, extra ...opcua.Option) (*opcua.Client, error) {
+	return cfg.newClient(ctx, true, extra...)
+}
+
+// NewChannel creates a client with a SecureChannel to the endpoint and no
+// session, for the discovery services (RegisterServer, RegisterServer2):
+// the security and the application instance certificate are those of the
+// config, the user identity flags do not apply.
+func (cfg *Config) NewChannel(ctx context.Context, extra ...opcua.Option) (*opcua.Client, error) {
+	return cfg.newClient(ctx, false, extra...)
+}
+
+func (cfg *Config) newClient(ctx context.Context, session bool, extra ...opcua.Option) (*opcua.Client, error) {
 	if err := cfg.RequireEndpoint(); err != nil {
 		return nil, err
 	}
@@ -170,7 +188,11 @@ func (cfg *Config) NewClient(ctx context.Context, extra ...opcua.Option) (*opcua
 		defer cancel()
 	}
 
-	if err := c.Connect(connectCtx); err != nil {
+	connect := c.Connect
+	if !session {
+		connect = c.Dial
+	}
+	if err := connect(connectCtx); err != nil {
 		// Release what a failed attempt holds, the reverse listener in particular.
 		_ = c.Close(context.WithoutCancel(ctx))
 		if u := cfg.untrusted(err); u != nil {
@@ -229,6 +251,10 @@ func (cfg *Config) buildOptions(ctx context.Context) ([]opcua.Option, error) {
 
 	if cfg.InsecureSkipVerify {
 		opts = append(opts, opcua.InsecureSkipVerify())
+	}
+
+	if cfg.ECCSignLegacyKeyLength {
+		opts = append(opts, opcua.ECCSignLegacyKeyLength())
 	}
 
 	opts = append(opts, cfg.DiscoveryOptions()...)

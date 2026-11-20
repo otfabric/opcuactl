@@ -27,9 +27,10 @@ func newDiscoverCmd() *cobra.Command {
 Examples:
   opcuactl discover servers --endpoint opc.tcp://localhost:4840
   opcuactl discover lds --host plc-gateway.local
-  opcuactl discover endpoints --endpoint opc.tcp://localhost:4840`,
+  opcuactl discover endpoints --endpoint opc.tcp://localhost:4840
+  opcuactl discover register -e opc.tcp://lds:4840 --cert server.pem --key server.key --discovery-url opc.tcp://myhost:4841`,
 	}
-	cmd.AddCommand(newDiscoverServersCmd(), newDiscoverLDSCmd(), newDiscoverEndpointsCmd())
+	cmd.AddCommand(newDiscoverServersCmd(), newDiscoverLDSCmd(), newDiscoverEndpointsCmd(), newDiscoverRegisterCmd())
 	return cmd
 }
 

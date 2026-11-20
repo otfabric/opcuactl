@@ -1,5 +1,34 @@
 # opcuactl Releases
 
+## v0.19.0
+
+**Date:** 2026-11-20
+**Previous release:** v0.18.1
+
+Moves to go-opcua v1.35.0 (was v1.34.0) and adds commands and flags: `write attr`, `history update-values` and `delete-values`, `discover register`, every standard aggregate for processed history, and discovery and node management for `opcuactl serve`. The existing commands and exit codes are unchanged, with one change that needs attention: SecureChannels in the security mode `Sign` with `ECC_nistP256`, `ECC_nistP384`, `ECC_brainpoolP256r1` or `ECC_brainpoolP384r1` derive their keys as OPC UA Part 6 §6.8.1 asks.
+
+### Added
+
+- `write attr` writes an attribute other than Value (DisplayName, Description, BrowseName, WriteMask, AccessLevel, Historizing, MinimumSamplingInterval, ArrayDimensions, …). `--value` is converted to the data type of the attribute (`[locale:]text` for a LocalizedText, `[ns:]name` for a QualifiedName, hex or decimal masks), `--type ua-json|ua-xml` takes any Variant. It has `--dry-run`, which shows the current value, and `--yes`.
+- `history update-values` inserts, replaces or updates historical values (UpdateDataDetails, Part 11 §6.9.2), from `--sample TIME=VALUE` (repeatable) or `--samples-file` (JSON). `history delete-values` deletes a time range (`--start`, `--end`; `--modified` for the modified values) or the samples at `--at` times (DeleteRawModifiedDetails and DeleteAtTimeDetails, §6.9.5 and §6.9.6). Both print the result of each sample and exit 7 when some failed, 6 when all did (JSON: `HistoryValueUpdate`).
+- `discover register` registers a server with a discovery server, or removes it with `--offline`. It sends RegisterServer2 with the mDNS name and capabilities, and falls back to RegisterServer. It uses a SecureChannel without a session, secured with the global `--security-*`, `--cert` and `--key`. The ServerUri defaults to the ApplicationUri of `--cert`, as discovery servers require (JSON: `RegisterResult`).
+- `--aggregate` (`history value --mode processed`, `export values`) takes every standard aggregate go-opcua names (timeaverage, total, range, delta, start, end, durationgood, durationbad, percentgood, percentbad, worstquality, …), and the NodeId of an aggregate function. It was average, min, max and count. Shell completion lists them all.
+- `opcuactl serve --lds` makes the test server a Local Discovery Server, with `--lds-allow-insecure-registration` and `--lds-skip-server-uri-check` for the lab. `--register-with URL` (repeatable, with `--register-interval` and `--register-insecure`) registers it with a discovery server. The registrations are logged on stderr; the JSON output has `lds` and `registeredWith`.
+- `opcuactl serve --node-management` lets clients add and delete nodes and references (AddNodes, DeleteNodes, AddReferences, DeleteReferences) outside namespace 0.
+- `--ecc-sign-legacy-key-length`, a global flag and a flag of `serve`, derives the ECC Sign keys as before (see Changed), for peers that have not moved yet.
+- `opcuactl serve` demo: the history of `Demo.Sine` can be written (AccessLevel HistoryWrite), and `Demo.Level` lets clients write its DisplayName and Description (WriteMask), to try out the new commands.
+- `get attr` accepts the names DataTypeDefinition, RolePermissions, UserRolePermissions, AccessRestrictions and AccessLevelEx (attributes 23 to 27).
+
+### Changed
+
+- The client commands and `opcuactl serve`, with `--security-mode Sign` and one of the four ECC policies above, derive the signing keys alone. Part 6 §6.8.1 Step 1 leaves the encrypting key and IV out of L in Sign mode; open62541 does the same since v1.5.10. Such a channel works with open62541 v1.5.10 and later and with go-opcua v1.35.0 and later. Against open62541 v1.5.9 or earlier, or opcuactl v0.18.1 or earlier, it now fails when the first message is verified. Use `SignAndEncrypt` with those peers, or `--ecc-sign-legacy-key-length`; `SignAndEncrypt` and the other security policies are not affected.
+
+### Fixed
+
+- The help of `history event`, `history update-events` and `history delete-events` named exit codes 3 and 4 for failures that exit with 6 (protocol) and 7 (partial).
+
+---
+
 ## v0.18.1
 
 **Date:** 2026-11-19

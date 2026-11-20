@@ -24,9 +24,10 @@ func newWriteCmd() *cobra.Command {
 		Long: `Write values and attributes to OPC UA server nodes.
 
 Examples:
-  opcuactl write value --endpoint opc.tcp://localhost:4840 --node "ns=2;s=Temperature" --value 42.5 --type double`,
+  opcuactl write value --endpoint opc.tcp://localhost:4840 --node "ns=2;s=Temperature" --value 42.5 --type double
+  opcuactl write attr --endpoint opc.tcp://localhost:4840 --node "ns=2;s=Temperature" --attr DisplayName --value "en:Tank temperature"`,
 	}
-	cmd.AddCommand(newWriteValueCmd())
+	cmd.AddCommand(newWriteValueCmd(), newWriteAttrCmd())
 	return cmd
 }
 
