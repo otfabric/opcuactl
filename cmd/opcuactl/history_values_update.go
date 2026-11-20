@@ -124,6 +124,32 @@ func historyValueExit(results []model.HistoryValueUpdate, what string) error {
 	return historyUpdateExit(events, what)
 }
 
+// historyValueResponse fills in the statuses of results from the response
+// to the one HistoryUpdateDetails of a value change, prints them and
+// returns the exit. what names the change in errors, op in diagnostics;
+// whole gives every result the status of the details, for a range delete.
+func historyValueResponse(resp *ua.HistoryUpdateResponse, err error, results []model.HistoryValueUpdate, what, op string, whole bool) error {
+	if err != nil {
+		format.Errf("%s: %v", what, err)
+		return exitCode(exitProtocol, err)
+	}
+	printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string { return op })
+	if len(resp.Results) != 1 {
+		return exitCodef(exitProtocol, "%s: %d results for 1 details", what, len(resp.Results))
+	}
+	for i := range results {
+		st := historyUpdateResult(resp.Results[0], i)
+		if whole && resp.Results[0] != nil {
+			st = resp.Results[0].StatusCode
+		}
+		results[i].Status, results[i].StatusCode = st.Symbol(), st.Uint32()
+	}
+	if err := writeHistoryValueUpdates(results); err != nil {
+		return err
+	}
+	return historyValueExit(results, what)
+}
+
 // writeHistoryValueUpdates prints the results of a history value change.
 func writeHistoryValueUpdates(results []model.HistoryValueUpdate) error {
 	w := newWriter()
@@ -244,24 +270,7 @@ Examples:
 			opCtx, cancel := connCfg.TimeoutContext(ctx)
 			defer cancel()
 			resp, err := c.HistoryUpdateData(opCtx, &ua.UpdateDataDetails{NodeID: nodeID, PerformInsertReplace: perform, UpdateValues: values})
-			if err != nil {
-				format.Errf("updating the history of %s: %v", nodeID, err)
-				return exitCode(exitProtocol, err)
-			}
-			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
-				return "history update " + nodeID.String()
-			})
-			if len(resp.Results) != 1 {
-				return exitCodef(exitProtocol, "updating the history of %s: %d results for 1 details", nodeID, len(resp.Results))
-			}
-			for i := range results {
-				st := historyUpdateResult(resp.Results[0], i)
-				results[i].Status, results[i].StatusCode = st.Symbol(), st.Uint32()
-			}
-			if err := writeHistoryValueUpdates(results); err != nil {
-				return err
-			}
-			return historyValueExit(results, "updating the history of "+nodeID.String())
+			return historyValueResponse(resp, err, results, "updating the history of "+nodeID.String(), "history update "+nodeID.String(), false)
 		},
 	}
 	cmd.Flags().StringVarP(&nodeStr, "node", "n", "", "Variable node ID (required)")
@@ -387,27 +396,7 @@ Examples:
 			} else {
 				resp, err = c.HistoryDeleteAtTime(opCtx, &ua.DeleteAtTimeDetails{NodeID: nodeID, ReqTimes: times})
 			}
-			if err != nil {
-				format.Errf("deleting from the history of %s: %v", nodeID, err)
-				return exitCode(exitProtocol, err)
-			}
-			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
-				return "history delete " + nodeID.String()
-			})
-			if len(resp.Results) != 1 {
-				return exitCodef(exitProtocol, "deleting from the history of %s: %d results for 1 details", nodeID, len(resp.Results))
-			}
-			for i := range results {
-				st := historyUpdateResult(resp.Results[0], i)
-				if byRange && resp.Results[0] != nil {
-					st = resp.Results[0].StatusCode
-				}
-				results[i].Status, results[i].StatusCode = st.Symbol(), st.Uint32()
-			}
-			if err := writeHistoryValueUpdates(results); err != nil {
-				return err
-			}
-			return historyValueExit(results, "deleting from the history of "+nodeID.String())
+			return historyValueResponse(resp, err, results, "deleting from the history of "+nodeID.String(), "history delete "+nodeID.String(), byRange)
 		},
 	}
 	cmd.Flags().StringVarP(&nodeStr, "node", "n", "", "Variable node ID (required)")
