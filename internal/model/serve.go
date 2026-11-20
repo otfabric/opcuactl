@@ -20,8 +20,15 @@ type ServeInfo struct {
 	Anonymous bool     `json:"anonymous"`
 	Users     []string `json:"users,omitempty"`
 	// Limits are what clients may open.
-	Limits    ServeLimits `json:"limits"`
-	Endpoints []Endpoint  `json:"endpoints"`
+	Limits ServeLimits `json:"limits"`
+	// LDS is true when the server is a Local Discovery Server (--lds);
+	// RegisteredWith are the discovery servers it registers with
+	// (--register-with); NodeManagement whether clients may add and
+	// delete nodes (--node-management).
+	LDS            bool       `json:"lds,omitempty"`
+	RegisteredWith []string   `json:"registeredWith,omitempty"`
+	NodeManagement bool       `json:"nodeManagement,omitempty"`
+	Endpoints      []Endpoint `json:"endpoints"`
 }
 
 // ServeLimits are the session and subscription limits of the server.

@@ -27,7 +27,7 @@ func TestE2E_GetNode(t *testing.T) {
 		t.Errorf("get node --full: %+v", info)
 	}
 	sine := runJSON[model.NodeInfo](t, "get", "node", "-e", ep, "-n", s.node(serve.DemoSine))
-	if sine.AccessInterpretation != "readable, history-read" || sine.ValueRank != "" {
+	if sine.AccessInterpretation != "readable, history-read, history-write" || sine.ValueRank != "" {
 		t.Errorf("get node Demo.Sine (without --full): %+v", sine)
 	}
 

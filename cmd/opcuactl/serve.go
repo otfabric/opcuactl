@@ -80,6 +80,15 @@ type serveFlags struct {
 	maxSubscriptions           int
 	maxSubscriptionsPerSession int
 	maxOperations              int
+
+	eccSignLegacyKeyLength bool
+	nodeManagement         bool
+	lds                    bool
+	ldsAllowInsecure       bool
+	ldsSkipURICheck        bool
+	registerWith           []string
+	registerInterval       time.Duration
+	registerInsecure       bool
 }
 
 func newServeCmd() *cobra.Command { return serveCommand(&serveFlags{}) }
@@ -121,14 +130,28 @@ leaves it out) has an object Demo with
   Demo.Boolean, Demo.Int32, Demo.Double, Demo.String, Demo.DateTime,
   Demo.Int32Array   read-only values
   Demo.Counter      UInt32, counts up every --sim-interval
-  Demo.Sine         Double, a sine wave, historized (history value)
-  Demo.Level        Double, writable; Demo.LevelAlarm, an exclusive level alarm,
-                    goes High at 80 and HighHigh at 95
+  Demo.Sine         Double, a sine wave, historized (history value; the
+                    history may be changed: update-values, delete-values)
+  Demo.Level        Double, writable (and its DisplayName and Description);
+                    Demo.LevelAlarm, an exclusive level alarm, goes High at
+                    80 and HighHigh at 95
   Demo.Add          method Add(a, b Int32) -> sum
 as string NodeIds (ns=<index>;s=Demo.Counter). Demo keeps an event history
 (history event, update-events, delete-events): a start event and the
 LevelAlarm transitions, the last 1000 events. --nodeset imports NodeSet2 XML
 files (repeatable).
+
+Discovery: --lds makes the server a Local Discovery Server (Part 12) that
+accepts RegisterServer and RegisterServer2 and lists the registered servers in
+FindServers (opcuactl discover register, discover servers). Registrations are
+accepted on secured channels from the application whose certificate carries
+the registered ServerUri, unless --lds-allow-insecure-registration or
+--lds-skip-server-uri-check. --register-with registers this server with a
+discovery server (repeatable) every --register-interval and unregisters it on
+stop. The registrations are logged on stderr.
+
+--node-management lets clients add and delete nodes and references (AddNodes,
+DeleteNodes, AddReferences, DeleteReferences), outside namespace 0.
 
 On start the endpoints are printed (--format json: the server description as
 JSON, -q: the endpoint URLs only).
@@ -139,7 +162,9 @@ Examples:
   opcuactl serve --cert-out server.pem --key-out server.key --user operator:secret
   opcuactl serve --cert server.pem --key server.key --trust-dir ./pki/trusted
   opcuactl serve --wss 0.0.0.0:4843 --https 0.0.0.0:4443 --uajson --cert-out server.pem
-  opcuactl serve --nodeset Opc.Ua.Di.NodeSet2.xml --nodeset machine.xml --format json`,
+  opcuactl serve --nodeset Opc.Ua.Di.NodeSet2.xml --nodeset machine.xml --format json
+  opcuactl serve --lds --listen opc.tcp://0.0.0.0:4840 --no-demo
+  opcuactl serve --listen opc.tcp://0.0.0.0:4841 --register-with opc.tcp://lds.example:4840`,
 		Args: cobra.NoArgs,
 		// Only the output flags of the root apply; the client connection
 		// flags are not checked.
@@ -184,6 +209,15 @@ Examples:
 	fs.IntVar(&f.maxSubscriptions, "max-subscriptions", defaultServeMaxSubscriptions, "Subscriptions of all sessions together at most (BadTooManySubscriptions beyond)")
 	fs.IntVar(&f.maxSubscriptionsPerSession, "max-subscriptions-per-session", defaultServeMaxSubscriptionsPerSession, "Subscriptions of one session at most (BadTooManySubscriptions beyond)")
 	fs.IntVar(&f.maxOperations, "max-operations", defaultServeMaxOperations, "Operations of one service call at most, e.g. nodes of a Read (BadTooManyOperations beyond); 0 is no limit")
+
+	fs.BoolVar(&f.eccSignLegacyKeyLength, "ecc-sign-legacy-key-length", false, "Security mode Sign with ECC_nistP256/P384 or ECC_brainpoolP256r1/P384r1: derive the keys as open62541 v1.5.9 and earlier do, not as Part 6 §6.8.1 asks")
+	fs.BoolVar(&f.nodeManagement, "node-management", false, "Let clients add and delete nodes and references outside namespace 0")
+	fs.BoolVar(&f.lds, "lds", false, "Be a Local Discovery Server: accept RegisterServer and RegisterServer2")
+	fs.BoolVar(&f.ldsAllowInsecure, "lds-allow-insecure-registration", false, "--lds: also accept registrations on channels without security: anyone on the network can register and remove servers")
+	fs.BoolVar(&f.ldsSkipURICheck, "lds-skip-server-uri-check", false, "--lds: accept registrations of a ServerUri that is not the one of the client certificate")
+	fs.StringArrayVar(&f.registerWith, "register-with", nil, "Register with the discovery server at this URL (repeatable)")
+	fs.DurationVar(&f.registerInterval, "register-interval", 0, "--register-with: renew the registration this often (default 10m)")
+	fs.BoolVar(&f.registerInsecure, "register-insecure", false, "--register-with: register over a channel without security when the discovery server offers no secure endpoint this server's certificates fit")
 
 	_ = cmd.RegisterFlagCompletionFunc("security-policy", fixedCompletion(servePolicyValues))
 	_ = cmd.RegisterFlagCompletionFunc("security-mode", fixedCompletion(serveModeValues))
@@ -258,6 +292,32 @@ func (f *serveFlags) setup(stderr io.Writer) (*serveSetup, error) {
 		MaxSubscriptions:           f.maxSubscriptions,
 		MaxSubscriptionsPerSession: f.maxSubscriptionsPerSession,
 		MaxOperations:              f.maxOperations,
+
+		ECCSignLegacyKeyLength: f.eccSignLegacyKeyLength,
+		NodeManagement:         f.nodeManagement,
+		LDS:                    f.lds,
+		LDSAllowInsecure:       f.ldsAllowInsecure,
+		LDSSkipServerURICheck:  f.ldsSkipURICheck,
+		RegisterInterval:       f.registerInterval,
+		RegisterInsecure:       f.registerInsecure,
+	}
+	if (f.ldsAllowInsecure || f.ldsSkipURICheck) && !f.lds {
+		return nil, fmt.Errorf("--lds-allow-insecure-registration and --lds-skip-server-uri-check need --lds")
+	}
+	if (f.registerInterval != 0 || f.registerInsecure) && len(f.registerWith) == 0 {
+		return nil, fmt.Errorf("--register-interval and --register-insecure need --register-with")
+	}
+	if f.registerInterval < 0 {
+		return nil, fmt.Errorf("--register-interval must not be negative")
+	}
+	for _, u := range f.registerWith {
+		if !strings.Contains(u, "://") {
+			return nil, fmt.Errorf("invalid --register-with %q: want a URL such as opc.tcp://host:4840", u)
+		}
+		cfg.RegisterWith = append(cfg.RegisterWith, u)
+	}
+	if f.lds || len(f.registerWith) > 0 {
+		cfg.Registrations = slog.New(slog.NewTextHandler(stderr, nil))
 	}
 	if f.maxOperations < 0 {
 		return nil, fmt.Errorf("--max-operations must not be negative")
@@ -626,6 +686,9 @@ func serveInfo(srv *serve.Server, setup *serveSetup) model.ServeInfo {
 			MaxSubscriptionsPerSession: setup.cfg.MaxSubscriptionsPerSession,
 			MaxOperations:              setup.cfg.MaxOperations,
 		},
+		LDS:            setup.cfg.LDS,
+		RegisteredWith: setup.cfg.RegisterWith,
+		NodeManagement: setup.cfg.NodeManagement,
 	}
 	if uri, idx, ok := srv.DemoNamespace(); ok {
 		info.DemoNamespace, info.DemoNamespaceIndex = uri, idx
@@ -705,7 +768,17 @@ func writeServeInfo(w io.Writer, out serveOutput, srv *serve.Server, setup *serv
 	if info.Limits.MaxOperations > 0 {
 		ops = fmt.Sprintf("%d operations per call", info.Limits.MaxOperations)
 	}
-	_, _ = fmt.Fprintf(w, "Limits:           %d sessions, %d subscriptions (%d per session), %s\n\n",
+	_, _ = fmt.Fprintf(w, "Limits:           %d sessions, %d subscriptions (%d per session), %s\n",
 		info.Limits.MaxSessions, info.Limits.MaxSubscriptions, info.Limits.MaxSubscriptionsPerSession, ops)
+	if info.LDS {
+		_, _ = fmt.Fprintln(w, "Discovery:        Local Discovery Server (RegisterServer, RegisterServer2)")
+	}
+	for _, u := range info.RegisteredWith {
+		_, _ = fmt.Fprintf(w, "Registers with:   %s\n", u)
+	}
+	if info.NodeManagement {
+		_, _ = fmt.Fprintln(w, "Node management:  AddNodes, DeleteNodes, AddReferences, DeleteReferences")
+	}
+	_, _ = fmt.Fprintln(w)
 	return fw.WriteTable(endpointTable(info.Endpoints, out.verbose))
 }

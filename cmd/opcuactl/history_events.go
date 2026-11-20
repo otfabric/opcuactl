@@ -78,7 +78,7 @@ the continuation points until the history is read, --max-events events were
 returned or, with --continuation single, after one page, and then releases
 the continuation point.
 
-Exit codes: 3 for a failed HistoryRead or a Bad status of the node
+Exit codes: 6 for a failed HistoryRead or a Bad status of the node
 (Bad_NodeIdUnknown, Bad_HistoryOperationUnsupported, ...); no events in the
 range (Good_NoData) is success.
 
@@ -344,7 +344,7 @@ func confirmHistoryChange(prompt string) bool {
 }
 
 // historyUpdateExit is the exit of a history update: 0 when every
-// operation succeeded, 4 when some failed, 3 when all failed.
+// operation succeeded, 7 when some failed, 6 when all failed.
 func historyUpdateExit(results []model.HistoryEventUpdate, what string) error {
 	bad := 0
 	for _, r := range results {
@@ -441,7 +441,7 @@ Events with the same fields go into one UpdateEventDetails.
 Use --dry-run to print the events without sending them, --yes to skip the
 confirmation on a terminal.
 
-Exit codes: 3 when the HistoryUpdate fails or every event failed, 4 when
+Exit codes: 6 when the HistoryUpdate fails or every event failed, 7 when
 some events failed; the table lists the result of each event.
 
 Examples:
@@ -634,7 +634,7 @@ with 0x (repeatable). An EventId the history does not have is Bad_NoData.
 Use --dry-run to print what would be deleted, --yes to skip the confirmation
 on a terminal.
 
-Exit codes: 3 when the HistoryUpdate fails or no event was deleted, 4 when
+Exit codes: 6 when the HistoryUpdate fails or no event was deleted, 7 when
 some of the EventIds failed.
 
 Examples:

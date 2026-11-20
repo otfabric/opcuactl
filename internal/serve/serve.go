@@ -91,6 +91,33 @@ type Config struct {
 	// 0 is no limit.
 	MaxOperations int
 
+	// ECCSignLegacyKeyLength derives the keys of ECC_nistP256/P384 and
+	// ECC_brainpoolP256r1/P384r1 channels in the security mode Sign as
+	// open62541 v1.5.9 and earlier do, not as Part 6 §6.8.1 asks.
+	ECCSignLegacyKeyLength bool
+	// NodeManagement lets clients add and delete nodes and references
+	// (AddNodes, DeleteNodes, AddReferences, DeleteReferences); the nodes
+	// of namespace 0 stay as they are.
+	NodeManagement bool
+
+	// LDS makes the server a Local Discovery Server: it accepts
+	// RegisterServer and RegisterServer2 and lists the registered servers
+	// in FindServers. LDSAllowInsecure accepts registrations on channels
+	// without security, LDSSkipServerURICheck registrations of a ServerUri
+	// that is not the one of the channel's client certificate.
+	LDS                   bool
+	LDSAllowInsecure      bool
+	LDSSkipServerURICheck bool
+	// RegisterWith are the URLs of discovery servers to register with,
+	// every RegisterInterval (0: go-opcua's default of 10 minutes), over a
+	// secured channel unless RegisterInsecure.
+	RegisterWith     []string
+	RegisterInterval time.Duration
+	RegisterInsecure bool
+	// Registrations, when not nil, receives a line for each registration
+	// with a discovery server, and each failed one.
+	Registrations *slog.Logger
+
 	// Logger receives the log of the server; nil is silent.
 	Logger *slog.Logger
 	// Clients, when not nil, receives a line for each client connection,
@@ -226,6 +253,41 @@ func (cfg *Config) options() ([]server.Option, error) {
 	if cfg.Clients != nil {
 		opts = append(opts, server.WithSessionObserver(clientLog{log: cfg.Clients}))
 	}
+	if cfg.ECCSignLegacyKeyLength {
+		opts = append(opts, server.ECCSignLegacyKeyLength())
+	}
+	if cfg.NodeManagement {
+		opts = append(opts, server.EnableNodeManagement())
+	}
+	if cfg.LDS {
+		var lds []server.LDSOption
+		if cfg.LDSAllowInsecure {
+			lds = append(lds, server.LDSAllowInsecureRegistration())
+		}
+		if cfg.LDSSkipServerURICheck {
+			lds = append(lds, server.LDSSkipServerURICheck())
+		}
+		if cfg.Registrations != nil {
+			log := cfg.Registrations
+			lds = append(lds, server.LDSRegistrationCallback(func(rs *ua.RegisteredServer) {
+				log.Info("server registered", "server_uri", rs.ServerURI, "online", rs.IsOnline, "discovery_urls", rs.DiscoveryURLs)
+			}))
+		}
+		opts = append(opts, server.WithLocalDiscoveryServer(lds...))
+	}
+	for _, u := range cfg.RegisterWith {
+		var reg []server.RegistrationOption
+		if cfg.RegisterInterval > 0 {
+			reg = append(reg, server.RegisterInterval(cfg.RegisterInterval))
+		}
+		if cfg.RegisterInsecure {
+			reg = append(reg, server.RegisterInsecure())
+		}
+		if cfg.Registrations != nil {
+			reg = append(reg, server.RegisterEventHandler(registrationLog(cfg.Registrations)))
+		}
+		opts = append(opts, server.WithDiscoveryRegistration(u, reg...))
+	}
 	if cfg.Anonymous {
 		opts = append(opts, server.EnableAuthMode(ua.UserTokenTypeAnonymous))
 	}
@@ -244,6 +306,19 @@ func (cfg *Config) options() ([]server.Option, error) {
 			}))
 	}
 	return opts, nil
+}
+
+// registrationLog logs the registrations with a discovery server.
+func registrationLog(log *slog.Logger) func(server.RegistrationEvent) {
+	return func(e server.RegistrationEvent) {
+		args := []any{"discovery_server", e.DiscoveryServerURL, "service", e.Service, "online", e.Online,
+			"security_policy", e.SecurityPolicyURI, "security_mode", e.SecurityMode.String()}
+		if e.Err != nil {
+			log.Warn("registration failed", append(args, "error", e.Err.Error())...)
+			return
+		}
+		log.Info("registered", args...)
+	}
 }
 
 // splitHostPort splits host:port with a numeric port.

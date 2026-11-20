@@ -369,7 +369,7 @@ Examples:
 	cmd.Flags().StringVar(&endStr, "end", "", "End time in RFC3339 format (required with --history except attime)")
 	cmd.Flags().StringArrayVar(&atTimes, "at", nil, "Timestamp for attime mode (repeatable, RFC3339)")
 	cmd.Flags().StringVar(&mode, "mode", "raw", "History mode with --history (raw|modified|processed|attime)")
-	cmd.Flags().StringVar(&aggregate, "aggregate", "average", "Aggregate for processed history (average|min|max|count)")
+	cmd.Flags().StringVar(&aggregate, "aggregate", "average", "Aggregate for processed history (average|min|max|count|timeaverage|total|range|delta|... or a NodeId; see history value --help)")
 	cmd.Flags().DurationVar(&aggInterval, "interval", 0, "Aggregate interval for processed history")
 	cmd.Flags().StringVar(&output, "output", "", "Write output to file instead of stdout")
 	_ = cmd.RegisterFlagCompletionFunc("mode", fixedCompletion(historyModeValues))

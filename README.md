@@ -58,12 +58,12 @@ opcuactl completion powershell | Out-String | Invoke-Expression
 - **Find what is there** — `discover servers`, `discover lds` and `discover endpoints` list the servers on a host, the ones registered with a Local Discovery Server or announced with mDNS, and every endpoint with its security policy, mode and user-token types; `--best` picks the most secure one.
 - **Explore the address space** — `browse children`, `browse tree`, `browse refs` and `browse path` walk the node hierarchy; `find node`, `find type` and `find namespace` search it.
 - **Read anything** — values (with timestamps and array index ranges), full node summaries, any attribute, server status, or every variable under an object in one batch.
-- **Write and call, carefully** — typed writes with a confirmation prompt and `--dry-run`; method calls with argument introspection.
+- **Write and call, carefully** — typed writes of values and of attributes (DisplayName, Description, AccessLevel, …: `write attr`) with a confirmation prompt and `--dry-run`; method calls with argument introspection.
 - **Watch a server live** — `monitor value`, `monitor event` and `monitor alarm` stay subscribed and print every change as it arrives, with queue size, sampling interval, deadband and trigger filters and event filters under your control.
 - **Alarms and conditions** — `alarms list` shows the retained conditions of a server (ConditionRefresh) with their states, branches and EventIds; `alarms ack`, `confirm`, `comment`, `enable`, `disable`, `shelve`, `unshelve`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `silence`, `reset` and `respond` call the Part 9 methods (with a comment where Part 9 1.05 allows one), `alarms groups` and `alarms metrics` read alarm groups and metrics, `alarms watch` streams the condition events and `alarms audit` the audit events of who did what.
 - **Server diagnostics** — `diagnostics summary|sessions|subscriptions|sampling` read what the server counts about its sessions and subscriptions; `diagnostics enable|disable` switch it (administrators); `--return-diagnostics` prints the DiagnosticInfos the server returns for a failed request.
 - **Certificate management** — `gds trustlist get|add|remove|set` read and change the trust lists of a server's certificate groups, `gds csr` and `gds update-cert` renew its certificates through your CA (PEM or PKCS #12 keys), `gds self-signed`, `gds delete-cert` and `gds reset` cover the rest of the push model of OPC UA Part 12 (as a SecurityAdmin over an encrypted channel); `gds pull` registers applications with a Global Discovery Server and gets their certificates and trust lists from it, `gds pull enroll` in one step.
-- **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them (OPC UA Part 11).
+- **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them; `history update-values` / `delete-values` backfill, correct and delete historical values (OPC UA Part 11). Every standard aggregate of Part 13 for processed reads.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Brainpool P-256/P-384, Curve25519, Curve448, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
@@ -159,18 +159,18 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 
 ## Features
 
-- **Discovery** — find servers on a host, query a Local Discovery Server (registered servers and mDNS / FindServersOnNetwork with capability filter), list endpoints, select the most secure configuration
+- **Discovery** — find servers on a host, query a Local Discovery Server (registered servers and mDNS / FindServersOnNetwork with capability filter), register servers with it (RegisterServer2, secured), list endpoints, select the most secure configuration
 - **Browse** — explore address-space trees, child nodes, references, and resolve browse paths
 - **Search** — find nodes by name, display name, type definition, data type, or namespace
 - **Read** — read values (including array IndexRange), node summaries, attributes, and server status; OPC UA JSON / XML output with `--ua-encoding`
-- **Write** — write typed values with dry-run validation; any data type as OPC UA JSON / XML
+- **Write** — write typed values and node attributes (`write attr`, typed by the attribute) with dry-run validation; any data type as OPC UA JSON / XML
 - **Call** — invoke OPC UA methods with argument introspection
 - **Monitor** — subscribe to live value changes, filtered events, and alarms (queue window + overflow, DataChangeFilter with absolute / percent deadband and trigger, IndexRange)
 - **Alarms & Conditions** — list the retained conditions (ConditionRefresh) with their branches and optional states, acknowledge, confirm, comment (per branch), enable / disable, timed and one-shot shelving and unshelve (with a comment), suppress / unsuppress, remove from / place in service, silence, reset of latched alarms, dialog responses, alarm group memberships, alarm metrics (read and reset), stream condition events and the audit events of the condition methods, an AuditEntryId on every request (Part 9 1.05)
 - **Server diagnostics** — ServerDiagnosticsSummary, session (with per-service counters), session security, subscription and sampling-interval diagnostics; switch the collection on and off; DiagnosticInfos of failed requests (`--return-diagnostics`)
 - **Certificate management (GDS push, Part 12 §7)** — ServerConfiguration properties, read / add / remove / replace the trust list (certificates, issuers, CRLs; DER files in the `trusted/certs`, `issuer/crl`, … layout), certificate signing requests with a new or the current key, install a CA-issued certificate (with its chain or a private key, PEM or PKCS #12), the rejected certificates, ApplyChanges / CancelChanges; certificate groups (DefaultApplicationGroup, DefaultHttpsGroup, DefaultUserTokenGroup and the groups of the application), the certificates in use, self-signed certificates, DeleteCertificate, ResetToServerDefaults and the transaction diagnostics
 - **Certificates from a GDS (pull, Part 12 §7.9)** — register, find, query, update and unregister applications at a Global Discovery Server; certificate requests from a CSR, a private key or a key pair the GDS generates; collect them (waiting for an approval), read the trust list, revoke, check the revocation status; `gds pull enroll` writes certificate, key and trust list in one step
-- **History** — raw, modified, processed (aggregates), and at-time historical reads
+- **History** — raw, modified, processed (all standard aggregates, or an aggregate NodeId), and at-time historical reads; insert, replace, update and delete historical values and events
 - **Export** — bulk export node metadata and value snapshots or historical time-series
 - **AuthN/Z** — anonymous, username, X.509, and issued-token identities; RSA and ECC security policies; `auto` endpoint security selection
 - **Transports** — `opc.tcp`, `opc.wss` (WebSocket over TLS) and `opc.https` (HTTPS), the latter two in UA Binary or UA JSON (wss-uajson, https-uajson), with TLS server verification against `--tls-ca` and client certificates for mutual TLS
@@ -193,7 +193,8 @@ opcuactl
 ├── discover
 │   ├── servers        Find OPC UA servers via FindServers / FindServersOnNetwork
 │   ├── lds            Query a Local Discovery Server (registered servers + mDNS)
-│   └── endpoints      List server endpoints and security configurations
+│   ├── endpoints      List server endpoints and security configurations
+│   └── register       Register (or --offline: unregister) a server with a discovery server
 ├── browse
 │   ├── children       List direct child nodes
 │   ├── refs           Inspect reference edges of a node
@@ -210,7 +211,8 @@ opcuactl
 │   ├── vars           Collect variables under a node (with batch read)
 │   └── server         Read server status and build info
 ├── write
-│   └── value          Write a typed value to a node
+│   ├── value          Write a typed value to a node
+│   └── attr           Write another attribute (DisplayName, Description, AccessLevel, ...)
 ├── call
 │   └── method         Invoke an OPC UA method
 ├── monitor
@@ -269,7 +271,9 @@ opcuactl
 │   ├── value          Read historical data values
 │   ├── event          Read historical events (WhereClause, BrowsePath fields, paging)
 │   ├── update-events  Insert, replace or update historical events (JSON)
-│   └── delete-events  Delete historical events by EventId
+│   ├── delete-events  Delete historical events by EventId
+│   ├── update-values  Insert, replace or update historical values (--sample TIME=VALUE)
+│   └── delete-values  Delete historical values in a range or at times
 ├── export
 │   ├── nodes          Export node metadata from a subtree
 │   └── values         Export value snapshots or historical time-series
@@ -321,7 +325,17 @@ opcuactl discover endpoints -e opc.tcp://localhost:4840 --policy Basic256Sha256
 
 # The best endpoint your certificate can use (an ECC key gets an ECC endpoint)
 opcuactl discover endpoints -e opc.tcp://localhost:4840 --best --cert client-ecc.pem --key client-ecc.key
+
+# Register a server with a Local Discovery Server, over a secured channel opened with
+# the server's own certificate (its ApplicationUri is the ServerUri), and remove it again
+opcuactl discover register -e opc.tcp://lds:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
+  --cert server.pem --key server.key --trusted-cert lds.pem \
+  --discovery-url opc.tcp://myhost:4841 --server-name "en:Line 2 gateway" --capability DA
+opcuactl discover register -e opc.tcp://lds:4840 --security-policy Basic256Sha256 --security-mode SignAndEncrypt \
+  --cert server.pem --key server.key --trusted-cert lds.pem --discovery-url opc.tcp://myhost:4841 --offline
 ```
+
+`discover register` sends RegisterServer2 with an mDNS configuration (`--mdns-name`, `--capability`) and falls back to RegisterServer for a discovery server without it (`--legacy` sends RegisterServer right away). The ServerUri defaults to the ApplicationUri of `--cert`: discovery servers (open62541 v1.5.10 and later, go-opcua, `opcuactl serve --lds`) accept a registration only on a secured channel from the application that is registered. A registration expires unless it is renewed; a server does that itself (`opcuactl serve --register-with`).
 
 ### Browsing
 
@@ -405,6 +419,10 @@ opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" --value
 
 # Validate without writing
 opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" --value 42.5 --type double --dry-run
+
+# Attributes other than Value, converted to the attribute's data type
+opcuactl write attr -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" --attr DisplayName --value "en:Tank 1 temperature"
+opcuactl write attr -e opc.tcp://localhost:4840 -n "ns=2;s=Temperature" --attr Historizing --value true --dry-run
 
 # Any data type as a Variant in the OPC UA JSON encoding: a whole array ...
 opcuactl write value -e opc.tcp://localhost:4840 -n "ns=2;s=ArrayNode" \
@@ -717,11 +735,23 @@ opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --ye
 opcuactl history update-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --yes --mode replace \
   --event '{"EventId":"0x0a01","Message":"shift handover, line 2","Severity":200}'
 opcuactl history delete-events -e opc.tcp://localhost:4840 -n "ns=1;s=Demo" --event-id 0x0a01 --yes
+
+# Backfill two samples, correct one, delete a range (the variable needs HistoryWrite)
+opcuactl history update-values -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Sine" --yes \
+  --sample 2026-03-10T08:00:00Z=0.25 --sample 2026-03-10T08:01:00Z=0.5
+opcuactl history update-values -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Sine" --yes --mode replace \
+  --sample 2026-03-10T08:01:00Z=0.55
+opcuactl history delete-values -e opc.tcp://localhost:4840 -n "ns=1;s=Demo.Sine" --yes \
+  --start 2026-03-10T00:00:00Z --end 2026-03-11T00:00:00Z
 ```
 
 `history event` reads with ReadEventDetails (Part 11 §6.5.2): `--start` after `--end` reads backward (newest first); one of them is enough with `--num-values` or `--max-events`. `--select` takes BrowsePaths (`AckedState/Id`, `2:Temperature`) and `ConditionId`; EventIds print in base64. `--of-type`, `--severity-min` and `--severity-max` build the WhereClause, combined with And. `--num-values` is the page size: opcuactl follows the continuation points until the history is read, `--max-events` events were returned or, with `--continuation single`, after one page, and releases the continuation point it leaves. A Bad status of the node (unknown node, no event history) exits 6; an empty range is success.
 
 `history update-events` (UpdateEventDetails, Part 11 §6.9.4) takes events as JSON objects (`--event`, repeatable, or `--events-file`, `-` for stdin) with `--mode insert|replace|update`: EventId in base64 or 0x hex (insert and update make one when missing and print it), EventType and SourceNode as NodeIds, Time in RFC 3339 (default now), Message, SourceName, Severity, and any other field as a string, boolean, number or OPC UA JSON Variant (`{"UaType":7,"Value":42}`). `history delete-events` (DeleteEventDetails, §6.9.7) takes `--event-id` (repeatable); an unknown EventId is `Bad_NoData`. Both print the result of each event, ask before changing anything on a terminal (`--yes` skips it, `--dry-run` only prints) and exit 7 when some events failed, 6 when all did.
+
+`history update-values` (UpdateDataDetails, Part 11 §6.9.2) takes samples as `--sample TIME=VALUE` (repeatable; TIME in RFC 3339 or `now`, VALUE converted with `--type` as `write value` does, default double) or `--samples-file` (a JSON array of `{"time": ..., "value": ...}`, `-` for stdin) with `--mode insert|replace|update`. `history delete-values` deletes a range (`--start`, `--end`; DeleteRawModifiedDetails, §6.9.5; `--modified` the modified values of the range) or the samples at `--at` times (DeleteAtTimeDetails, §6.9.6). They print the result of each sample, ask on a terminal (`--yes`, `--dry-run`) and exit 7 when some failed, 6 when all did.
+
+`--aggregate` of `history value --mode processed` and `export values` takes every standard aggregate (`average`, `min`, `max`, `count`, `timeaverage`, `total`, `range`, `delta`, `start`, `end`, `durationgood`, `percentgood`, `worstquality`, …; see `history value --help`) or the NodeId of an aggregate function of the server.
 
 ### Export
 
@@ -960,6 +990,8 @@ The table follows the organisation table; [docs/exitcodes.md](docs/exitcodes.md)
 
 The key type of `--cert` decides which policies you can use: an RSA certificate cannot open an ECC channel and the other way round. `auto`, and `discover endpoints --best --cert …`, therefore only consider endpoints that fit your certificate — a server that offers both gets an ECC channel from a client with an ECC certificate and an RSA channel otherwise. With an explicit policy the server certificate is taken from the matching endpoint (or from `--server-cert`).
 
+In the security mode `Sign`, `ECC_nistP256`, `ECC_nistP384`, `ECC_brainpoolP256r1` and `ECC_brainpoolP384r1` derive only the signing keys, as OPC UA Part 6 §6.8.1 asks (since opcuactl v0.19.0; open62541 v1.5.10 does the same). Servers that still derive the longer key material of v1.5.9 and earlier refuse such a channel: use `SignAndEncrypt` with them, or `--ecc-sign-legacy-key-length` (also a flag of `serve`).
+
 **Recommended production pattern:** set `--security-policy auto --security-mode auto`, provide a client cert/key, and trust the server CA with `--trusted-cert`. `auto` discovers endpoints, picks the best match, and applies channel settings, remote certificate, and user-token PolicyId for you. The endpoints come from GetEndpoints, which the server answers without security; over the secured channel opcuactl compares that list with the endpoints of CreateSession and refuses a server whose two lists differ before it activates a session, so no user token is sent (exit 4, `BadSecurityChecksFailed`). An explicit `--security-policy` without `--server-cert` selects from the same list and is compared the same way. A server that answers the two differently, for example because it lists the endpoints of a URL and `--endpoint` names it with another letter case or a trailing slash, is reached with `--security-policy`, `--security-mode` and `--server-cert`, which do not use GetEndpoints.
 
 ```sh
@@ -1130,6 +1162,11 @@ opcuactl serve --listen 127.0.0.1:0 -q
 | `--max-sessions` | `100` | Sessions the server keeps at most, activated or not; beyond, CreateSession is `BadTooManySessions` |
 | `--max-subscriptions` | `1024` | Subscriptions of all sessions together at most; beyond, CreateSubscription is `BadTooManySubscriptions` |
 | `--max-subscriptions-per-session` | `64` | Subscriptions of one session at most (`BadTooManySubscriptions`) |
+| `--lds` | off | Be a Local Discovery Server: accept RegisterServer and RegisterServer2 on secured channels from the registered application, list the registered servers in FindServers |
+| `--lds-allow-insecure-registration`, `--lds-skip-server-uri-check` | off | `--lds` lab settings: accept registrations without security, or of another ServerUri than the client certificate's |
+| `--register-with` | — | Register with the discovery server at this URL (repeatable), renewed every `--register-interval` (10m), unregistered on stop; `--register-insecure` allows a channel without security |
+| `--node-management` | off | Let clients add and delete nodes and references (AddNodes, DeleteNodes, AddReferences, DeleteReferences) outside namespace 0 |
+| `--ecc-sign-legacy-key-length` | off | Security mode Sign with ECC_nistP256/P384 or ECC_brainpoolP256r1/P384r1: derive the keys as open62541 v1.5.9 and earlier do |
 | `--duration` | until Ctrl+C / SIGTERM | Stop after this time |
 
 The demo namespace `urn:otfabric:opcuactl:demo` (ns=1; the namespaces of `--nodeset` files come after it) has the object `Demo` under Objects with string NodeIds. `Demo` is an event notifier with an event history (EventNotifier SubscribeToEvents, HistoryRead and HistoryWrite): it keeps the last 1000 events reported on it, an event "opcuactl serve started" (Severity 100) and the LevelAlarm transitions, for `history event`, `history update-events` and `history delete-events`.
@@ -1138,8 +1175,8 @@ The demo namespace `urn:otfabric:opcuactl:demo` (ns=1; the namespaces of `--node
 |------|------|-|
 | `Demo.Boolean`, `Demo.Int32`, `Demo.Double`, `Demo.String`, `Demo.DateTime`, `Demo.Int32Array` | Boolean, Int32 (42), Double, String, DateTime, Int32[5] | read-only |
 | `Demo.Counter` | UInt32 | counts up every `--sim-interval` (subscriptions) |
-| `Demo.Sine` | Double | a sine wave between -1 and 1 over 60 intervals, historized (`history value`) |
-| `Demo.Level` | Double (50) | writable (`--type double`) |
+| `Demo.Sine` | Double | a sine wave between -1 and 1 over 60 intervals, historized (`history value`); HistoryWrite (`history update-values`, `delete-values`) |
+| `Demo.Level` | Double (50) | writable (`--type double`), and its DisplayName and Description (`write attr`) |
 | `Demo.LevelAlarm` | ExclusiveLevelAlarmType | on `Demo.Level`: High at 80, HighHigh at 95; acknowledge and shelve with `alarms` |
 | `Demo.Add` | method of `Demo` | `Add(a, b Int32) -> sum` |
 

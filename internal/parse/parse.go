@@ -264,6 +264,16 @@ func AttributeIDFromName(s string) (ua.AttributeID, error) {
 		return ua.AttributeIDExecutable, nil
 	case "userexecutable", "user-executable", "22":
 		return ua.AttributeIDUserExecutable, nil
+	case "datatypedefinition", "data-type-definition", "23":
+		return ua.AttributeIDDataTypeDefinition, nil
+	case "rolepermissions", "role-permissions", "24":
+		return ua.AttributeIDRolePermissions, nil
+	case "userrolepermissions", "user-role-permissions", "25":
+		return ua.AttributeIDUserRolePermissions, nil
+	case "accessrestrictions", "access-restrictions", "26":
+		return ua.AttributeIDAccessRestrictions, nil
+	case "accesslevelex", "access-level-ex", "27":
+		return ua.AttributeIDAccessLevelEx, nil
 	default:
 		// Try parsing as a numeric ID
 		v, err := strconv.ParseUint(s, 10, 32)

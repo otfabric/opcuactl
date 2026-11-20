@@ -15,6 +15,22 @@ type DiscoveredServer struct {
 	DiscoveryURLs       []string `json:"discoveryUrls"`
 }
 
+// RegisterResult is the outcome of discover register.
+type RegisterResult struct {
+	DiscoveryServerURL string `json:"discoveryServerUrl"`
+	ServerURI          string `json:"serverUri"`
+	// Online is false for an unregistration (--offline).
+	Online bool `json:"online"`
+	// Service is RegisterServer2 or RegisterServer.
+	Service        string `json:"service"`
+	SecurityPolicy string `json:"securityPolicy"`
+	SecurityMode   string `json:"securityMode"`
+	Status         string `json:"status"`
+	// ConfigurationResults are the results of the discovery configurations
+	// of RegisterServer2; BadNotSupported: the discovery server ignored it.
+	ConfigurationResults []string `json:"configurationResults,omitempty"`
+}
+
 // ServerOnNetwork represents a discovered server on the network.
 type ServerOnNetwork struct {
 	RecordID           uint32   `json:"recordId"`
@@ -152,14 +168,18 @@ type NamespaceEntry struct {
 
 // WriteResult represents the result of a write operation.
 type WriteResult struct {
-	NodeID     string `json:"nodeId"`
+	NodeID string `json:"nodeId"`
+	// Attribute is the attribute of write attr; write value leaves it out.
+	Attribute  string `json:"attribute,omitempty"`
 	Status     string `json:"status"`
 	StatusCode uint32 `json:"statusCode"`
 }
 
 // DryRunResult represents enriched dry-run output for a write operation.
 type DryRunResult struct {
-	NodeID       string      `json:"nodeId"`
+	NodeID string `json:"nodeId"`
+	// Attribute is the attribute of write attr; write value leaves it out.
+	Attribute    string      `json:"attribute,omitempty"`
 	DisplayName  string      `json:"displayName,omitempty"`
 	DataType     string      `json:"dataType,omitempty"`
 	AccessLevel  string      `json:"accessLevel,omitempty"`
@@ -253,6 +273,26 @@ type HistoryEventUpdate struct {
 	// Fields are the fields of an event to insert or replace, with
 	// --dry-run.
 	Fields map[string]interface{} `json:"fields,omitempty"`
+}
+
+// HistoryValueUpdate is the result of inserting, replacing or updating one
+// historical value, or of deleting values (history update-values,
+// delete-values).
+type HistoryValueUpdate struct {
+	NodeID string `json:"nodeId"`
+	// Operation is insert, replace, update, delete or delete-modified.
+	Operation string `json:"operation"`
+	// Index is the position of the sample or time in the request, from 1.
+	Index int `json:"index"`
+	// Time is the SourceTimestamp of the sample (RFC 3339); Start and End
+	// the range of a delete by range.
+	Time  string      `json:"time,omitempty"`
+	Start string      `json:"start,omitempty"`
+	End   string      `json:"end,omitempty"`
+	Value interface{} `json:"value,omitempty"`
+	// Status is the symbol of StatusCode, or DryRun.
+	Status     string `json:"status"`
+	StatusCode uint32 `json:"statusCode"`
 }
 
 // ExportedValue represents a snapshot or historical value export entry.
