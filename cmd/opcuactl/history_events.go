@@ -23,7 +23,6 @@ import (
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 // historyEventFields are the event fields history event returns by default.
@@ -335,7 +334,7 @@ func historyEventValue(v *ua.Variant) interface{} {
 // confirmHistoryChange asks on a terminal whether to go on; without a
 // terminal it goes on. The history commands and write attr use it.
 func confirmHistoryChange(prompt string) bool {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !stdinIsTerminal() {
 		return true
 	}
 	fmt.Fprintf(os.Stderr, "%s [y/N] ", prompt)

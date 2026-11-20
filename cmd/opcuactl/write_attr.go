@@ -211,32 +211,7 @@ Examples:
 				AttributeID: attr,
 				Value:       &ua.DataValue{EncodingMask: ua.DataValueValue, Value: variant},
 			}}})
-			if err != nil {
-				format.Errf("writing %s of %s: %v", friendlyAttrName(attr), nodeID, err)
-				return exitCode(exitProtocol, err)
-			}
-			printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
-				return "write " + friendlyAttrName(attr) + " of " + nodeID.String()
-			})
-			if len(resp.Results) != 1 {
-				return exitCodef(exitProtocol, "writing %s of %s: %d results for 1 write", friendlyAttrName(attr), nodeID, len(resp.Results))
-			}
-			sc := resp.Results[0]
-			result := model.WriteResult{NodeID: nodeID.String(), Attribute: friendlyAttrName(attr), Status: sc.Symbol(), StatusCode: sc.Uint32()}
-			w := newWriter()
-			if format.ParseFormat(outputFormat) == format.Table {
-				err = w.WriteTable([]string{"NODE ID", "ATTRIBUTE", "STATUS", "STATUS CODE"},
-					[][]string{{result.NodeID, result.Attribute, result.Status, strconv.FormatUint(uint64(result.StatusCode), 10)}})
-			} else {
-				err = w.Write(result)
-			}
-			if err != nil {
-				return err
-			}
-			if isBadStatus(sc) {
-				return exitCodef(exitProtocol, "writing %s of %s: %s", friendlyAttrName(attr), nodeID, sc.Symbol())
-			}
-			return nil
+			return writeAttrResponse(resp, err, nodeID, attr)
 		},
 	}
 	cmd.Flags().StringVarP(&nodeStr, "node", "n", "", "Target node ID (required)")
@@ -248,6 +223,37 @@ Examples:
 	_ = cmd.RegisterFlagCompletionFunc("type", fixedCompletion(writeAttrTypeValues))
 	_ = cmd.RegisterFlagCompletionFunc("attr", fixedCompletion(writableAttributeNames()))
 	return cmd
+}
+
+// writeAttrResponse prints the result of the one write of write attr and
+// returns the exit.
+func writeAttrResponse(resp *ua.WriteResponse, err error, nodeID *ua.NodeID, attr ua.AttributeID) error {
+	if err != nil {
+		format.Errf("writing %s of %s: %v", friendlyAttrName(attr), nodeID, err)
+		return exitCode(exitProtocol, err)
+	}
+	printOperationDiagnostics(resp.ResponseHeader, resp.DiagnosticInfos, func(int) string {
+		return "write " + friendlyAttrName(attr) + " of " + nodeID.String()
+	})
+	if len(resp.Results) != 1 {
+		return exitCodef(exitProtocol, "writing %s of %s: %d results for 1 write", friendlyAttrName(attr), nodeID, len(resp.Results))
+	}
+	sc := resp.Results[0]
+	result := model.WriteResult{NodeID: nodeID.String(), Attribute: friendlyAttrName(attr), Status: sc.Symbol(), StatusCode: sc.Uint32()}
+	w := newWriter()
+	if format.ParseFormat(outputFormat) == format.Table {
+		err = w.WriteTable([]string{"NODE ID", "ATTRIBUTE", "STATUS", "STATUS CODE"},
+			[][]string{{result.NodeID, result.Attribute, result.Status, strconv.FormatUint(uint64(result.StatusCode), 10)}})
+	} else {
+		err = w.Write(result)
+	}
+	if err != nil {
+		return err
+	}
+	if isBadStatus(sc) {
+		return exitCodef(exitProtocol, "writing %s of %s: %s", friendlyAttrName(attr), nodeID, sc.Symbol())
+	}
+	return nil
 }
 
 // writableAttributeNames are the --attr completions: the attributes other
