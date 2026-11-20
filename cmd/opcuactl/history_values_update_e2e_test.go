@@ -174,3 +174,29 @@ func TestHistoryValueUpdateFlags(t *testing.T) {
 		t.Errorf("now: %v %v", list, err)
 	}
 }
+
+// TestParseSamplesUAJSONAndStdin reads a ua-json sample and samples from
+// stdin.
+func TestParseSamplesUAJSONAndStdin(t *testing.T) {
+	now := time.Now().UTC()
+	list, err := parseSamples([]string{`now={"UaType":6,"Value":7}`}, "", "ua-json", now)
+	if err != nil || len(list) != 1 || list[0].value != int32(7) {
+		t.Fatalf("ua-json: %+v %v", list, err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = stdin })
+	go func() {
+		_, _ = w.WriteString(`[{"time":"2020-01-01T00:00:00Z","value":{"UaType":11,"Value":1.25}}]`)
+		_ = w.Close()
+	}()
+	list, err = parseSamples(nil, "-", "ua-json", now)
+	if err != nil || len(list) != 1 || list[0].value != 1.25 || list[0].time.Year() != 2020 {
+		t.Errorf("stdin: %+v %v", list, err)
+	}
+}

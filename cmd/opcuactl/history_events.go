@@ -333,7 +333,7 @@ func historyEventValue(v *ua.Variant) interface{} {
 }
 
 // confirmHistoryChange asks on a terminal whether to go on; without a
-// terminal it goes on.
+// terminal it goes on. The history commands and write attr use it.
 func confirmHistoryChange(prompt string) bool {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return true

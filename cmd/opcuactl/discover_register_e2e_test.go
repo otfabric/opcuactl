@@ -179,3 +179,17 @@ func TestDiscoverRegisterFlags(t *testing.T) {
 		t.Errorf("with the URI of --cert: exit %d (%v), want %d", ExitCode(err), err, exitTransport)
 	}
 }
+
+// TestE2E_DiscoverRegisterNotLDS registers with a server that is not a
+// discovery server: RegisterServer2 is unsupported, and so is the
+// RegisterServer it falls back to (exit 8, unsupported).
+func TestE2E_DiscoverRegisterNotLDS(t *testing.T) {
+	s := startServe(t, "--no-demo")
+	url := s.url(t, "http://opcfoundation.org/UA-Profile/Transport/uatcp-uasc-uabinary")
+	_, errOut, err := runCLI(t, "discover", "register", "-e", url, "--discovery-url", "opc.tcp://x:4841", "--server-uri", "urn:x",
+		"--security-policy", "None", "--insecure-no-security")
+	if err == nil || ExitCode(err) != exitUnsupported {
+		t.Fatalf("exit %d (%v), want %d\n%s", ExitCode(err), err, exitUnsupported, errOut)
+	}
+	wantContains(t, errOut, "registering", "BadServiceUnsupported")
+}

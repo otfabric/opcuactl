@@ -3,7 +3,6 @@
 package opcuactl
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"github.com/otfabric/opcuactl/internal/model"
 	"github.com/otfabric/opcuactl/internal/parse"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 // writeAttrTypeValues are the --type values of write attr.
@@ -189,13 +187,9 @@ Examples:
 				return exitCodef(exitUsage, "creating variant: %v", err)
 			}
 
-			if !dryRun && !yes && term.IsTerminal(int(os.Stdin.Fd())) {
-				fmt.Fprintf(os.Stderr, "Write %s = %s to %s on %s? [y/N] ", friendlyAttrName(attr), format.FormatValue(goVal), nodeID, connCfg.Endpoint)
-				line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-				if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
-					fmt.Fprintln(os.Stderr, "Write cancelled.")
-					return nil
-				}
+			if !dryRun && !yes && !confirmHistoryChange(fmt.Sprintf("Write %s = %s to %s on %s?", friendlyAttrName(attr), format.FormatValue(goVal), nodeID, connCfg.Endpoint)) {
+				fmt.Fprintln(os.Stderr, "Write cancelled.")
+				return nil
 			}
 
 			ctx, cancel := context.WithCancel(rootContext())
