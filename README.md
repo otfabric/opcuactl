@@ -66,6 +66,7 @@ opcuactl completion powershell | Out-String | Invoke-Expression
 - **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them; `history update-values` / `delete-values` backfill, correct and delete historical values (OPC UA Part 11). Every standard aggregate of Part 13 for processed reads.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Brainpool P-256/P-384, Curve25519, Curve448, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
+- **OPC UA FX** — `fx inspect` reads the UAFX information model of a server (OPC 10000-81): its AutomationComponents with their Assets, FunctionalEntities and ConnectionEndpoints, the ConnectionManager, and where the address space deviates from Part 81 (`--strict` exits 1 on findings).
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
 - **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, an event history, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
@@ -176,6 +177,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Transports** — `opc.tcp`, `opc.wss` (WebSocket over TLS) and `opc.https` (HTTPS), the latter two in UA Binary or UA JSON (wss-uajson, https-uajson), with TLS server verification against `--tls-ca` and client certificates for mutual TLS
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
 - **Test server** — `serve` runs a go-opcua server: opc.tcp, opc.wss and opc.https listeners with the UA JSON mappings, the RSA and ECC security policies with generated or given certificates, a client trust list, anonymous and user name logins, a demo namespace (simulated, writable and historized values, a level alarm, a method) and NodeSet2 import
+- **OPC UA FX (Part 81, information model only)** — the UAFX namespaces and their versions, FxRoot, AutomationComponents (health, ConformanceName, Descriptors), Assets with their nameplate, FunctionalEntities and SubFunctionalEntities, ConnectionEndpoints (status, persistence, cleanup timeout), the ConnectionManager, and findings with the clause they deviate from; it does not establish connections
 - **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), PubSub Actions (request / response: `pubsub call` and a test Responder, `pubsub respond`), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
@@ -242,6 +244,8 @@ opcuactl
 │   ├── subscriptions  Subscriptions (--session: of one session)
 │   ├── sampling       Sampling intervals in use
 │   └── enable / disable  Switch the collection of server diagnostics (administrators)
+├── fx
+│   └── inspect        UAFX information model and deviations from Part 81 (--strict, --max-*)
 ├── gds                Certificate management by the push model (Part 12 §7; SecurityAdmin, SignAndEncrypt)
 │   ├── props          ServerConfiguration properties (key formats, certificate types, MaxTrustListSize)
 │   ├── trustlist
@@ -608,6 +612,22 @@ What a client may read is up to the server: usually everyone reads the summary, 
 
 `--return-diagnostics none|service|operation|all` (or a raw mask) asks the server for DiagnosticInfos with every request: a request the server rejects as a whole prints its service diagnostics; `get value`, `write value` and `call method` print the DiagnosticInfo of every failed operation (and failed method input argument). They go to stderr, so table and JSON output stay unchanged.
 
+
+### OPC UA FX
+
+```sh
+# The UAFX model of a server: AutomationComponents, Assets, FunctionalEntities,
+# ConnectionEndpoints, the ConnectionManager, and findings with their Part 81 clause
+opcuactl fx inspect -e opc.tcp://localhost:4840
+
+# The whole report for a script; exit 1 when the server is not a UAFX server or has findings
+opcuactl fx inspect -e opc.tcp://localhost:4840 --format json --strict
+
+# Bound what a large server makes opcuactl read (exit 7 when the report is cut short)
+opcuactl fx inspect -e opc.tcp://localhost:4840 --max-nodes 500 --max-depth 4
+```
+
+`fx inspect` reads the model only; the Methods that establish, verify and close connections are not called. "UAFX server: yes" means the server has the namespaces of Part 81 §14.2 and FxRoot (§12.2): it is not a conformance statement. go-opcua's `examples/uafx/server` is a server to try it against.
 ### Certificate Management (GDS Push)
 
 ```sh

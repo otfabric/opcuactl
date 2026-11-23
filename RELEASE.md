@@ -1,5 +1,18 @@
 # opcuactl Releases
 
+## v0.20.0
+
+**Date:** 2026-11-23
+**Previous release:** v0.19.1
+
+Moves to go-opcua v1.36.0 (was v1.35.0) and adds `fx inspect`, which reads the OPC UA FX information model of a server (OPC 10000-81). The existing commands, their output and exit codes are unchanged; no changes need attention when upgrading.
+
+### Added
+
+- `fx inspect` reads the UAFX model of a server: the DI, Data, AC and CM namespaces with their NamespaceMetadata versions, the ServerCapabilities, FxRoot (Part 81 §12.2), the AutomationComponents (§6.2.2) with their ConformanceName, AggregatedHealth and Descriptors, their Assets with the nameplate (§6.3.2), FunctionalEntities and SubFunctionalEntities (§6.4.2) and ConnectionEndpoints (§6.6.2: Status, IsPersistent, CleanupTimeout), and the ConnectionManager (§12.3). It lists where the address space deviates from Part 81 as findings, each with its clause. "UAFX server: yes" means the namespaces of §14.2 and FxRoot are there; it is not a conformance statement. It reads the model only: the Methods that establish, verify and close connections are not called. `--max-components`, `--max-children`, `--max-depth` and `--max-nodes` bound what a large or hostile server makes it read; a report cut short exits 7. `--strict` exits 1 when the server is not a UAFX server or has findings. Text output escapes the control characters of server strings (JSON: `FxReport`).
+
+---
+
 ## v0.19.0
 
 **Date:** 2026-11-20

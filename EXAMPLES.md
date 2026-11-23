@@ -72,6 +72,9 @@ This PLC only offers anonymous / username over `None/None`, and does not support
   - [Find Node (by Regex)](#find-node-by-regex)
   - [Find Type (by Data Type)](#find-type-by-data-type)
   - [Find Type (by Byte)](#find-type-by-byte)
+- [OPC UA FX (captured against a go-opcua server)](#opc-ua-fx-captured-against-a-go-opcua-server)
+  - [FX Inspect](#fx-inspect)
+  - [FX Inspect (JSON)](#fx-inspect-json)
 - [Version](#version)
 - [v0.5.0 features (captured against brokers and a go-opcua server)](#v050-features-captured-against-brokers-and-a-go-opcua-server)
   - [MQTT 5.0](#mqtt-50)
@@ -767,6 +770,75 @@ $ opcuactl find type "${CONN[@]}" --data-type Byte --depth 3 --limit 5
 NODE ID  CLASS              DISPLAY NAME  DATA TYPE  TYPE DEFINITION
 i=2267   NodeClassVariable  ServiceLevel  Byte       i=68
 ```
+
+---
+
+## OPC UA FX (captured against a go-opcua server)
+
+Captured with `opcuactl` v0.20.0 against go-opcua v1.36.0's `examples/uafx/server` (`go run ./examples/uafx/server -port 4855`): a controller with a drive as its Asset and a Motion FunctionalEntity with a PubSub ConnectionEndpoint. The connection flags are `-e opc.tcp://localhost:4855 --insecure-no-security`, shown as `"${FX[@]}"`.
+
+### FX Inspect
+
+```console
+$ opcuactl fx inspect "${FX[@]}"
+UAFX server: yes
+  ns=2   http://opcfoundation.org/UA/DI/  1.05.0
+  ns=3   http://opcfoundation.org/UA/FX/Data/  1.00.04
+  ns=4   http://opcfoundation.org/UA/FX/AC/  1.00.04
+  ns=5   http://opcfoundation.org/UA/FX/CM/  1.00.04
+FxRoot: ns=3;i=71
+
+AutomationComponent 6:Controller (ns=6;i=1000)
+  conformance: https://opcfoundation.org/products/view/example
+  health: device OK, operational OK
+  asset 6:Drive (ns=6;i=1100): Example Automation, Drive 100, serial SN-0042, hardware 1.0, software 2.3.1
+  functional entity 6:Motion (ns=6;i=1200) Motion-1 v1.2.0.0, health OperationalWarning
+    endpoint 6:ToLine (ns=6;i=1300): Operational, persistent true, cleanup timeout 1.5s
+    functional entity 6:Axis (ns=6;i=1210)
+  descriptor 6:Profile (ns=6;i=1009)
+
+ConnectionManager 5:ConnectionManager (ns=5;i=5011): 0 connection configuration set(s)
+```
+
+Deviations from Part 81 follow under `Findings:`, one per line with the clause (`--strict` makes them exit 1). Namespace 1 of the server is its ApplicationUri, so the UAFX namespaces start at 2.
+
+### FX Inspect (JSON)
+
+```console
+$ opcuactl fx inspect "${FX[@]}" --format json --pretty
+{
+  "hasFxNamespaces": true,
+  "isFxServer": true,
+  "namespaces": [
+    {
+      "uri": "http://opcfoundation.org/UA/DI/",
+      "present": true,
+      "index": 2,
+      "version": "1.05.0",
+      "publicationDate": "2025-11-15T00:00:00Z"
+    },
+    ...
+  ],
+  "fxRoot": "ns=3;i=71",
+  "automationComponents": [
+    {
+      "nodeId": "ns=6;i=1000",
+      "browseName": "6:Controller",
+      "displayName": "Controller",
+      "typeDefinition": "ns=4;i=2",
+      "conformanceName": "https://opcfoundation.org/products/view/example",
+      "aggregatedHealth": {
+        "deviceHealth": "OK",
+        "deviceHealthBits": 0,
+        "operationalHealth": "OK",
+        "operationalHealthBits": 0
+      },
+      "assets": [ ... ],
+      "functionalEntities": [ ... ],
+      ...
+```
+
+The records are in [docs/json-output.md](docs/json-output.md#opc-ua-fx).
 
 ---
 
