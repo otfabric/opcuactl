@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -98,5 +99,62 @@ func TestFxInspectSeparateServer(t *testing.T) {
 	output, code = run(t, "fx", "inspect", "--check", "-e", serve(t), "--insecure-no-security")
 	if code != 1 || !strings.Contains(output, "not a UAFX server") {
 		t.Errorf("opcuactl serve: exit code %d, want 1\n%s", code, output)
+	}
+}
+
+// TestFxConnectSeparateServer verifies the FunctionalEntity of the example
+// server with fx connect and closes its preconfigured endpoint with fx
+// close: the Methods of Part 81 §6.2.4 and §6.2.5 across the module
+// boundary.
+func TestFxConnectSeparateServer(t *testing.T) {
+	url := fxServer(t)
+	conn := []string{"-e", url, "--insecure-no-security", "--timeout", "30s"}
+	const ns = "nsu=urn:example:uafx:controller;"
+	ac := ns + "i=1000"
+	request := func(identifier string) string {
+		p := filepath.Join(t.TempDir(), "verify.yaml")
+		doc := fmt.Sprintf(`commands: [VerifyFunctionalEntity]
+endpoints:
+  - functionalEntity: "%[1]si=1200"
+    node: "%[1]si=1300"
+    expectedVerificationVariables:
+      - {node: "%[1]si=1202", type: String, value: %[2]q}
+`, ns, identifier)
+		if err := os.WriteFile(p, []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// Leading and trailing white space is not compared (§6.4.3).
+	output, code := run(t, append([]string{"fx", "connect", "--ac", ac, "--request", request(" Motion-1 "), "--format", "json"}, conn...)...)
+	if code != 0 {
+		t.Fatalf("exit code %d, want 0\n%s", code, output)
+	}
+	var r struct {
+		Status    string `json:"status"`
+		Endpoints []struct {
+			VerificationResult string `json:"verificationResult"`
+		} `json:"endpoints"`
+	}
+	if err := json.Unmarshal([]byte(output), &r); err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+	if r.Status != "Good" || len(r.Endpoints) != 1 || r.Endpoints[0].VerificationResult != "Match" {
+		t.Errorf("result: %s", output)
+	}
+
+	output, code = run(t, append([]string{"fx", "connect", "--ac", ac, "--request", request("Motion-2")}, conn...)...)
+	if code != 6 || !strings.Contains(output, "Mismatch") || !strings.Contains(output, "Uncertain") {
+		t.Errorf("mismatch: exit code %d, want 6\n%s", code, output)
+	}
+
+	output, code = run(t, append([]string{"fx", "close", "--ac", ac, ns + "i=1300"}, conn...)...)
+	if code != 0 || !strings.Contains(output, "Good") {
+		t.Errorf("close: exit code %d, want 0\n%s", code, output)
+	}
+	output, code = run(t, append([]string{"fx", "close", "--ac", ac, ns + "i=1200"}, conn...)...)
+	if code != 6 || !strings.Contains(output, "BadInvalidArgument") {
+		t.Errorf("close of a FunctionalEntity: exit code %d, want 6\n%s", code, output)
 	}
 }
