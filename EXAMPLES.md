@@ -800,7 +800,7 @@ AutomationComponent 6:Controller (ns=6;i=1000)
 ConnectionManager 5:ConnectionManager (ns=5;i=5011): 0 connection configuration set(s)
 ```
 
-Deviations from Part 81 follow under `Findings:`, one per line with the clause (`--strict` makes them exit 1). Namespace 1 of the server is its ApplicationUri, so the UAFX namespaces start at 2.
+Deviations from Part 81 follow under `Findings:`, one per line with the clause (`--check` makes them exit 1). Namespace 1 of the server is its ApplicationUri, so the UAFX namespaces start at 2.
 
 ### FX Inspect (JSON)
 

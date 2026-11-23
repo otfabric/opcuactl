@@ -66,7 +66,7 @@ opcuactl completion powershell | Out-String | Invoke-Expression
 - **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them; `history update-values` / `delete-values` backfill, correct and delete historical values (OPC UA Part 11). Every standard aggregate of Part 13 for processed reads.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Brainpool P-256/P-384, Curve25519, Curve448, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
-- **OPC UA FX** — `fx inspect` reads the UAFX information model of a server (OPC 10000-81): its AutomationComponents with their Assets, FunctionalEntities and ConnectionEndpoints, the ConnectionManager, and where the address space deviates from Part 81 (`--strict` exits 1 on findings).
+- **OPC UA FX** — `fx inspect` reads the UAFX information model of a server (OPC 10000-81): its AutomationComponents with their Assets, FunctionalEntities and ConnectionEndpoints, the ConnectionManager, and where the address space deviates from Part 81 (`--check` exits 1 on findings: a check of the model for CI, not certification).
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
 - **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, an event history, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
@@ -245,7 +245,7 @@ opcuactl
 │   ├── sampling       Sampling intervals in use
 │   └── enable / disable  Switch the collection of server diagnostics (administrators)
 ├── fx
-│   └── inspect        UAFX information model and deviations from Part 81 (--strict, --max-*)
+│   └── inspect        UAFX information model and deviations from Part 81 (--check, --max-*)
 ├── gds                Certificate management by the push model (Part 12 §7; SecurityAdmin, SignAndEncrypt)
 │   ├── props          ServerConfiguration properties (key formats, certificate types, MaxTrustListSize)
 │   ├── trustlist
@@ -621,7 +621,7 @@ What a client may read is up to the server: usually everyone reads the summary, 
 opcuactl fx inspect -e opc.tcp://localhost:4840
 
 # The whole report for a script; exit 1 when the server is not a UAFX server or has findings
-opcuactl fx inspect -e opc.tcp://localhost:4840 --format json --strict
+opcuactl fx inspect -e opc.tcp://localhost:4840 --format json --check
 
 # Bound what a large server makes opcuactl read (exit 7 when the report is cut short)
 opcuactl fx inspect -e opc.tcp://localhost:4840 --max-nodes 500 --max-depth 4

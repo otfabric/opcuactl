@@ -1,5 +1,6 @@
 # The e2e suite against the built binary (make e2e): version, usage error,
-# transport and protocol failures, and SIGINT, as the exit status of the
+# transport and protocol failures, SIGINT, and fx inspect against go-opcua's
+# example UAFX server run as a process of its own, as the exit status of the
 # process. Weekly and on demand; the in-process tests of cmd/opcuactl run on
 # every pull request (ci.yml).
 name: E2E

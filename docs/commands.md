@@ -728,11 +728,11 @@ opcuactl fx inspect [flags]
 
 | Flag | Value | Meaning |
 |---|---|---|
+| `--check` |  | Exit 1 when the server is not a UAFX server or there are findings (a model check, not certification) |
 | `--max-children` | `int` | Most children read of one node (0: 1024) |
 | `--max-components` | `int` | Most AutomationComponents and ConnectionManagers read (0: 256) |
 | `--max-depth` | `int` | Most levels of SubFunctionalEntities read (0: 8) |
 | `--max-nodes` | `int` | Most nodes read in all; more ends with the report so far and exit 7 (0: 10000) |
-| `--strict` |  | Exit 1 when the server is not a UAFX server or there are findings |
 
 ## opcuactl gds
 

@@ -40,7 +40,7 @@ type FxNode struct {
 
 // FxAutomationComponent is an AutomationComponent (Part 81 §6.2.2).
 type FxAutomationComponent struct {
-	FxNode
+	FxNode             `yaml:",inline"`
 	ConformanceName    string               `json:"conformanceName,omitempty"`
 	AggregatedHealth   *FxHealth            `json:"aggregatedHealth,omitempty"`
 	Assets             []FxAsset            `json:"assets"`
@@ -59,7 +59,7 @@ type FxHealth struct {
 
 // FxAsset is an Asset (Part 81 §6.3.2) with its nameplate.
 type FxAsset struct {
-	FxNode
+	FxNode             `yaml:",inline"`
 	Manufacturer       string `json:"manufacturer,omitempty"`
 	ManufacturerURI    string `json:"manufacturerUri,omitempty"`
 	Model              string `json:"model,omitempty"`
@@ -76,7 +76,7 @@ type FxAsset struct {
 
 // FxFunctionalEntity is a FunctionalEntity (Part 81 §6.4.2).
 type FxFunctionalEntity struct {
-	FxNode
+	FxNode                   `yaml:",inline"`
 	AuthorURI                string                 `json:"authorUri,omitempty"`
 	AuthorAssignedIdentifier string                 `json:"authorAssignedIdentifier,omitempty"`
 	AuthorAssignedVersion    string                 `json:"authorAssignedVersion,omitempty"`
@@ -88,7 +88,7 @@ type FxFunctionalEntity struct {
 
 // FxConnectionEndpoint is a ConnectionEndpoint (Part 81 §6.6.2).
 type FxConnectionEndpoint struct {
-	FxNode
+	FxNode `yaml:",inline"`
 	// Status is the ConnectionEndpointStatusEnum (Part 81 §10.17), ""
 	// when it cannot be read.
 	Status                          string `json:"status,omitempty"`
@@ -99,7 +99,7 @@ type FxConnectionEndpoint struct {
 
 // FxConnectionManager is a ConnectionManager (Part 81 §6.7.2).
 type FxConnectionManager struct {
-	FxNode
+	FxNode                      `yaml:",inline"`
 	ConnectionConfigurationSets []FxNode `json:"connectionConfigurationSets"`
 }
 

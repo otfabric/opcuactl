@@ -39,8 +39,10 @@ const (
 
 // startFxServer starts a server with the UAFX model, the controller and,
 // with bare, an AutomationComponent that misses its mandatory members.
-// manufacturer, when not "", replaces the Manufacturer of the drive.
-func startFxServer(t *testing.T, bare bool, manufacturer string) string {
+// manufacturer, when not "", replaces the Manufacturer of the drive; tweak
+// changes the server after that, with the index of the controller's
+// namespace and of the AC namespace.
+func startFxServer(t *testing.T, bare bool, manufacturer string, tweak ...func(srv *server.Server, ctl, ac uint16)) string {
 	t.Helper()
 	srv, err := server.New(
 		server.EndPoint("localhost", 0),
@@ -81,6 +83,9 @@ func startFxServer(t *testing.T, bare bool, manufacturer string) string {
 		}); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, f := range tweak {
+		f(srv, ctl, ns.AC)
 	}
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -187,8 +192,27 @@ func TestE2E_FxInspect(t *testing.T) {
 		}
 	})
 
-	t.Run("strict clean", func(t *testing.T) {
-		mustRun(t, "fx", "inspect", "-e", url, "--strict")
+	t.Run("formats", func(t *testing.T) {
+		// YAML holds the fields of a node where JSON does, not below a key
+		// of their own.
+		out := mustRun(t, "fx", "inspect", "-e", url, "--format", "yaml")
+		if !strings.Contains(out, "\n    - nodeid: ns=6;i=1000\n      browsename: 6:Controller\n") || strings.Contains(out, "fxnode") {
+			t.Errorf("yaml:\n%s", out)
+		}
+		out = mustRun(t, "fx", "inspect", "-e", url, "--format", "jsonl")
+		if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) != 1 {
+			t.Errorf("jsonl: %d lines", len(lines))
+		} else if r := fxJSON(t, lines[0]); !r.IsFxServer {
+			t.Errorf("jsonl: %+v", r)
+		}
+		out = mustRun(t, "fx", "inspect", "-e", url, "--format", "csv")
+		if !strings.HasPrefix(out, "hasFxNamespaces,isFxServer,namespaces,fxRoot,automationComponents,connectionManagers,findings,truncated\ntrue,true,") {
+			t.Errorf("csv:\n%s", out)
+		}
+	})
+
+	t.Run("check clean", func(t *testing.T) {
+		mustRun(t, "fx", "inspect", "-e", url, "--check")
 	})
 
 	t.Run("limits", func(t *testing.T) {
@@ -224,9 +248,9 @@ func TestE2E_FxInspectFindings(t *testing.T) {
 		}
 	}
 
-	out, errOut, err := runCLI(t, "fx", "inspect", "-e", url, "--strict", "--format", "json")
+	out, errOut, err := runCLI(t, "fx", "inspect", "-e", url, "--check", "--format", "json")
 	if ExitCode(err) != exitFindings {
-		t.Fatalf("--strict: exit %d, want 1\n%s", ExitCode(err), errOut)
+		t.Fatalf("--check: exit %d, want 1\n%s", ExitCode(err), errOut)
 	}
 	r := fxJSON(t, out)
 	if len(r.Findings) == 0 || r.Findings[0].Clause == "" || r.Findings[0].NodeID == "" {
@@ -236,6 +260,30 @@ func TestE2E_FxInspectFindings(t *testing.T) {
 		t.Errorf("stderr: %s", errOut)
 	}
 
+}
+
+// TestE2E_FxInspectMalformedValue checks a value the server holds but that
+// is not what Part 81 defines: an AggregatedHealth whose body is too short
+// is a finding, and the report has no health for the component.
+func TestE2E_FxInspectMalformedValue(t *testing.T) {
+	url := startFxServer(t, false, "", func(srv *server.Server, ctl, ac uint16) {
+		fxSetStructure(t, srv, ua.NewNumericNodeID(ctl, fxHealthID), ac, fxacid.AggregatedHealthDataTypeEncodingDefaultBinary, &struct{ B uint8 }{1})
+	})
+	out, errOut, err := runCLI(t, "fx", "inspect", "-e", url, "--check", "--format", "json")
+	if ExitCode(err) != exitFindings {
+		t.Fatalf("exit %d, want 1\n%s", ExitCode(err), errOut)
+	}
+	r := fxJSON(t, out)
+	if r.AutomationComponents[0].AggregatedHealth != nil {
+		t.Errorf("health %+v", r.AutomationComponents[0].AggregatedHealth)
+	}
+	found := false
+	for _, f := range r.Findings {
+		found = found || strings.Contains(f.Text, "AggregatedHealth")
+	}
+	if !found {
+		t.Errorf("no AggregatedHealth finding: %+v", r.Findings)
+	}
 }
 
 func TestE2E_FxInspectNotFX(t *testing.T) {
@@ -252,9 +300,9 @@ func TestE2E_FxInspectNotFX(t *testing.T) {
 		t.Errorf("stderr: %s", errOut)
 	}
 
-	_, errOut, err = runCLI(t, "fx", "inspect", "-e", s.url, "--strict")
+	_, errOut, err = runCLI(t, "fx", "inspect", "-e", s.url, "--check")
 	if ExitCode(err) != exitFindings || !strings.Contains(errOut, "not a UAFX server") {
-		t.Errorf("--strict: exit %d, stderr %s", ExitCode(err), errOut)
+		t.Errorf("--check: exit %d, stderr %s", ExitCode(err), errOut)
 	}
 }
 

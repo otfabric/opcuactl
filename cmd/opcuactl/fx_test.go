@@ -12,30 +12,30 @@ import (
 	"github.com/otfabric/opcuactl/internal/model"
 )
 
-// TestFxResult checks the exit of fx inspect: --strict reports a server
+// TestFxResult checks the exit of fx inspect: --check reports a server
 // that is not a UAFX server and findings with 1, which wins over 7 for a
 // report a limit cut short.
 func TestFxResult(t *testing.T) {
 	fx := model.FxReport{IsFxServer: true}
 	finding := []model.FxFinding{{Clause: "6.2.2", Text: "x"}}
 	for _, c := range []struct {
-		name   string
-		rep    model.FxReport
-		strict bool
-		want   int
+		name  string
+		rep   model.FxReport
+		check bool
+		want  int
 	}{
 		{"clean", fx, false, exitOK},
-		{"clean strict", fx, true, exitOK},
+		{"clean check", fx, true, exitOK},
 		{"not fx", model.FxReport{}, false, exitOK},
-		{"not fx strict", model.FxReport{}, true, exitFindings},
+		{"not fx check", model.FxReport{}, true, exitFindings},
 		{"findings", model.FxReport{IsFxServer: true, Findings: finding}, false, exitOK},
-		{"findings strict", model.FxReport{IsFxServer: true, Findings: finding}, true, exitFindings},
+		{"findings check", model.FxReport{IsFxServer: true, Findings: finding}, true, exitFindings},
 		{"truncated", model.FxReport{IsFxServer: true, Truncated: true}, false, exitPartial},
-		{"truncated strict", model.FxReport{IsFxServer: true, Truncated: true}, true, exitPartial},
-		{"truncated findings strict", model.FxReport{IsFxServer: true, Truncated: true, Findings: finding}, true, exitFindings},
+		{"truncated check", model.FxReport{IsFxServer: true, Truncated: true}, true, exitPartial},
+		{"truncated findings check", model.FxReport{IsFxServer: true, Truncated: true, Findings: finding}, true, exitFindings},
 		{"truncated findings", model.FxReport{IsFxServer: true, Truncated: true, Findings: finding}, false, exitPartial},
 	} {
-		if got := ExitCode(fxResult(c.rep, c.strict)); got != c.want {
+		if got := ExitCode(fxResult(c.rep, c.check)); got != c.want {
 			t.Errorf("%s: exit %d, want %d", c.name, got, c.want)
 		}
 	}

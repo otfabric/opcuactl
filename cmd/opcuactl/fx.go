@@ -30,7 +30,7 @@ connections (EstablishConnections and the other Methods of Part 81).
 Examples:
   opcuactl fx inspect -e opc.tcp://localhost:4840
   opcuactl fx inspect -e opc.tcp://localhost:4840 --format json
-  opcuactl fx inspect -e opc.tcp://localhost:4840 --strict`,
+  opcuactl fx inspect -e opc.tcp://localhost:4840 --check`,
 	}
 	cmd.AddCommand(newFxInspectCmd())
 	return cmd
@@ -39,7 +39,7 @@ Examples:
 func newFxInspectCmd() *cobra.Command {
 	var (
 		limits uafx.Limits
-		strict bool
+		check  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "inspect",
@@ -68,14 +68,17 @@ large or hostile server makes opcuactl read (0: the default of go-opcua,
 limits, with exit 7.
 
 Exit codes: 0 when the model was read, also with findings or when the
-server has no UAFX model; with --strict 1 when the server is not a UAFX
+server has no UAFX model; with --check 1 when the server is not a UAFX
 server or there are findings; 7 when a limit cut the inspection short (1
-wins with --strict and findings); 4, 5 or 6 when a service fails.
+wins with --check and findings); 4, 5 or 6 when a service fails.
+
+--check checks that the model the server exposes is consistent with
+Part 81, for scripts and CI; it is not OPC UA FX certification.
 
 Examples:
   opcuactl fx inspect -e opc.tcp://localhost:4840
   opcuactl fx inspect -e opc.tcp://localhost:4840 --format json
-  opcuactl fx inspect -e opc.tcp://localhost:4840 --strict
+  opcuactl fx inspect -e opc.tcp://localhost:4840 --check
   opcuactl fx inspect -e opc.tcp://localhost:4840 --max-nodes 500`,
 		Args: cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
@@ -104,7 +107,7 @@ Examples:
 				} else if err := newWriter().Write(rep); err != nil {
 					return err
 				}
-				return fxResult(rep, strict)
+				return fxResult(rep, check)
 			})
 		},
 	}
@@ -113,16 +116,16 @@ Examples:
 	f.IntVar(&limits.MaxChildren, "max-children", 0, "Most children read of one node (0: 1024)")
 	f.IntVar(&limits.MaxDepth, "max-depth", 0, "Most levels of SubFunctionalEntities read (0: 8)")
 	f.IntVar(&limits.MaxNodes, "max-nodes", 0, "Most nodes read in all; more ends with the report so far and exit 7 (0: 10000)")
-	f.BoolVar(&strict, "strict", false, "Exit 1 when the server is not a UAFX server or there are findings")
+	f.BoolVar(&check, "check", false, "Exit 1 when the server is not a UAFX server or there are findings (a model check, not certification)")
 	return cmd
 }
 
 // fxResult is the exit of fx inspect for the report rep.
-func fxResult(rep model.FxReport, strict bool) error {
+func fxResult(rep model.FxReport, check bool) error {
 	switch {
-	case strict && !rep.IsFxServer:
+	case check && !rep.IsFxServer:
 		return exitCodef(exitFindings, "the server is not a UAFX server (Part 81 §12.2, §14.2)")
-	case strict && len(rep.Findings) > 0:
+	case check && len(rep.Findings) > 0:
 		return exitCodef(exitFindings, "%d finding(s)", len(rep.Findings))
 	case rep.Truncated:
 		return exitCodef(exitPartial, "the server holds more than the limits of the inspection: the report is incomplete")

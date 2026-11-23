@@ -5,7 +5,7 @@ opcuactl's exit codes are a script-facing contract (`cmd/opcuactl/errors.go`). T
 | Code | Kind | Meaning |
 |------|------|---------|
 | 0 | ok | Success |
-| 1 | findings | `gds pull check-revocation`: the certificate is not valid; `fx inspect --strict`: the server is not a UAFX server or has findings |
+| 1 | findings | `gds pull check-revocation`: the certificate is not valid; `fx inspect --check`: the server is not a UAFX server or has findings |
 | 2 | usage | Invalid flag or value. Errors without a code of their own, such as cobra's, are usage errors |
 | 3 | invalid_input | An input or output file that cannot be opened |
 | 4 | transport | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch`, a subscription of `monitor` or `alarms watch` that the server ends or transfers, and a server whose CreateSession endpoints differ from the GetEndpoints answer that `--security-policy auto`, `--security-mode auto` or a policy without `--server-cert` selected from (`BadSecurityChecksFailed`, no session is activated); `serve` when a listener cannot start |
