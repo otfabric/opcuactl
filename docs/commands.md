@@ -710,13 +710,39 @@ opcuactl find type [flags]
 
 ## opcuactl fx
 
-Inspect the OPC UA FX information model of a server.
+Inspect the OPC UA FX model of a server and establish its connections.
 
 ```text
 opcuactl fx [command]
 ```
 
-Subcommands: [`inspect`](#opcuactl-fx-inspect).
+Subcommands: [`close`](#opcuactl-fx-close), [`connect`](#opcuactl-fx-connect), [`inspect`](#opcuactl-fx-inspect).
+
+## opcuactl fx close
+
+Close connection endpoints of an AutomationComponent (CloseConnections).
+
+```text
+opcuactl fx close <connection endpoint>... [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--ac` | `string` | NodeId of the AutomationComponent (ns=<index>;... or nsu=<uri>;...) |
+| `--remove` |  | Also remove the endpoint and what EstablishConnections created for it |
+
+## opcuactl fx connect
+
+Establish a connection endpoint of an AutomationComponent (EstablishConnections).
+
+```text
+opcuactl fx connect [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--ac` | `string` | NodeId of the AutomationComponent (ns=<index>;... or nsu=<uri>;...) |
+| `--request` | `string` | The request: a JSON or YAML file |
 
 ## opcuactl fx inspect
 

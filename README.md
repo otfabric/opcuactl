@@ -66,7 +66,7 @@ opcuactl completion powershell | Out-String | Invoke-Expression
 - **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them; `history update-values` / `delete-values` backfill, correct and delete historical values (OPC UA Part 11). Every standard aggregate of Part 13 for processed reads.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Brainpool P-256/P-384, Curve25519, Curve448, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
-- **OPC UA FX** — `fx inspect` reads the UAFX information model of a server (OPC 10000-81): its AutomationComponents with their Assets, FunctionalEntities and ConnectionEndpoints, the ConnectionManager, and where the address space deviates from Part 81 (`--check` exits 1 on findings: a check of the model for CI, not certification).
+- **OPC UA FX** — `fx inspect` reads the UAFX information model of a server (OPC 10000-81): its AutomationComponents with their Assets, FunctionalEntities and ConnectionEndpoints, the ConnectionManager, and where the address space deviates from Part 81 (`--check` exits 1 on findings: a check of the model for CI, not certification). `fx connect` calls EstablishConnections on an AutomationComponent with a request from a JSON or YAML file (verify, create a ConnectionEndpoint, write ConfigurationData, set up and enable its PubSub communication), `fx close` calls CloseConnections.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
 - **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, an event history, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
@@ -627,7 +627,48 @@ opcuactl fx inspect -e opc.tcp://localhost:4840 --format json --check
 opcuactl fx inspect -e opc.tcp://localhost:4840 --max-nodes 500 --max-depth 4
 ```
 
-`fx inspect` reads the model only; the Methods that establish, verify and close connections are not called. "UAFX server: yes" means the server has the namespaces of Part 81 §14.2 and FxRoot (§12.2): it is not a conformance statement. go-opcua's `examples/uafx/server` is a server to try it against.
+```sh
+# Establish one side of a connection: the request file holds the commands and their arguments
+opcuactl fx connect -e opc.tcp://localhost:4840 --ac "nsu=urn:example:uafx:controller;i=1000" --request connect.yaml
+
+# Verify a FunctionalEntity only, the results as JSON (exit 6 when the server aborts the call)
+opcuactl fx connect -e opc.tcp://localhost:4840 --ac "ns=2;i=1000" --request verify.json --format json
+
+# Close endpoints; --remove also removes what EstablishConnections created for them
+opcuactl fx close -e opc.tcp://localhost:4840 --ac "ns=2;i=1000" "ns=2;i=5001" --remove
+```
+
+`fx inspect` reads the model only. "UAFX server: yes" means the server has the namespaces of Part 81 §14.2 and FxRoot (§12.2): it is not a conformance statement.
+
+`fx connect` sends the request file to EstablishConnections (Part 81 §6.2.4). A UAFX connection has an endpoint on each AutomationComponent, so a connection takes a call on each. The file (JSON or YAML) has the fields of Part 81 §10:
+
+```yaml
+commands: [VerifyFunctionalEntity, CreateConnectionEndpoint, SetConfigurationData,
+           SetCommunicationConfiguration, EnableCommunication]
+endpoints:
+  - functionalEntity: "nsu=urn:example:line;i=1200"
+    name: ToLine                     # a new endpoint; or node: an existing one
+    mode: PublisherSubscriber        # Publisher, Subscriber
+    inputs: ["nsu=urn:example:line;i=1221"]
+    outputs: ["nsu=urn:example:line;i=1231"]
+    cleanupTimeoutMs: 5000           # absent: -1, no cleanup
+    expectedVerificationVariables:
+      - {node: "nsu=urn:example:line;i=1201", type: String, value: Motion-1}
+    configurationData:
+      - {node: "nsu=urn:example:line;i=1241", type: Double, value: 2.5}
+    communicationLinks:
+      dataSetReader: {mask: [ReferenceReader], connection: 1}
+      dataSetWriter: {mask: [ReferenceWriter]}
+communicationConfigurations:
+  - pubsubConfigurationFile: pubsub.json   # OPC UA JSON, as pubsub config export writes it
+    references:
+      - {mask: [ElementAdd, ReferencePubDataset]}
+      - {mask: [ElementAdd, ReferenceConnection], connection: 0}
+```
+
+NodeIds take the namespace index (`ns=2;i=5`) or URI (`nsu=<uri>;i=5`, resolved with the NamespaceArray of the server); NodeIds inside the PubSub configuration use the indexes of the server. A value has a built-in `type` (Int32, Double, String, ...) or `ua-json` for a Variant in the OPC UA JSON encoding; a pair without a value checks only that the node exists. `assetVerifications` and `reserveCommunicationIds` complete the request (`opcuactl fx connect --help` shows every field); an unknown field is an error. When a command fails, the server aborts the call, undoes what it did and returns Uncertain; the results show which element failed, and `fx connect` exits 6. `fx close` exits 7 when some endpoints could not be closed and 6 when none was.
+
+go-opcua's `examples/uafx/server` is a server to try these against: its Motion FunctionalEntity has a preconfigured endpoint (`ns=6;i=1300` there) to verify and close.
 ### Certificate Management (GDS Push)
 
 ```sh

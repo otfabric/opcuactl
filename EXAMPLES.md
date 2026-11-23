@@ -840,6 +840,88 @@ $ opcuactl fx inspect "${FX[@]}" --format json --pretty
 
 The records are in [docs/json-output.md](docs/json-output.md#opc-ua-fx).
 
+### FX Connect: verify a FunctionalEntity
+
+Captured with `opcuactl` v0.21.0 against go-opcua v1.37.0's `examples/uafx/server`. `verify.yaml` checks the AuthorAssignedIdentifier of Motion with its preconfigured endpoint ToLine, without creating anything:
+
+```yaml
+commands: [VerifyFunctionalEntity]
+endpoints:
+  - functionalEntity: "nsu=urn:example:uafx:controller;i=1200"
+    node: "nsu=urn:example:uafx:controller;i=1300"
+    expectedVerificationVariables:
+      - {node: "nsu=urn:example:uafx:controller;i=1202", type: String, value: Motion-1}
+```
+
+```console
+$ opcuactl fx connect "${FX[@]}" --ac "nsu=urn:example:uafx:controller;i=1000" --request verify.yaml
+AutomationComponent: ns=6;i=1000
+Commands:            VerifyFunctionalEntity
+Status:              Good
+Endpoint 0: -
+  FunctionalEntity:    Good
+  ConnectionEndpoint:  Good
+  Verification:        Good Match (variables: Good)
+  CommunicationLinks:  Good
+  EnableCommunication: Good
+```
+
+The endpoint is `-` because the call created none. With `value: Motion-2` the server aborts the call:
+
+```console
+$ opcuactl fx connect "${FX[@]}" --ac "nsu=urn:example:uafx:controller;i=1000" --request mismatch.yaml
+AutomationComponent: ns=6;i=1000
+Commands:            VerifyFunctionalEntity
+Status:              Uncertain
+Endpoint 0: -
+  FunctionalEntity:    Good
+  ConnectionEndpoint:  Good
+  Verification:        Uncertain Mismatch (variables: BadOutOfRange)
+  CommunicationLinks:  Good
+  EnableCommunication: Good
+Error: EstablishConnections returned Uncertain: the server aborted the call and undid what it did
+$ echo $?
+6
+```
+
+### FX Connect (JSON)
+
+```console
+$ opcuactl fx connect "${FX[@]}" --ac "nsu=urn:example:uafx:controller;i=1000" --request verify.yaml --format json --pretty
+{
+  "automationComponent": "ns=6;i=1000",
+  "commands": "VerifyFunctionalEntity",
+  "status": "Good",
+  "statusCode": 0,
+  "assetVerifications": [],
+  "endpoints": [
+    {
+      "functionalEntityResult": "Good",
+      "connectionEndpointResult": "Good",
+      "verificationResult": "Match",
+      "verificationStatus": "Good",
+      "verificationErrors": [
+        "Good"
+      ],
+      "communicationLinksResult": "Good",
+      "enableCommunicationResult": "Good"
+    }
+  ],
+  "reserveCommunicationIds": [],
+  "communicationConfigurations": []
+}
+```
+
+### FX Close
+
+```console
+$ opcuactl fx close "${FX[@]}" --ac "nsu=urn:example:uafx:controller;i=1000" "nsu=urn:example:uafx:controller;i=1300"
+ENDPOINT     STATUS
+ns=6;i=1300  Good
+```
+
+A connection with PubSub needs input and output Variables, which the example has not; the end-to-end tests of `fx connect` (`cmd/opcuactl/fx_connect_e2e_test.go`) establish one over UDP and see the data arrive.
+
 ---
 
 ## Version
