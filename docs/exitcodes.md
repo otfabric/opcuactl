@@ -10,7 +10,7 @@ opcuactl's exit codes are a script-facing contract (`cmd/opcuactl/errors.go`). T
 | 3 | invalid_input | An input or output file that cannot be opened |
 | 4 | transport | Connection or transport failure, also a connection lost during a service, `monitor` or `alarms watch`, a subscription of `monitor` or `alarms watch` that the server ends or transfers, and a server whose CreateSession endpoints differ from the GetEndpoints answer that `--security-policy auto`, `--security-mode auto` or a policy without `--server-cert` selected from (`BadSecurityChecksFailed`, no session is activated); `serve` when a listener cannot start |
 | 5 | timeout | A deadline passed or `Bad_Timeout`; `pubsub call` with no response within `--timeout` |
-| 6 | protocol | OPC UA service or status-code failure, for example a Bad result of `call`, or a response with another number of results than the request asked for; `fx connect` when EstablishConnections returns Uncertain (the server aborted the call) or Bad; `fx close` when no endpoint was closed |
+| 6 | protocol | OPC UA service or status-code failure, for example a Bad result of `call`, or a response with another number of results than the request asked for; `fx connect` when EstablishConnections returns Uncertain (the server aborted the call, also when an element failed with `BadUserAccessDenied`) or Bad; `fx close` when no endpoint was closed |
 | 7 | partial | Batch and export operations, `history update-events` and `delete-events` with some failed events, a recursive walk that reached `--max-nodes`, `fx inspect` cut short by a limit, `fx close` with some endpoints not closed |
 | 8 | unsupported | `Bad_ServiceUnsupported` |
 | 9 | permission | `Bad_UserAccessDenied`, or the operating system refused an operation |

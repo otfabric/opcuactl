@@ -75,18 +75,21 @@ of the server. A value has a built-in type (Int32, Double, String, ...)
 or "ua-json" for a Variant in the OPC UA JSON encoding; a value of null
 without a type only checks that the node exists. The PubSub configuration
 is a PubSubConfiguration2DataType in the OPC UA JSON encoding, as
-pubsub config export writes it; its NodeIds use the namespace indexes of
-the server. The commands and the fields of the file are those of Part 81
+pubsub config export writes it. Its NodeIds are not resolved: they keep
+their namespace indexes, which must be those of the target server. The
+commands and the fields of the file are those of Part 81
 §10: a field a command does not use must be empty (Table 8).
 
-The server aborts the call when a command fails, undoes what it did
-(Table 21: written ConfigurationData and reserved ids stay) and returns
-Uncertain; the results tell which element failed and which commands did
-not run (BadNothingToDo).
+The server aborts the call when a command fails and returns Uncertain;
+the results tell which element failed and which commands did not run
+(BadNothingToDo). The rollback follows Part 81 Table 21, which does not
+undo everything: ConfigurationData the call wrote and ids it reserved
+stay, so an aborted call may leave changes on the server.
 
 Exit codes: 0 when the call is Good; 6 when it is Uncertain (aborted) or
-Bad, with the results printed for Uncertain; 9 when the server refuses
-the call to the user; 2 for a request file that is not valid and 3 for
+Bad, with the results printed for Uncertain, also when an element of an
+aborted call failed with BadUserAccessDenied; 9 when the server refuses
+the call itself to the user; 2 for a request file that is not valid and 3 for
 one that cannot be read.
 
 Examples:
@@ -125,7 +128,7 @@ Examples:
 					return err
 				}
 				if res.Status != ua.StatusOK {
-					return exitCodef(exitProtocol, "EstablishConnections returned %s: the server aborted the call and undid what it did", res.Status.Symbol())
+					return exitCodef(exitProtocol, "EstablishConnections returned %s: the call was aborted; rollback followed Part 81 Table 21, and some changes may remain", res.Status.Symbol())
 				}
 				return nil
 			})

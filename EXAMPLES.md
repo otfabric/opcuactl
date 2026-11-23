@@ -879,7 +879,7 @@ Endpoint 0: -
   Verification:        Uncertain Mismatch (variables: BadOutOfRange)
   CommunicationLinks:  Good
   EnableCommunication: Good
-Error: EstablishConnections returned Uncertain: the server aborted the call and undid what it did
+Error: EstablishConnections returned Uncertain: the call was aborted; rollback followed Part 81 Table 21, and some changes may remain
 $ echo $?
 6
 ```

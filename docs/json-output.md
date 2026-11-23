@@ -327,7 +327,7 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `nodeId`?, `path`?, `clause`, `text`
 
-**FxConnectResult** — what `fx connect` got back from EstablishConnections (Part 81 §6.2.4). `commands` are the commands of the call; `status` is `Good`, or `Uncertain` when a command failed and the server aborted the call and undid what it did (§6.2.4.3.11, exit 6). The lists hold one result per element of the request; StatusCodes are their symbols, and an element of a command the call did not run is `BadNothingToDo`.
+**FxConnectResult** — what `fx connect` got back from EstablishConnections (Part 81 §6.2.4). `commands` are the commands of the call; `status` is `Good`, or `Uncertain` when a command failed and the server aborted the call (§6.2.4.3.11, exit 6); the rollback follows Part 81 Table 21, which leaves the ConfigurationData the call wrote and the ids it reserved, so some changes may remain. The lists hold one result per element of the request; StatusCodes are their symbols, and an element of a command the call did not run is `BadNothingToDo`.
 
 `automationComponent`, `commands`, `status`, `statusCode`, `assetVerifications`, `endpoints`, `reserveCommunicationIds`, `communicationConfigurations`
 

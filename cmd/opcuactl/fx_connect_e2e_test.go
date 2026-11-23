@@ -297,6 +297,12 @@ func TestE2E_FxConnectAborted(t *testing.T) {
 		if code := ExitCode(err); code != exitProtocol {
 			t.Fatalf("%s: exit %d (%v)\n%s", f, code, err, stdout)
 		}
+		// The rollback of Table 21 keeps ConfigurationData and reserved
+		// ids: the message must not say that nothing remains.
+		const want = "EstablishConnections returned Uncertain: the call was aborted; rollback followed Part 81 Table 21, and some changes may remain"
+		if err.Error() != want {
+			t.Errorf("%s: error %q, want %q", f, err, want)
+		}
 		if f == "table" {
 			for _, want := range []string{"Status:              Uncertain", "Verification:        Uncertain Mismatch (variables: BadOutOfRange)", "EnableCommunication: BadNothingToDo"} {
 				if !strings.Contains(stdout, want) {

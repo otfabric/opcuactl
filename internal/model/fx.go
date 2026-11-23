@@ -118,7 +118,8 @@ type FxConnectResult struct {
 	AutomationComponent string `json:"automationComponent"`
 	Commands            string `json:"commands"`
 	// Status is Good, or Uncertain when a command failed and the server
-	// aborted the call and undid what it had done (§6.2.4.3.11).
+	// aborted the call (§6.2.4.3.11); the rollback follows Part 81 Table
+	// 21, so ConfigurationData written and ids reserved may remain.
 	Status                      string                        `json:"status"`
 	StatusCode                  uint32                        `json:"statusCode"`
 	AssetVerifications          []FxAssetVerificationResult   `json:"assetVerifications"`
