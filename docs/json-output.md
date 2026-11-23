@@ -285,6 +285,48 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `samplingIntervalMs`, `monitoredItemCount`, `maxMonitoredItemCount`, `disabledMonitoredItemCount`
 
+### OPC UA FX
+
+**FxReport** — what `fx inspect` read of the OPC UA FX model of a server (OPC 10000-81). `hasFxNamespaces`: the server has the namespaces of Part 81 §14.2 (DI, Data, and AC or CM); `isFxServer`: those and FxRoot (§12.2), not a conformance statement. `truncated`: a limit cut the inspection short (exit 7).
+
+`hasFxNamespaces`, `isFxServer`, `namespaces`, `serverCapabilities`?, `fxRoot`?, `automationComponents`, `connectionManagers`, `findings`, `truncated`
+
+**FxNamespace** — one namespace of the UAFX model (DI, Data, AC, CM, in this order), with its NamespaceMetadata.
+
+`uri`, `present`, `index`?, `version`?, `publicationDate`?
+
+**FxNode** — what every node of the report has; the records below hold its fields too.
+
+`nodeId`, `browseName`, `displayName`?, `typeDefinition`?
+
+**FxAutomationComponent** — an AutomationComponent (§6.2.2).
+
+`conformanceName`?, `aggregatedHealth`?, `assets`, `functionalEntities`, `descriptors`?
+
+**FxHealth** — an AggregatedHealthDataType (§10.1): the option sets as names (`OK` when no bit is set, else the bits joined by `|`) and as numbers.
+
+`deviceHealth`, `deviceHealthBits`, `operationalHealth`, `operationalHealthBits`
+
+**FxAsset** — an Asset (§6.3.2) with its nameplate.
+
+`manufacturer`?, `manufacturerUri`?, `model`?, `productCode`?, `hardwareRevision`?, `softwareRevision`?, `deviceRevision`?, `serialNumber`?, `productInstanceUri`?, `assetId`?, `componentName`?, `deviceClass`?
+
+**FxFunctionalEntity** — a FunctionalEntity (§6.4.2); `authorAssignedVersion` is Major.Minor.Build.SubBuild.
+
+`authorUri`?, `authorAssignedIdentifier`?, `authorAssignedVersion`?, `operationalHealth`?, `operationalHealthBits`?, `connectionEndpoints`, `subFunctionalEntities`?
+
+**FxConnectionEndpoint** — a ConnectionEndpoint (§6.6.2); `status` is the name of the ConnectionEndpointStatusEnum value (§10.17).
+
+`status`?, `isPersistent`, `cleanupTimeoutMs`, `connectionManagerApplicationUri`?
+
+**FxConnectionManager** — a ConnectionManager (§6.7.2).
+
+`connectionConfigurationSets`
+
+**FxFinding** — a deviation from Part 81; `clause` is the clause number, `nodeId` and `path` are absent for the server as a whole.
+
+`nodeId`?, `path`?, `clause`, `text`
+
 ### GDS and certificate management
 
 **GDSProperties** — are the properties of the ServerConfiguration object (OPC UA Part 12 §7.10.3) and the certificate types of the DefaultApplicationGroup.

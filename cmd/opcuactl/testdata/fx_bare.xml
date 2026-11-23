@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- An AutomationComponent that FxRoot organizes but that has none of the
+     mandatory members of AutomationComponentType (Part 81 §6.2.2):
+     fx inspect reports them as findings. Namespace 2 is the UAFX Data
+     model (FxRoot, i=71), namespace 3 the UAFX AC model
+     (AutomationComponentType, i=2). -->
+<UANodeSet xmlns="http://opcfoundation.org/UA/2011/03/UANodeSet.xsd">
+  <NamespaceUris>
+    <Uri>urn:opcuactl:test:fx:bare</Uri>
+    <Uri>http://opcfoundation.org/UA/FX/Data/</Uri>
+    <Uri>http://opcfoundation.org/UA/FX/AC/</Uri>
+  </NamespaceUris>
+  <Aliases>
+    <Alias Alias="Organizes">i=35</Alias>
+    <Alias Alias="HasTypeDefinition">i=40</Alias>
+  </Aliases>
+  <UAObject NodeId="ns=1;i=1" BrowseName="1:Bare">
+    <DisplayName>Bare</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">ns=3;i=2</Reference>
+      <Reference ReferenceType="Organizes" IsForward="false">ns=2;i=71</Reference>
+    </References>
+  </UAObject>
+</UANodeSet>
