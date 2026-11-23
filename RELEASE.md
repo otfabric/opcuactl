@@ -1,5 +1,19 @@
 # opcuactl Releases
 
+## v0.21.0
+
+**Date:** 2026-11-23
+**Previous release:** v0.20.0
+
+Moves to go-opcua v1.37.0 (was v1.36.0) and adds `fx connect` and `fx close`, which call EstablishConnections and CloseConnections on an AutomationComponent (OPC 10000-81 §6.2.4, §6.2.5). The existing commands, their output and exit codes are unchanged; no changes need attention when upgrading.
+
+### Added
+
+- `fx connect --ac <AutomationComponent> --request <file>` calls EstablishConnections with the request in a JSON or YAML file: the commands of the CommandMask by name, and the AssetVerifications, ConnectionEndpointConfigurations (a new PubSubConnectionEndpoint with its parameters, or the NodeId of an existing one; expected verification values, ControlGroups, ConfigurationData, the CommunicationLinks), ReserveCommunicationIds and the PubSub configuration of Part 81 §10. NodeIds take a namespace index or URI (`nsu=`), resolved with the NamespaceArray of the server; values have a built-in type or are OPC UA JSON Variants; the PubSub configuration is a PubSubConfiguration2DataType in the OPC UA JSON encoding, inline or in a file, as `pubsub config export` writes it. An unknown field or command is a usage error (exit 2), before connecting where it can be. It prints the result of every element; when the server aborts the call (Uncertain) or returns Bad it exits 6 (JSON: `FxConnectResult`). An aborted call is rolled back as Part 81 Table 21 says, which keeps the ConfigurationData written and the ids reserved: some changes may remain, and the error says so.
+- `fx close --ac <AutomationComponent> <endpoint>... [--remove]` calls CloseConnections and prints one result per endpoint; it exits 7 when some endpoints were not closed and 6 when none was (JSON: `FxCloseResult`).
+- The end-to-end tests establish a connection with `fx connect` against a go-opcua server, see the data flow over UDP PubSub and close it with `fx close`; the binary suite verifies and closes the preconfigured endpoint of go-opcua's `examples/uafx/server` run as a process of its own. None of the pinned references of opcua-interop implements UAFX, so this is tested against go-opcua only.
+
+---
 ## v0.20.0
 
 **Date:** 2026-11-23

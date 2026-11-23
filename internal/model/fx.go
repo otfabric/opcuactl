@@ -110,3 +110,99 @@ type FxFinding struct {
 	Clause string `json:"clause"`
 	Text   string `json:"text"`
 }
+
+// FxConnectResult is the result of fx connect: the status of the
+// EstablishConnections call (Part 81 §6.2.4) and its output arguments.
+// StatusCodes are their symbols ("Good", "BadNothingToDo").
+type FxConnectResult struct {
+	AutomationComponent string `json:"automationComponent"`
+	Commands            string `json:"commands"`
+	// Status is Good, or Uncertain when a command failed and the server
+	// aborted the call (§6.2.4.3.11); the rollback follows Part 81 Table
+	// 21, so ConfigurationData written and ids reserved may remain.
+	Status                      string                        `json:"status"`
+	StatusCode                  uint32                        `json:"statusCode"`
+	AssetVerifications          []FxAssetVerificationResult   `json:"assetVerifications"`
+	Endpoints                   []FxEndpointResult            `json:"endpoints"`
+	ReserveCommunicationIDs     []FxReservedIDs               `json:"reserveCommunicationIds"`
+	CommunicationConfigurations []FxCommunicationConfigResult `json:"communicationConfigurations"`
+}
+
+// FxAssetVerificationResult is an AssetVerificationResultDataType (Part 81
+// §10.6).
+type FxAssetVerificationResult struct {
+	Status                   string   `json:"status"`
+	Result                   string   `json:"result"`
+	VariableErrors           []string `json:"variableErrors,omitempty"`
+	AdditionalVariableErrors []string `json:"additionalVariableErrors,omitempty"`
+}
+
+// FxEndpointResult is a ConnectionEndpointConfigurationResultDataType
+// (Part 81 §10.15).
+type FxEndpointResult struct {
+	// ConnectionEndpoint is the NodeId of the endpoint created or used,
+	// "" when there is none.
+	ConnectionEndpoint        string   `json:"connectionEndpoint,omitempty"`
+	FunctionalEntityResult    string   `json:"functionalEntityResult"`
+	ConnectionEndpointResult  string   `json:"connectionEndpointResult"`
+	VerificationResult        string   `json:"verificationResult"`
+	VerificationStatus        string   `json:"verificationStatus"`
+	VerificationErrors        []string `json:"verificationErrors,omitempty"`
+	EstablishControlResults   []string `json:"establishControlResults,omitempty"`
+	ConfigurationDataResults  []string `json:"configurationDataResults,omitempty"`
+	ReassignControlResults    []string `json:"reassignControlResults,omitempty"`
+	CommunicationLinksResult  string   `json:"communicationLinksResult"`
+	EnableCommunicationResult string   `json:"enableCommunicationResult"`
+}
+
+// FxReservedIDs is a PubSubReserveCommunicationIdsResult2DataType (Part 81
+// §10.43.4).
+type FxReservedIDs struct {
+	Result             string   `json:"result"`
+	DefaultPublisherID any      `json:"defaultPublisherId,omitempty"`
+	WriterGroupIDs     []uint16 `json:"writerGroupIds"`
+	DataSetWriterIDs   []uint16 `json:"dataSetWriterIds"`
+	// TransportSpecificInfo is, for UDP-UADP, the UDP port of unicast
+	// reception.
+	TransportSpecificInfo any `json:"transportSpecificInfo,omitempty"`
+}
+
+// FxCommunicationConfigResult is a
+// PubSubCommunicationConfigurationResultDataType (Part 81 §10.11.3).
+type FxCommunicationConfigResult struct {
+	Result           string   `json:"result"`
+	ChangesApplied   bool     `json:"changesApplied"`
+	ReferenceResults []string `json:"referenceResults,omitempty"`
+	// ConfigurationValues are the identifiers the server gave the elements
+	// of the configuration.
+	ConfigurationValues  []FxConfigurationValue `json:"configurationValues,omitempty"`
+	ConfigurationObjects []string               `json:"configurationObjects,omitempty"`
+}
+
+// FxConfigurationValue is a PubSubConfigurationValueDataType (Part 14
+// §6.2.12.4): the element (as its ConfigurationMask names and indexes),
+// its name and the identifier the server gave it.
+type FxConfigurationValue struct {
+	Element    string `json:"element"`
+	Name       string `json:"name"`
+	Identifier any    `json:"identifier,omitempty"`
+}
+
+// FxCloseResult is the result of fx close: the status of the
+// CloseConnections call (Part 81 §6.2.5) and one result per endpoint.
+type FxCloseResult struct {
+	AutomationComponent string `json:"automationComponent"`
+	Remove              bool   `json:"remove"`
+	// Status is Good, or Uncertain when an endpoint could not be closed
+	// (Table 23).
+	Status     string             `json:"status"`
+	StatusCode uint32             `json:"statusCode"`
+	Endpoints  []FxClosedEndpoint `json:"endpoints"`
+}
+
+// FxClosedEndpoint is the result of closing one ConnectionEndpoint.
+type FxClosedEndpoint struct {
+	NodeID     string `json:"nodeId"`
+	Status     string `json:"status"`
+	StatusCode uint32 `json:"statusCode"`
+}

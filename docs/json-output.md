@@ -327,6 +327,38 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `nodeId`?, `path`?, `clause`, `text`
 
+**FxConnectResult** — what `fx connect` got back from EstablishConnections (Part 81 §6.2.4). `commands` are the commands of the call; `status` is `Good`, or `Uncertain` when a command failed and the server aborted the call (§6.2.4.3.11, exit 6); the rollback follows Part 81 Table 21, which leaves the ConfigurationData the call wrote and the ids it reserved, so some changes may remain. The lists hold one result per element of the request; StatusCodes are their symbols, and an element of a command the call did not run is `BadNothingToDo`.
+
+`automationComponent`, `commands`, `status`, `statusCode`, `assetVerifications`, `endpoints`, `reserveCommunicationIds`, `communicationConfigurations`
+
+**FxAssetVerificationResult** — the verification of an Asset (§10.6): `result` is NotSet, Match, Compatible or Mismatch.
+
+`status`, `result`, `variableErrors`?, `additionalVariableErrors`?
+
+**FxEndpointResult** — the result of a ConnectionEndpointConfiguration (§10.15). `connectionEndpoint` is the NodeId of the endpoint the call created or used, absent when there is none; `verificationResult` is NotSet, Match or Mismatch.
+
+`connectionEndpoint`?, `functionalEntityResult`, `connectionEndpointResult`, `verificationResult`, `verificationStatus`, `verificationErrors`?, `establishControlResults`?, `configurationDataResults`?, `reassignControlResults`?, `communicationLinksResult`, `enableCommunicationResult`
+
+**FxReservedIDs** — the PubSub ids the server reserved (§10.43.4); `transportSpecificInfo` is, for UDP-UADP, the UDP port of unicast reception.
+
+`result`, `defaultPublisherId`?, `writerGroupIds`, `dataSetWriterIds`, `transportSpecificInfo`?
+
+**FxCommunicationConfigResult** — the result of applying the PubSub configuration (§10.11.3).
+
+`result`, `changesApplied`, `referenceResults`?, `configurationValues`?, `configurationObjects`?
+
+**FxConfigurationValue** — an identifier the server gave an element of the PubSub configuration (Part 14 §6.2.12.4); `element` names the element by its ConfigurationMask and indexes ("ElementAdd|ReferenceWriter connection=0 group=0 element=0").
+
+`element`, `name`, `identifier`?
+
+**FxCloseResult** — what `fx close` got back from CloseConnections (Part 81 §6.2.5): `status` is `Good`, or `Uncertain` when an endpoint could not be closed (Table 23), and one result per endpoint.
+
+`automationComponent`, `remove`, `status`, `statusCode`, `endpoints`
+
+**FxClosedEndpoint** — the result of closing one ConnectionEndpoint (Table 24).
+
+`nodeId`, `status`, `statusCode`
+
 ### GDS and certificate management
 
 **GDSProperties** — are the properties of the ServerConfiguration object (OPC UA Part 12 §7.10.3) and the certificate types of the DefaultApplicationGroup.

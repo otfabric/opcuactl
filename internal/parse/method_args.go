@@ -322,7 +322,7 @@ func convertScalar(v any, t ua.TypeID) (any, error) {
 		}
 	case ua.TypeIDQualifiedName:
 		if s, ok := v.(string); ok {
-			return qualifiedName(s), nil
+			return QualifiedName(s), nil
 		}
 	case ua.TypeIDLocalizedText:
 		switch x := v.(type) {
@@ -449,8 +449,8 @@ func numberError(s string, t ua.TypeID, err error) error {
 	return fmt.Errorf("%q is not a valid %s", s, typeName(t))
 }
 
-// qualifiedName parses "ns:Name" or "Name" (namespace 0).
-func qualifiedName(s string) *ua.QualifiedName {
+// QualifiedName parses "ns:Name" or "Name" (namespace 0).
+func QualifiedName(s string) *ua.QualifiedName {
 	if i := strings.IndexByte(s, ':'); i > 0 {
 		if ns, err := strconv.ParseUint(s[:i], 10, 16); err == nil {
 			return &ua.QualifiedName{NamespaceIndex: uint16(ns), Name: s[i+1:]}
