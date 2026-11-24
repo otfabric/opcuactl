@@ -1,5 +1,18 @@
 # opcuactl Releases
 
+## v0.21.1
+
+**Date:** 2026-11-24
+**Previous release:** v0.21.0
+
+Moves to go-opcua v1.38.0 (was v1.37.0). The commands' options, output and exit codes are unchanged; no changes need attention when upgrading.
+
+### Changed
+
+- Built on go-opcua v1.38.0 (go-opcua RELEASE.md, v1.38.0): the library generates the OPC UA FX DataTypes and their binary encoding from the Part 81 NodeSets; the arguments of EstablishConnections encode to the same bytes as before. A go-opcua server now serves ControlGroups (Part 81 §6.5): the `establishControl` and `reassignControl` commands and the `controlGroups` of a `fx connect` request, which such a server answered with `Bad_NotSupported`, are carried out there, and by default only a session with the Role ConnectionAdmin may use them (otherwise `Bad_UserAccessDenied`, exit 6). opcuactl sends the request as before.
+- The tests cover the remaining lines of `fx connect` and `fx close`: output that cannot be written, a NamespaceArray that cannot be read, `fx close` against a server without UAFX, values the request decoder lets through and YAML without a JSON form.
+
+---
 ## v0.21.0
 
 **Date:** 2026-11-23
