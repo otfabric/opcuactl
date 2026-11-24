@@ -3,14 +3,18 @@
 package opcuactl
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/otfabric/go-opcua"
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/go-opcua/uafx"
+	"github.com/otfabric/opcuactl/internal/model"
 )
 
 var testNamespaces = []string{"http://opcfoundation.org/UA/", "urn:server", "urn:ctl", "http://opcfoundation.org/UA/FX/AC/"}
@@ -288,5 +292,64 @@ func TestFxConnectResult(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("table does not contain %q:\n%s", want, stdout)
 		}
+	}
+}
+
+// TestFxValueErrors checks the errors of values the request file decoder
+// lets through: JSON that does not decode (fxValue is also given raw
+// values directly), and a value the built-in type takes but a Variant
+// does not.
+func TestFxValueErrors(t *testing.T) {
+	for _, c := range []struct {
+		typ, raw, want string
+	}{
+		{"Int32", "[", "f: unexpected EOF"},
+		{"Variant", `{"a": 1}`, "f: "},
+	} {
+		v, err := fxValue("f", c.typ, json.RawMessage(c.raw))
+		if err == nil || !strings.Contains(err.Error(), c.want) || !errors.Is(err, errFxRequest) {
+			t.Errorf("%s %s: %v, %v; want %q", c.typ, c.raw, v, err, c.want)
+		}
+	}
+	// A YAML mapping with a key that is not a string or number has no JSON
+	// form.
+	if _, err := decodeFxRequest([]byte("commands: [VerifyAsset]\nendpoints: [{true: x}]\n")); err == nil || !errors.Is(err, errFxRequest) {
+		t.Errorf("non-string keys: %v", err)
+	}
+}
+
+// TestFxBuilderNoNamespaceArray checks that fx connect and fx close report
+// a NamespaceArray they cannot read as a protocol error.
+func TestFxBuilderNoNamespaceArray(t *testing.T) {
+	c, err := opcua.NewClient(deadEndpoint, opcua.InsecureNoSecurity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = fxBuilder(context.Background(), c, "ns=1;i=1")
+	if err == nil || !strings.Contains(err.Error(), "NamespaceArray") || ExitCode(err) == exitOK {
+		t.Errorf("error %v, exit %d", err, ExitCode(err))
+	}
+}
+
+// TestFxWriteErrors checks that an output that cannot be written is an
+// error of fx connect and fx close, in every format.
+func TestFxWriteErrors(t *testing.T) {
+	ro, err := os.Open(os.DevNull) // read only: writes fail
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ro.Close() }()
+	stdout, format := os.Stdout, outputFormat
+	os.Stdout = ro
+	defer func() { os.Stdout, outputFormat = stdout, format }()
+	for _, f := range []string{"json", "table"} {
+		outputFormat = f
+		if err := writeFxCloseResult(model.FxCloseResult{Endpoints: []model.FxClosedEndpoint{{NodeID: "ns=1;i=1"}}}); err == nil {
+			t.Errorf("%s: fx close wrote to a read-only stdout", f)
+		}
+	}
+	outputFormat = "json"
+	if err := writeFxConnectResult(model.FxConnectResult{}); err == nil {
+		t.Error("fx connect wrote to a read-only stdout")
 	}
 }

@@ -392,6 +392,7 @@ func TestE2E_FxClose(t *testing.T) {
 		{"bad endpoint", []string{"--ac", nsu(fxCtl), "x=y"}, exitUsage},
 		{"not a component", []string{"--ac", nsu(fxMotion), nsu(fxPreset)}, exitProtocol},
 		{"no endpoint", []string{"--ac", nsu(fxCtl)}, exitUsage},
+		{"not a UAFX server", []string{"-e", startFxServerWithoutModel(t), "--ac", "ns=1;i=1", "ns=1;i=2"}, exitProtocol},
 	} {
 		_, _, err := runCLI(t, append([]string{"fx", "close", "-e", s.url}, c.args...)...)
 		if code := ExitCode(err); code != c.want {

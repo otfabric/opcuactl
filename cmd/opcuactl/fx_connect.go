@@ -3,6 +3,7 @@
 package opcuactl
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -121,16 +122,7 @@ Examples:
 					format.Errf("EstablishConnections: %v", err)
 					return exitCode(exitProtocol, err)
 				}
-				out := fxConnectResult(acID, req.CommandMask, res)
-				if format.ParseFormat(outputFormat) == format.Table {
-					printFxConnectResult(out)
-				} else if err := newWriter().Write(out); err != nil {
-					return err
-				}
-				if res.Status != ua.StatusOK {
-					return exitCodef(exitProtocol, "EstablishConnections returned %s: the call was aborted; rollback followed Part 81 Table 21, and some changes may remain", res.Status.Symbol())
-				}
-				return nil
+				return cmp.Or(writeFxConnectResult(fxConnectResult(acID, req.CommandMask, res)), fxConnectExit(res.Status))
 			})
 		},
 	}
@@ -195,18 +187,7 @@ Examples:
 					}
 					out.Endpoints = append(out.Endpoints, model.FxClosedEndpoint{NodeID: ids[i].String(), Status: r.Symbol(), StatusCode: r.Uint32()})
 				}
-				if format.ParseFormat(outputFormat) == format.Table {
-					rows := make([][]string, 0, len(out.Endpoints))
-					for _, e := range out.Endpoints {
-						rows = append(rows, []string{e.NodeID, e.Status})
-					}
-					if err := newWriter().WriteTable([]string{"ENDPOINT", "STATUS"}, rows); err != nil {
-						return err
-					}
-				} else if err := newWriter().Write(out); err != nil {
-					return err
-				}
-				return fxCloseExit(status, closed, len(results))
+				return cmp.Or(writeFxCloseResult(out), fxCloseExit(status, closed, len(results)))
 			})
 		},
 	}
@@ -214,6 +195,36 @@ Examples:
 	cmd.Flags().BoolVar(&remove, "remove", false, "Also remove the endpoint and what EstablishConnections created for it")
 	_ = cmd.MarkFlagRequired("ac")
 	return cmd
+}
+
+// writeFxConnectResult prints the result of fx connect in the output
+// format.
+func writeFxConnectResult(out model.FxConnectResult) error {
+	if format.ParseFormat(outputFormat) == format.Table {
+		printFxConnectResult(out)
+		return nil
+	}
+	return newWriter().Write(out)
+}
+
+// writeFxCloseResult prints the result of fx close in the output format.
+func writeFxCloseResult(out model.FxCloseResult) error {
+	if format.ParseFormat(outputFormat) != format.Table {
+		return newWriter().Write(out)
+	}
+	rows := make([][]string, 0, len(out.Endpoints))
+	for _, e := range out.Endpoints {
+		rows = append(rows, []string{e.NodeID, e.Status})
+	}
+	return newWriter().WriteTable([]string{"ENDPOINT", "STATUS"}, rows)
+}
+
+// fxConnectExit is the exit of fx connect for the status of the call.
+func fxConnectExit(status ua.StatusCode) error {
+	if status == ua.StatusOK {
+		return nil
+	}
+	return exitCodef(exitProtocol, "EstablishConnections returned %s: the call was aborted; rollback followed Part 81 Table 21, and some changes may remain", status.Symbol())
 }
 
 // fxCloseExit is the exit of fx close for the status of the call and the
