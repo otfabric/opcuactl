@@ -922,6 +922,79 @@ ns=6;i=1300  Good
 
 A connection with PubSub needs input and output Variables, which the example has not; the end-to-end tests of `fx connect` (`cmd/opcuactl/fx_connect_e2e_test.go`) establish one over UDP and see the data arrive.
 
+### FX ConnectionManager
+
+go-opcua's `examples/uafx/cm` is a ConnectionManager (`go run ./examples/uafx/cm -port 4856` in go-opcua). `sets.bin` holds two ConnectionConfigurationSets in the Folder Plant, each with one Connection between two AutomationComponents that are not running.
+
+```console
+$ CM=(-e opc.tcp://localhost:4856 --insecure-no-security)
+$ opcuactl fx cm import "${CM[@]}" --file sets.bin --op add
+SET          OPERATION   STATUS  NODEID
+Plant/Line1  ElementAdd  Good    ns=4;s=cm.set:Plant/Line1
+Plant/Line2  ElementAdd  Good    ns=4;s=cm.set:Plant/Line2
+$ opcuactl fx cm list "${CM[@]}"
+SET          STATE  VERSION  EDIT   CONNECTIONS
+Plant/Line1  Ready  1        false  C1=Good
+Plant/Line2  Ready  1        false  C1=Good
+$ opcuactl fx cm edit "${CM[@]}" Plant/Line1 --write Flow/PublishingInterval=250
+VARIABLE                 VALUE  STATUS
+Flow/PublishingInterval  250    Good
+committed Plant/Line1: Version 2
+```
+
+The AutomationComponents of the set are not running, so the run ends in Error (exit 6), and the diagnostics say why:
+
+```console
+$ opcuactl fx cm process "${CM[@]}" --action establish-enabled Plant/Line1 --wait 30s
+SET          STATUS  STATE
+Plant/Line1  Good    Error
+Error: 1 sets ended in Error (fx cm list shows the diagnostics)
+$ opcuactl fx cm list "${CM[@]}" --format json --pretty
+{
+  "connectionManager": "ns=4;i=5011",
+  "aggregatedCurrentState": true,
+  "sets": [
+    {
+      "path": "Plant/Line1",
+      "nodeId": "ns=4;s=cm.set:Plant/Line1",
+      "state": "Error",
+      "stateId": "Error",
+      "lastTransition": "ProcessingToError",
+      "version": 2,
+      "edit": false,
+      "rollbackOnError": false,
+      "connections": [
+        {
+          "name": "C1",
+          "nodeId": "ns=4;s=cm.set:Plant/Line1.Conn[C1]",
+          "processingResult": "BadCommunicationError",
+          "processingResultCode": 2147811328
+        }
+      ],
+      "diagnostics": [
+        {
+          "name": "C1",
+          "lastActivity": "EstablishEnabled|Error",
+          "connectionState": "ConnectionNotEstablished",
+          "errorEndpoint1": "TargetServerConnectionError",
+          "endpoint1Status": "BadCommunicationError",
+          "errorEndpoint2": "TargetServerConnectionError",
+          "endpoint2Status": "BadCommunicationError"
+        }
+      ]
+    },
+    ...
+  ]
+}
+$ opcuactl fx cm process "${CM[@]}" --action remove Plant/Line1 --wait 30s
+SET          STATUS  STATE
+Plant/Line1  Good    Ready
+$ opcuactl fx cm export "${CM[@]}" --out exported.bin
+SET          VERSION  CONNECTIONS  FLOWS  ACS
+Plant/Line1  2        1            1      2
+Plant/Line2  1        1            1      2
+```
+
 ---
 
 ## Version
