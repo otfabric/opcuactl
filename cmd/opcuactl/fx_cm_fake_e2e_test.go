@@ -33,15 +33,64 @@ type fakeCM struct {
 
 	mu    sync.Mutex
 	state map[string]func() *ua.DataValue // CurrentState.Id of a set by its String NodeId
+
+	acl *fakeACL
+}
+
+// fakeACL refuses Browse and Read of the nodes with the BrowseNames a test
+// names, as a server refuses a user.
+type fakeACL struct {
+	server.DefaultAccessController
+	srv *server.Server
+
+	mu           sync.Mutex
+	browse, read map[string]bool
+}
+
+func (a *fakeACL) deny(names map[string]bool, n *ua.NodeID) ua.StatusCode {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(names) == 0 {
+		return ua.StatusOK
+	}
+	if node := a.srv.Node(n); node != nil && node.BrowseName() != nil && names[node.BrowseName().Name] {
+		return ua.StatusBadUserAccessDenied
+	}
+	return ua.StatusOK
+}
+
+func (a *fakeACL) CheckBrowse(_ context.Context, _ *server.Session, n *ua.NodeID) ua.StatusCode {
+	return a.deny(a.browse, n)
+}
+
+func (a *fakeACL) CheckRead(_ context.Context, _ *server.Session, n *ua.NodeID) ua.StatusCode {
+	return a.deny(a.read, n)
+}
+
+// refuse makes the server refuse Browse of the nodes named browse and
+// Read of the ones named read, until the next call.
+func (a *fakeACL) refuse(browse, read []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.browse, a.read = map[string]bool{}, map[string]bool{}
+	for _, n := range browse {
+		a.browse[n] = true
+	}
+	for _, n := range read {
+		a.read[n] = true
+	}
 }
 
 func startFakeCM(t *testing.T) *fakeCM {
 	t.Helper()
+	acl := &fakeACL{}
 	srv, err := server.New(server.EndPoint("localhost", 0), server.InsecureNoSecurity(),
-		server.EnableAuthMode(ua.UserTokenTypeAnonymous), server.ApplicationURI("urn:opcuactl:test:fake-cm"))
+		server.EnableAuthMode(ua.UserTokenTypeAnonymous), server.ApplicationURI("urn:opcuactl:test:fake-cm"),
+		server.WithAccessController(acl))
 	if err != nil {
 		t.Fatal(err)
 	}
+	acl.srv = srv
 	nss, err := fxserver.AddModel(srv, fxserver.ModelCM)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +99,7 @@ func startFakeCM(t *testing.T) *fakeCM {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeCM{t: t, srv: srv, space: space.(*server.NodeNameSpace), ns: nss.CM, di: nss.DI, state: map[string]func() *ua.DataValue{}}
+	f := &fakeCM{t: t, srv: srv, space: space.(*server.NodeNameSpace), ns: nss.CM, di: nss.DI, state: map[string]func() *ua.DataValue{}, acl: acl}
 	f.folders = srv.Node(ua.NewNumericNodeID(nss.CM, fxcmid.FxRootConnectionManagerConnectionConfigurationSets))
 	if f.folders == nil {
 		t.Fatal("no ConnectionConfigurationSets")
@@ -508,5 +557,184 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 	}
 	if renewals.Load() != 0 {
 		t.Fatalf("%d renewals", renewals.Load())
+	}
+}
+
+// TestE2E_FxCMFakeEditFaults: fx cm edit against a set whose RenewLock,
+// Variables and Version fail in the ways a server may: each ends the edit
+// with exit 6 and says which step, or makes the outcome unknown.
+func TestE2E_FxCMFakeEditFaults(t *testing.T) {
+	f := startFakeCM(t)
+	e := f.set(f.folders, "F", "F")
+	x := f.variable(e, "F.X", f.ns, "X", 1.0, id.HasComponent)
+	// The same node below the set twice: one child, not two.
+	e.AddReference(x, ua.NewNumericNodeID(0, id.Organizes), true)
+	ro := f.variable(e, "F.RO", f.ns, "RO", 1.0, id.HasComponent)
+	readOnly := byte(ua.AccessLevelTypeCurrentRead)
+	for _, a := range []ua.AttributeID{ua.AttributeIDAccessLevel, ua.AttributeIDUserAccessLevel} {
+		if err := ro.SetAttribute(a, server.DataValueFromValue(readOnly)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.variable(e, "F.Denied", f.ns, "Denied", server.ValueFunc(func() *ua.DataValue {
+		return &ua.DataValue{EncodingMask: ua.DataValueStatusCode, Status: ua.StatusBadUserAccessDenied}
+	}), id.HasComponent)
+	var version atomic.Uint32
+	var badVersion atomic.Bool
+	version.Store(1)
+	f.variable(e, "F.Version", f.ns, "Version", server.ValueFunc(func() *ua.DataValue {
+		if badVersion.Load() {
+			return &ua.DataValue{EncodingMask: ua.DataValueStatusCode, Status: ua.StatusBadInternalError}
+		}
+		return server.DataValueFromValue(version.Load())
+	}), id.HasProperty)
+	lock := f.object(e, "F.Lock", f.di, "Lock", nil)
+	var renew atomic.Int32 // the answer of RenewLock, see below
+	f.method(lock, "F.Lock.RenewLock", f.di, "RenewLock", func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+		switch renew.Load() {
+		case 1:
+			return nil, ua.StatusUncertain
+		case 2:
+			return nil, ua.StatusOK
+		case 3:
+			return []*ua.Variant{ua.MustVariant("OK")}, ua.StatusOK
+		default:
+			return []*ua.Variant{ua.MustVariant(int32(0))}, ua.StatusOK
+		}
+	})
+	var badValue atomic.Bool
+	f.onEdit(func(_ context.Context, _, _ *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+		if a, _ := args[0].Value().(int32); uafx.FxEdit(a) == uafx.CommitUpdates {
+			version.Add(1)
+			if badValue.Load() {
+				_ = x.SetAttribute(ua.AttributeIDValue, &ua.DataValue{EncodingMask: ua.DataValueStatusCode, Status: ua.StatusBadInternalError})
+			}
+		}
+		return []*ua.Variant{ua.MustVariant([]ua.StatusCode{ua.StatusOK})}, ua.StatusOK
+	})
+	prevCleanup, prevRenew := cmCleanup, cmRenewAfter
+	t.Cleanup(func() { cmCleanup, cmRenewAfter = prevCleanup, prevRenew })
+	cmCleanup, cmRenewAfter = 2*time.Second, 0
+
+	for _, c := range []struct {
+		name       string
+		write      string
+		renew      int32
+		badVersion bool
+		badValue   bool
+		want       int
+		outcome    string
+		failed     string
+		stderr     string
+	}{
+		{"committed through a node referenced twice", "X=2", 0, false, false, exitOK, "committed", "", ""},
+		{"RenewLock Uncertain", "X=3", 1, false, false, exitProtocol, "not-committed", "RenewLock", "Uncertain"},
+		{"RenewLock without output", "X=3", 2, false, false, exitProtocol, "not-committed", "RenewLock", "0 output arguments"},
+		{"RenewLock String", "X=3", 3, false, false, exitProtocol, "not-committed", "RenewLock", "not an Int32"},
+		{"write refused", "RO=2", 0, false, false, exitProtocol, "not-committed", "write RO", "BadNotWritable"},
+		{"value read refused", "Denied=2", 0, false, false, exitPermission, "not-committed", "write Denied", "reading"},
+		{"Version unreadable", "X=4", 0, true, false, exitProtocol, "unknown", "CommitUpdates", "Version of the set cannot be read"},
+		{"value not read back", "X=5", 0, false, true, exitProtocol, "unknown", "CommitUpdates", "cannot be read back"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			renew.Store(c.renew)
+			badVersion.Store(c.badVersion)
+			badValue.Store(c.badValue)
+			t.Cleanup(func() { _ = x.SetAttribute(ua.AttributeIDValue, server.DataValueFromValue(1.0)) })
+			out, stderr, err := runCLI(t, "fx", "cm", "edit", "-e", f.url, "F", "--write", c.write, "--format", "json")
+			if code := ExitCode(err); code != c.want {
+				t.Fatalf("exit %d, want %d (%v)\n%s%s", code, c.want, err, out, stderr)
+			}
+			ed := cmJSON[model.FxCMEdit](t, out)
+			if ed.Outcome != c.outcome || ed.Failed != c.failed {
+				t.Fatalf("%+v", ed)
+			}
+			if !strings.Contains(stderr, c.stderr) {
+				t.Fatalf("stderr does not say %q: %s", c.stderr, stderr)
+			}
+		})
+	}
+}
+
+// TestE2E_FxCMFakeRefused: every fx cm command against a server that
+// refuses the Browse or Read a step needs exits 9 (the server refuses the
+// user) and names what it could not read.
+func TestE2E_FxCMFakeRefused(t *testing.T) {
+	f := startFakeCM(t)
+	e := f.set(f.folders, "G", "G")
+	f.variable(e, "G.X", f.ns, "X", 1.0, id.HasComponent)
+	sub := f.object(e, "G.Sub", f.ns, "Sub", nil)
+	f.variable(sub, "G.Sub.X", f.ns, "X", 1.0, id.HasComponent)
+	// A ConnectionsDiagnostics that is no array of structures: listed as
+	// unread, not an error.
+	f.variable(e, "G.Diag", f.ns, "ConnectionsDiagnostics", "none", id.HasComponent)
+	// A Folder beside the set: its type is browsed to tell it from a set.
+	f.folder(f.folders, "Area", "Area")
+	// A set with two Locks: which one to renew is ambiguous.
+	h := f.set(f.folders, "H", "H")
+	f.variable(h, "H.X", f.ns, "X", 1.0, id.HasComponent)
+	f.object(h, "H.Lock1", f.di, "Lock", nil)
+	f.object(h, "H.Lock2", f.di, "Lock", nil)
+	lock := f.object(e, "G.Lock", f.di, "Lock", nil)
+	f.method(lock, "G.Lock.RenewLock", f.di, "RenewLock", func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+		return []*ua.Variant{ua.MustVariant(int32(0))}, ua.StatusOK
+	})
+	f.onEdit(func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+		return []*ua.Variant{ua.MustVariant([]ua.StatusCode{ua.StatusOK})}, ua.StatusOK
+	})
+	f.onProcess(started)
+	// AggregatedCurrentState is optional (§6.7.2): a Boolean, or a String
+	// when notBool.
+	var notBool atomic.Bool
+	f.variable(f.srv.Node(ua.NewNumericNodeID(f.ns, fxcmid.FxRootConnectionManager)), "CM.Aggregated", f.ns, "AggregatedCurrentState", server.ValueFunc(func() *ua.DataValue {
+		if notBool.Load() {
+			return server.DataValueFromValue("FALSE")
+		}
+		return server.DataValueFromValue(false)
+	}), id.HasComponent)
+	if _, _, err := runCLI(t, "fx", "cm", "list", "-e", f.url); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	notBool.Store(true)
+	if _, stderr, err := runCLI(t, "fx", "cm", "list", "-e", f.url); ExitCode(err) != exitProtocol || !strings.Contains(stderr, "not a Boolean") {
+		t.Fatalf("list with a String AggregatedCurrentState: exit %d: %s", ExitCode(err), stderr)
+	}
+	notBool.Store(false)
+	out, _, err := runCLI(t, "fx", "cm", "list", "-e", f.url, "--format", "json")
+	if err != nil || !strings.Contains(out, "ConnectionsDiagnostics") {
+		t.Fatalf("list: %v: ConnectionsDiagnostics not unread: %s", err, out)
+	}
+	hid := ua.NewStringNodeID(f.ns, "H").String()
+	if _, stderr, err := runCLI(t, "fx", "cm", "edit", hid, "--write", "X=2", "-e", f.url); ExitCode(err) != exitProtocol || !strings.Contains(stderr, "more than one child") {
+		t.Fatalf("edit with two Locks: exit %d: %s", ExitCode(err), stderr)
+	}
+	gid := ua.NewStringNodeID(f.ns, "G").String()
+	t.Cleanup(func() { f.acl.refuse(nil, nil) })
+	for _, c := range []struct {
+		name         string
+		browse, read []string
+		args         []string
+	}{
+		{"list: the sets", []string{"ConnectionConfigurationSets"}, nil, []string{"list"}},
+		{"process: the sets", []string{"ConnectionConfigurationSets"}, nil, []string{"process", "--action", "establish", "G"}},
+		{"list: a set", []string{"G"}, nil, []string{"list"}},
+		{"list: AggregatedCurrentState", nil, []string{"AggregatedCurrentState"}, []string{"list"}},
+		{"list: the ConnectionManager", nil, []string{"ConnectionManager"}, []string{"list"}},
+		{"list: the state machine", []string{"ConnectionConfigurationSetStateMachine"}, nil, []string{"list"}},
+		{"edit: the Lock", []string{"Lock"}, nil, []string{"edit", gid, "--write", "X=2"}},
+		{"edit: the path", []string{"G"}, nil, []string{"edit", gid, "--write", "X=2"}},
+		{"edit: a path below the set", []string{"Sub"}, nil, []string{"edit", gid, "--write", "Sub/X=2"}},
+		{"list: CurrentState", []string{"CurrentState"}, nil, []string{"list"}},
+		{"list: the type of a Folder", []string{"FolderType"}, nil, []string{"list"}},
+		{"process --wait: the state machine", []string{"ConnectionConfigurationSetStateMachine"}, nil, []string{"process", "--action", "establish", "--wait", "5s", gid}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f.acl.refuse(c.browse, c.read)
+			defer f.acl.refuse(nil, nil)
+			out, stderr, err := runCLI(t, append(append([]string{"fx", "cm"}, c.args...), "-e", f.url)...)
+			if code := ExitCode(err); code != exitPermission {
+				t.Fatalf("exit %d, want %d (%v)\n%s%s", code, exitPermission, err, out, stderr)
+			}
+		})
 	}
 }
