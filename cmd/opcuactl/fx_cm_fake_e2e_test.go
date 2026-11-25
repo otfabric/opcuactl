@@ -301,6 +301,8 @@ func TestE2E_FxCMFakeWait(t *testing.T) {
 // TestE2E_FxCMFakeMethods: a refusal or absence of the Method itself, not
 // of one set, has its own exit.
 func TestE2E_FxCMFakeMethods(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	f := startFakeCM(t)
 	f.set(f.folders, "A", "A")
 	for _, c := range []struct {
@@ -319,10 +321,10 @@ func TestE2E_FxCMFakeMethods(t *testing.T) {
 			}
 			f.onProcess(h)
 			f.onEdit(h)
-			if _, _, err := runCLI(t, "fx", "cm", "process", "-e", f.url, "--action", "establish", "A"); ExitCode(err) != c.want {
+			if _, _, err := w.run(t, "fx", "cm", "process", "-e", f.url, "--action", "establish", "A"); ExitCode(err) != c.want {
 				t.Fatalf("process: exit %d, want %d (%v)", ExitCode(err), c.want, err)
 			}
-			if _, _, err := runCLI(t, "fx", "cm", "edit", "-e", f.url, "A", "--write", "X=1"); ExitCode(err) != c.want {
+			if _, _, err := w.run(t, "fx", "cm", "edit", "-e", f.url, "A", "--write", "X=1"); ExitCode(err) != c.want {
 				t.Fatalf("edit: exit %d, want %d (%v)", ExitCode(err), c.want, err)
 			}
 		})
@@ -660,6 +662,8 @@ func TestE2E_FxCMFakeEditFaults(t *testing.T) {
 // refuses the Browse or Read a step needs exits 9 (the server refuses the
 // user) and names what it could not read.
 func TestE2E_FxCMFakeRefused(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	f := startFakeCM(t)
 	e := f.set(f.folders, "G", "G")
 	f.variable(e, "G.X", f.ns, "X", 1.0, id.HasComponent)
@@ -692,20 +696,20 @@ func TestE2E_FxCMFakeRefused(t *testing.T) {
 		}
 		return server.DataValueFromValue(false)
 	}), id.HasComponent)
-	if _, _, err := runCLI(t, "fx", "cm", "list", "-e", f.url); err != nil {
+	if _, _, err := w.run(t, "fx", "cm", "list", "-e", f.url); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	notBool.Store(true)
-	if _, stderr, err := runCLI(t, "fx", "cm", "list", "-e", f.url); ExitCode(err) != exitProtocol || !strings.Contains(stderr, "not a Boolean") {
+	if _, stderr, err := w.run(t, "fx", "cm", "list", "-e", f.url); ExitCode(err) != exitProtocol || !strings.Contains(stderr, "not a Boolean") {
 		t.Fatalf("list with a String AggregatedCurrentState: exit %d: %s", ExitCode(err), stderr)
 	}
 	notBool.Store(false)
-	out, _, err := runCLI(t, "fx", "cm", "list", "-e", f.url, "--format", "json")
+	out, _, err := w.run(t, "fx", "cm", "list", "-e", f.url, "--format", "json")
 	if err != nil || !strings.Contains(out, "ConnectionsDiagnostics") {
 		t.Fatalf("list: %v: ConnectionsDiagnostics not unread: %s", err, out)
 	}
 	hid := ua.NewStringNodeID(f.ns, "H").String()
-	if _, stderr, err := runCLI(t, "fx", "cm", "edit", hid, "--write", "X=2", "-e", f.url); ExitCode(err) != exitProtocol || !strings.Contains(stderr, "more than one child") {
+	if _, stderr, err := w.run(t, "fx", "cm", "edit", hid, "--write", "X=2", "-e", f.url); ExitCode(err) != exitProtocol || !strings.Contains(stderr, "more than one child") {
 		t.Fatalf("edit with two Locks: exit %d: %s", ExitCode(err), stderr)
 	}
 	gid := ua.NewStringNodeID(f.ns, "G").String()
@@ -731,7 +735,7 @@ func TestE2E_FxCMFakeRefused(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			f.acl.refuse(c.browse, c.read)
 			defer f.acl.refuse(nil, nil)
-			out, stderr, err := runCLI(t, append(append([]string{"fx", "cm"}, c.args...), "-e", f.url)...)
+			out, stderr, err := w.run(t, append(append([]string{"fx", "cm"}, c.args...), "-e", f.url)...)
 			if code := ExitCode(err); code != exitPermission {
 				t.Fatalf("exit %d, want %d (%v)\n%s%s", code, exitPermission, err, out, stderr)
 			}

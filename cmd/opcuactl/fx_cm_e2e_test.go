@@ -331,6 +331,10 @@ func TestE2E_FxCMErrors(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("not a file"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// A file that decodes but holds no set.
+	if _, stderr, err := w.run(t, "fx", "cm", "import", "-e", s.url, "--file", writeSetFile(t), "--op", "add"); ExitCode(err) != exitInvalidInput || !strings.Contains(stderr+fmt.Sprint(err), "no ConnectionConfigurationSet") {
+		t.Fatalf("import of a file with no set: exit %d (%v): %s", ExitCode(err), err, stderr)
+	}
 	other := startFxConnServer(t) // a UAFX server without a ConnectionManager
 
 	for _, c := range []struct {
@@ -388,6 +392,8 @@ func TestE2E_FxCMErrors(t *testing.T) {
 // TestE2E_FxCMWaitTimeout: --wait ends with exit 5 while a set is still
 // Processing: its AutomationComponents accept TCP and never answer.
 func TestE2E_FxCMWaitTimeout(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -414,10 +420,10 @@ func TestE2E_FxCMWaitTimeout(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	s := startFxCMServer(t)
 	file := writeSetFile(t, cmSetConfAt("Slow", port, port))
-	if _, _, err := runCLI(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add"); err != nil {
+	if _, _, err := w.run(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add"); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := runCLI(t, "fx", "cm", "process", "-e", s.url, "--action", "establish", "Plant/Slow", "--wait", "100ms", "--format", "json")
+	out, _, err := w.run(t, "fx", "cm", "process", "-e", s.url, "--action", "establish", "Plant/Slow", "--wait", "100ms", "--format", "json")
 	if code := ExitCode(err); code != exitTimeout {
 		t.Fatalf("exit %d (%v)\n%s", code, err, out)
 	}
@@ -425,7 +431,7 @@ func TestE2E_FxCMWaitTimeout(t *testing.T) {
 		t.Fatalf("%+v", pr)
 	}
 	// A second run while the first is Processing is refused (Bad_InvalidState).
-	_, _, err = runCLI(t, "fx", "cm", "process", "-e", s.url, "--action", "establish", "Plant/Slow")
+	_, _, err = w.run(t, "fx", "cm", "process", "-e", s.url, "--action", "establish", "Plant/Slow")
 	if code := ExitCode(err); code != exitProtocol {
 		t.Fatalf("second run: exit %d (%v)", code, err)
 	}
@@ -443,6 +449,8 @@ func TestE2E_FxCMWaitTimeout(t *testing.T) {
 // TestE2E_FxCMWithoutFileOrEdit: a ConnectionManager without the file
 // (F.3 is optional) and with sets that cannot be edited.
 func TestE2E_FxCMWithoutFileOrEdit(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	s := startFxCMServerWith(t, false, false)
 	if _, err := s.m.Add(cmSetConf("Line1")); err != nil {
 		t.Fatal(err)
@@ -453,19 +461,19 @@ func TestE2E_FxCMWithoutFileOrEdit(t *testing.T) {
 		{"export"},
 		{"import", "--file", file, "--op", "add"},
 	} {
-		_, _, err := runCLI(t, append(append([]string{"fx", "cm"}, args...), "-e", s.url)...)
+		_, _, err := w.run(t, append(append([]string{"fx", "cm"}, args...), "-e", s.url)...)
 		if code := ExitCode(err); code != exitUnsupported {
 			t.Fatalf("%v: exit %d (%v)", args, code, err)
 		}
 	}
-	out, _, err := runCLI(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=1", "--format", "json")
+	out, _, err := w.run(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=1", "--format", "json")
 	if code := ExitCode(err); code != exitProtocol {
 		t.Fatalf("edit: exit %d (%v)", code, err)
 	}
 	if ed := cmJSON[model.FxCMEdit](t, out); ed.Failed != "StartEditing" || ed.Committed {
 		t.Fatalf("edit: %+v", ed)
 	}
-	out, _, err = runCLI(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
+	out, _, err = w.run(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,6 +549,8 @@ func TestE2E_FxCMBounds(t *testing.T) {
 // TestE2E_FxCMModelOnly: a server with the CM model and no ConnectionManager
 // behind it lists no sets.
 func TestE2E_FxCMModelOnly(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	srv, err := server.New(server.EndPoint("localhost", 0), server.InsecureNoSecurity(), server.EnableAuthMode(ua.UserTokenTypeAnonymous), server.ApplicationURI("urn:opcuactl:test:cm-model"))
 	if err != nil {
 		t.Fatal(err)
@@ -553,25 +563,27 @@ func TestE2E_FxCMModelOnly(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	url := fmt.Sprintf("opc.tcp://localhost:%d", srv.Port())
-	out, stderr, err := runCLI(t, "fx", "cm", "list", "-e", url, "--format", "json")
+	out, stderr, err := w.run(t, "fx", "cm", "list", "-e", url, "--format", "json")
 	if err != nil {
 		t.Fatalf("list: %v\n%s", err, stderr)
 	}
 	if l := cmJSON[model.FxCMList](t, out); len(l.Sets) != 0 || l.ConnectionManager == "" {
 		t.Fatalf("list: %+v", l)
 	}
-	if _, _, err = runCLI(t, "fx", "cm", "export", "-e", url); ExitCode(err) != exitUnsupported {
+	if _, _, err = w.run(t, "fx", "cm", "export", "-e", url); ExitCode(err) != exitUnsupported {
 		t.Fatalf("export: exit %d (%v)", ExitCode(err), err)
 	}
-	if _, _, err = runCLI(t, "fx", "cm", "process", "-e", url, "--action", "remove", "Plant/X"); ExitCode(err) != exitUsage {
+	if _, _, err = w.run(t, "fx", "cm", "process", "-e", url, "--action", "remove", "Plant/X"); ExitCode(err) != exitUsage {
 		t.Fatalf("process: exit %d (%v)", ExitCode(err), err)
 	}
 }
 
 // TestE2E_FxCMFileFaults: fx cm export and import against file Methods
 // that fail or answer what OPC 10000-20 §4.2 and Table F.39 do not allow.
-// CloseAndUpdate is called once whatever it answers.
+// CloseAndUpdate is called once whatever it answers. The cases that need
+// smaller package bounds are in TestE2E_FxCMFileBounds.
 func TestE2E_FxCMFileFaults(t *testing.T) {
+	t.Parallel()
 	file := writeSetFile(t, cmSetConf("Line1"))
 	type handler = func(ctx context.Context, obj, method *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode)
 	fail := func(sc ua.StatusCode) handler {
@@ -604,21 +616,24 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 		}
 		return []*ua.Variant{ua.MustVariant(true), ua.MustVariant([]ua.StatusCode{ua.StatusOK}), ua.MustVariant([]*ua.NodeID{ua.NewNumericNodeID(1, 7)})}, ua.StatusOK
 	}
-	readArray := func() handler {
+	// readOnce answers the first Read with body and the next with no data
+	// (the end of the file).
+	readOnce := func(body any) handler {
 		var n atomic.Int32
-		body, err := fxcm.EncodeFile([]*uafx.ConnectionConfigurationSetConf{cmSetConf("A")})
-		if err != nil {
-			t.Fatal(err)
-		}
 		return func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
 			if n.Add(1) == 1 {
-				return []*ua.Variant{ua.MustVariant(ua.ByteArray(body))}, ua.StatusOK
+				return []*ua.Variant{ua.MustVariant(body)}, ua.StatusOK
 			}
 			return []*ua.Variant{ua.MustVariant([]byte{})}, ua.StatusOK
 		}
 	}
-	// The cases that change package bounds run first, one at a time; the
-	// others in parallel after them.
+	readArray := func() handler {
+		body, err := fxcm.EncodeFile([]*uafx.ConnectionConfigurationSetConf{cmSetConf("A")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return readOnce(ua.ByteArray(body))
+	}
 	t.Run("cases", func(group *testing.T) {
 		for _, c := range []struct {
 			name   string
@@ -633,10 +648,9 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 			{"open string handle", "Open", answer("h"), []string{"export"}, exitProtocol},
 			{"read fails", "Read", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
 			{"read byte array", "Read", readArray(), []string{"export"}, exitOK},
-			{"read without end", "Read", answer([]byte("x")), []string{"export"}, exitPartial},
+			{"read not a file", "Read", readOnce([]byte("not a file")), []string{"export"}, exitInvalidInput},
 			{"read no data", "Read", answer(), []string{"export"}, exitProtocol},
 			{"read wrong type", "Read", answer(int32(7)), []string{"export"}, exitProtocol},
-			{"read too much", "Read", answer(make([]byte, 2)), []string{"export"}, exitProtocol},
 			{"close fails", "Close", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
 			{"write fails", "Write", fail(ua.StatusBadResourceUnavailable), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
 			{"update outputs", "CloseAndUpdate", answer(true), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
@@ -648,26 +662,14 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 			{"update objects", "CloseAndUpdate", answer(true, []ua.StatusCode{ua.StatusOK}, []*ua.NodeID{ua.NewNumericNodeID(1, 1), ua.NewNumericNodeID(1, 2)}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
 		} {
 			group.Run(c.name, func(t *testing.T) {
-				switch c.name {
-				default:
-					// Each case starts its own server (about 2 s under the
-					// race detector); the CLI runs one at a time (cliMu).
-					t.Parallel()
-				case "read without end":
-					// A server that never ends the file stops at the bound.
-					prev := cmMaxFileSize
-					cmMaxFileSize = 10
-					t.Cleanup(func() { cmMaxFileSize = prev })
-				case "read too much":
-					// More bytes than the Length asked for.
-					prev := cmChunk
-					cmChunk = 1
-					t.Cleanup(func() { cmChunk = prev })
-				}
+				// Each case starts its own server (about 2 s under the race
+				// detector) and runs the CLI in its own worker.
+				t.Parallel()
+				w := startCLIWorker(t)
 				s := startFxCMServer(t)
 				ns := s.cmNS(t)
 				s.srv.RegisterMethod(ua.NewStringNodeID(ns, "cm.File"), ua.NewStringNodeID(ns, "cm.File."+c.method), c.h)
-				out, stderr, err := runCLI(t, append(append([]string{"fx", "cm"}, c.args...), "-e", s.url)...)
+				out, stderr, err := w.run(t, append(append([]string{"fx", "cm"}, c.args...), "-e", s.url)...)
 				if code := ExitCode(err); code != c.want {
 					t.Fatalf("exit %d, want %d (%v)\n%s%s", code, c.want, err, out, stderr)
 				}
@@ -676,6 +678,42 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 	})
 	if calls.Load() != 1 {
 		t.Fatalf("CloseAndUpdate called %d times, want 1: it is not retried", calls.Load())
+	}
+}
+
+// TestE2E_FxCMFileBounds: the file Method faults that need smaller package
+// bounds, so they run in this process, one at a time.
+func TestE2E_FxCMFileBounds(t *testing.T) {
+	file := writeSetFile(t, cmSetConf("Line1"))
+	read := func(body []byte) func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+		return func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+			return []*ua.Variant{ua.MustVariant(body)}, ua.StatusOK
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		bound *int
+		value int
+		body  []byte
+		want  int
+	}{
+		// A server that never ends the file stops at the bound.
+		{"read without end", &cmMaxFileSize, 10, []byte("x"), exitPartial},
+		// More bytes than the Length asked for.
+		{"read too much", &cmChunk, 1, make([]byte, 2), exitProtocol},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			prev := *c.bound
+			*c.bound = c.value
+			t.Cleanup(func() { *c.bound = prev })
+			s := startFxCMServer(t)
+			ns := s.cmNS(t)
+			s.srv.RegisterMethod(ua.NewStringNodeID(ns, "cm.File"), ua.NewStringNodeID(ns, "cm.File.Read"), read(c.body))
+			out, stderr, err := runCLI(t, "fx", "cm", "export", "-e", s.url)
+			if code := ExitCode(err); code != c.want {
+				t.Fatalf("exit %d, want %d (%v)\n%s%s", code, c.want, err, out, stderr)
+			}
+		})
 	}
 
 	// An import larger than the bound is refused before it is sent.

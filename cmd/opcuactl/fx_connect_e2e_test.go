@@ -293,12 +293,14 @@ func TestE2E_FxConnect(t *testing.T) {
 // a verification mismatch leaves nothing behind and exits 6 with the
 // results printed.
 func TestE2E_FxConnectAborted(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	s := startFxConnServer(t)
 	dir := t.TempDir()
 	req := writeRequest(t, dir, "connect.yaml", connectYAML("ToLine", s.pubsubFile(t, dir), 8))
 
 	for _, f := range []string{"json", "table"} {
-		stdout, _, err := runCLI(t, "fx", "connect", "-e", s.url, "--ac", nsu(fxCtl), "--request", req, "--format", f)
+		stdout, _, err := w.run(t, "fx", "connect", "-e", s.url, "--ac", nsu(fxCtl), "--request", req, "--format", f)
 		if code := ExitCode(err); code != exitProtocol {
 			t.Fatalf("%s: exit %d (%v)\n%s", f, code, err, stdout)
 		}
@@ -334,6 +336,8 @@ func TestE2E_FxConnectAborted(t *testing.T) {
 // TestE2E_FxConnectVerify verifies a FunctionalEntity without creating
 // anything, with a preconfigured endpoint by its NodeId, and in JSON.
 func TestE2E_FxConnectVerify(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	s := startFxConnServer(t)
 	req := writeRequest(t, t.TempDir(), "verify.json", fmt.Sprintf(`{
   "commands": ["VerifyFunctionalEntity"],
@@ -346,7 +350,7 @@ func TestE2E_FxConnectVerify(t *testing.T) {
     ]
   }]
 }`, s.ns, fxMotion, fxPreset, fxFixed, fxGain))
-	stdout, stderr, err := runCLI(t, "fx", "connect", "-e", s.url, "--ac", s.id(fxCtl).String(), "--request", req)
+	stdout, stderr, err := w.run(t, "fx", "connect", "-e", s.url, "--ac", s.id(fxCtl).String(), "--request", req)
 	if err != nil {
 		t.Fatalf("%v\n%s\n%s", err, stdout, stderr)
 	}
@@ -361,12 +365,14 @@ func TestE2E_FxConnectVerify(t *testing.T) {
 // another AutomationComponent, a node that is no endpoint, and of a
 // preconfigured endpoint with one that is closed.
 func TestE2E_FxClose(t *testing.T) {
+	t.Parallel()
+	w := startCLIWorker(t)
 	s := startFxConnServer(t)
 	run := func(endpoints ...string) (model.FxCloseResult, int) {
 		t.Helper()
 		args := []string{"fx", "close", "-e", s.url, "--ac", nsu(fxCtl), "--format", "json"}
 		args = append(args, endpoints...)
-		stdout, _, err := runCLI(t, args...)
+		stdout, _, err := w.run(t, args...)
 		var r model.FxCloseResult
 		if jerr := json.Unmarshal([]byte(stdout), &r); jerr != nil {
 			t.Fatalf("%v (%v):\n%s", jerr, err, stdout)
@@ -385,7 +391,7 @@ func TestE2E_FxClose(t *testing.T) {
 	if code != exitProtocol || r.Endpoints[0].Status == "Good" {
 		t.Errorf("another component: exit %d, %+v", code, r)
 	}
-	stdout := mustRun(t, "fx", "close", "-e", s.url, "--ac", nsu(fxCtl), nsu(fxPreset))
+	stdout := w.mustRun(t, "fx", "close", "-e", s.url, "--ac", nsu(fxCtl), nsu(fxPreset))
 	if !strings.Contains(stdout, "ENDPOINT") || !strings.Contains(stdout, "Good") {
 		t.Errorf("table:\n%s", stdout)
 	}
@@ -399,7 +405,7 @@ func TestE2E_FxClose(t *testing.T) {
 		{"no endpoint", []string{"--ac", nsu(fxCtl)}, exitUsage},
 		{"not a UAFX server", []string{"-e", startFxServerWithoutModel(t), "--ac", "ns=1;i=1", "ns=1;i=2"}, exitProtocol},
 	} {
-		_, _, err := runCLI(t, append([]string{"fx", "close", "-e", s.url}, c.args...)...)
+		_, _, err := w.run(t, append([]string{"fx", "close", "-e", s.url}, c.args...)...)
 		if code := ExitCode(err); code != c.want {
 			t.Errorf("%s: exit %d, want %d (%v)", c.name, code, c.want, err)
 		}
