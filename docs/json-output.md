@@ -359,6 +359,54 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `nodeId`, `status`, `statusCode`
 
+**FxCMList** — what `fx cm list` read: the ConnectionConfigurationSets of the ConnectionManager (Part 81 §6.7.2, §6.8.2). `aggregatedCurrentState` is TRUE while a set is in Error; `truncated` is TRUE when a bound cut the listing short.
+
+`connectionManager`, `aggregatedCurrentState`?, `sets`, `truncated`?
+
+**FxCMSet** — the state of one ConnectionConfigurationSet: `path` is its Folders and Name joined by `/`; `state` is the CurrentState of its state machine (§6.9.2) as the server shows it, `stateId` Ready, Processing or Error from its Id; `diagnostics` is ConnectionsDiagnostics.
+
+`path`, `nodeId`, `state`?, `stateId`?, `lastTransition`?, `version`?, `edit`?, `rollbackOnError`?, `connections`, `diagnostics`
+
+**FxCMConnection** — a ConnectionConfiguration of a set with its ProcessingResult.
+
+`name`, `nodeId`, `processingResult`?, `processingResultCode`?
+
+**FxCMDiagnostics** — one ConnectionDiagnosticsDataType (§6.8.2): the outcome of the last run of a Connection.
+
+`name`, `lastActivity`, `connectionState`, `errorEndpoint1`, `endpoint1Status`, `errorEndpoint2`, `endpoint2Status`
+
+**FxCMCallResult** — what `fx cm process` got back from ProcessConnectionConfigurationSets (§6.7.5, Tables 85 and 86): the status of the call and one result per set.
+
+`method`, `action`, `status`, `statusCode`, `sets`
+
+**FxCMSetResult** — the result for one set; `state` is the state the set ended in with `--wait`.
+
+`path`, `nodeId`, `status`, `statusCode`, `state`?
+
+**FxCMExport** — what `fx cm export` read from ConnectionManagerConfiguration (F.3): the size of the file and a summary of its sets.
+
+`file`?, `bytes`, `sets`
+
+**FxCMFileSet** — one ConnectionConfigurationSetConf of a file (F.2).
+
+`path`, `version`, `connections`, `communicationFlows`, `automationComponents`
+
+**FxCMImport** — what `fx cm import` got back from CloseAndUpdate (F.3.3, Tables F.39 to F.41): ChangesApplied and one result per operation.
+
+`file`, `requireCompleteUpdate`, `changesApplied`, `operations`
+
+**FxCMOperation** — the result of one operation; `nodeId` is the set Object the server returned, absent for a removal or a failed operation.
+
+`path`, `operation`, `status`, `statusCode`, `nodeId`?
+
+**FxCMEdit** — what `fx cm edit` did (§6.7.4): the writes, whether CommitUpdates succeeded and the Version after it; `failed` names the step that failed and `discarded` is TRUE when DiscardUpdates then dropped the edit.
+
+`path`, `nodeId`, `writes`, `committed`, `version`?, `failed`?, `discarded`?
+
+**FxCMWrite** — one write of an edit.
+
+`path`, `nodeId`?, `value`, `status`?, `statusCode`?
+
 ### GDS and certificate management
 
 **GDSProperties** — are the properties of the ServerConfiguration object (OPC UA Part 12 §7.10.3) and the certificate types of the DefaultApplicationGroup.

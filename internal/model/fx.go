@@ -206,3 +206,137 @@ type FxClosedEndpoint struct {
 	Status     string `json:"status"`
 	StatusCode uint32 `json:"statusCode"`
 }
+
+// FxCMList is the result of fx cm list: the ConnectionConfigurationSets of
+// the ConnectionManager of a server (Part 81 §6.7.2, §6.8.2).
+type FxCMList struct {
+	ConnectionManager string `json:"connectionManager"`
+	// AggregatedCurrentState is TRUE while a set is in Error (§6.7.2); nil
+	// when the server has no such Variable.
+	AggregatedCurrentState *bool     `json:"aggregatedCurrentState,omitempty"`
+	Sets                   []FxCMSet `json:"sets"`
+	// Truncated is TRUE when a bound of opcuactl cut the listing short.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// FxCMSet is the state of one ConnectionConfigurationSet.
+type FxCMSet struct {
+	// Path is the Folders and the Name of the set, joined by "/".
+	Path   string `json:"path"`
+	NodeID string `json:"nodeId"`
+	// State is the CurrentState of its state machine (§6.9.2) as the
+	// server shows it; StateID names the state, Ready, Processing or
+	// Error, when the server gives its NodeId.
+	State           string           `json:"state,omitempty"`
+	StateID         string           `json:"stateId,omitempty"`
+	LastTransition  string           `json:"lastTransition,omitempty"`
+	Version         *uint32          `json:"version,omitempty"`
+	Edit            *bool            `json:"edit,omitempty"`
+	RollbackOnError *bool            `json:"rollbackOnError,omitempty"`
+	Connections     []FxCMConnection `json:"connections"`
+	// Diagnostics is ConnectionsDiagnostics: the outcome of the last run
+	// per Connection.
+	Diagnostics []FxCMDiagnostics `json:"diagnostics"`
+}
+
+// FxCMConnection is a ConnectionConfiguration of a set.
+type FxCMConnection struct {
+	Name   string `json:"name"`
+	NodeID string `json:"nodeId"`
+	// ProcessingResult as the server gives it; empty without one.
+	ProcessingResult     string  `json:"processingResult,omitempty"`
+	ProcessingResultCode *uint32 `json:"processingResultCode,omitempty"`
+}
+
+// FxCMDiagnostics is one ConnectionDiagnosticsDataType (§6.8.2).
+type FxCMDiagnostics struct {
+	Name            string `json:"name"`
+	LastActivity    string `json:"lastActivity"`
+	ConnectionState string `json:"connectionState"`
+	ErrorEndpoint1  string `json:"errorEndpoint1"`
+	Endpoint1Status string `json:"endpoint1Status"`
+	ErrorEndpoint2  string `json:"errorEndpoint2"`
+	Endpoint2Status string `json:"endpoint2Status"`
+}
+
+// FxCMCallResult is the result of fx cm process: the status of the
+// ProcessConnectionConfigurationSets call (§6.7.5) and one result per set.
+type FxCMCallResult struct {
+	Method     string          `json:"method"`
+	Action     string          `json:"action"`
+	Status     string          `json:"status"`
+	StatusCode uint32          `json:"statusCode"`
+	Sets       []FxCMSetResult `json:"sets"`
+}
+
+// FxCMSetResult is the result for one set; with fx cm process --wait also
+// the state the set ended in.
+type FxCMSetResult struct {
+	Path       string `json:"path"`
+	NodeID     string `json:"nodeId"`
+	Status     string `json:"status"`
+	StatusCode uint32 `json:"statusCode"`
+	State      string `json:"state,omitempty"`
+}
+
+// FxCMExport is the result of fx cm export: the sets of the
+// ConnectionManagerConfiguration file (Annex F.2, F.3).
+type FxCMExport struct {
+	File  string        `json:"file,omitempty"`
+	Bytes int           `json:"bytes"`
+	Sets  []FxCMFileSet `json:"sets"`
+}
+
+// FxCMFileSet summarises one ConnectionConfigurationSetConf of a file.
+type FxCMFileSet struct {
+	Path                 string `json:"path"`
+	Version              uint32 `json:"version"`
+	Connections          int    `json:"connections"`
+	CommunicationFlows   int    `json:"communicationFlows"`
+	AutomationComponents int    `json:"automationComponents"`
+}
+
+// FxCMImport is the result of fx cm import: CloseAndUpdate of the
+// ConnectionManagerConfiguration file (F.3.3, Tables F.39 to F.41).
+type FxCMImport struct {
+	File                  string          `json:"file"`
+	RequireCompleteUpdate bool            `json:"requireCompleteUpdate"`
+	ChangesApplied        bool            `json:"changesApplied"`
+	Operations            []FxCMOperation `json:"operations"`
+}
+
+// FxCMOperation is the result of one operation of fx cm import.
+type FxCMOperation struct {
+	Path       string `json:"path"`
+	Operation  string `json:"operation"`
+	Status     string `json:"status"`
+	StatusCode uint32 `json:"statusCode"`
+	// NodeID is the ConnectionConfigurationSet Object the server returned;
+	// empty for a removal or a failed operation.
+	NodeID string `json:"nodeId,omitempty"`
+}
+
+// FxCMEdit is the result of fx cm edit: the writes of an edit of one set
+// (Part 81 §6.7.4) and whether it was committed.
+type FxCMEdit struct {
+	Path   string      `json:"path"`
+	NodeID string      `json:"nodeId"`
+	Writes []FxCMWrite `json:"writes"`
+	// Committed is TRUE when CommitUpdates succeeded; Version is then the
+	// Version of the set after it.
+	Committed bool    `json:"committed"`
+	Version   *uint32 `json:"version,omitempty"`
+	// Failed names the step that failed; Discarded is TRUE when
+	// DiscardUpdates then dropped the edit.
+	Failed    string `json:"failed,omitempty"`
+	Discarded bool   `json:"discarded,omitempty"`
+}
+
+// FxCMWrite is one write of an edit.
+type FxCMWrite struct {
+	Path       string `json:"path"`
+	NodeID     string `json:"nodeId,omitempty"`
+	Value      string `json:"value"`
+	Status     string `json:"status,omitempty"`
+	StatusCode uint32 `json:"statusCode,omitempty"`
+}

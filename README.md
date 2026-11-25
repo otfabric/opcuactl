@@ -66,7 +66,7 @@ opcuactl completion powershell | Out-String | Invoke-Expression
 - **History** — raw, modified, processed (aggregate) and at-time reads; historical events with a WhereClause (`--of-type`, `--severity-min|max`), BrowsePath fields and paging across continuation points, and `history update-events` / `delete-events` to insert, replace, update and delete them; `history update-values` / `delete-values` backfill, correct and delete historical values (OPC UA Part 11). Every standard aggregate of Part 13 for processed reads.
 - **Export** — node metadata, value snapshots or historical time series for a whole subtree.
 - **Security that connects** — anonymous, username, X.509 and issued-token identities over the RSA and the ECC security policies (NIST P-256/P-384, Brainpool P-256/P-384, Curve25519, Curve448, AES-GCM, ChaCha20-Poly1305); `--security-policy auto --security-mode auto` discovers the endpoints and configures the best match for your certificate.
-- **OPC UA FX** — `fx inspect` reads the UAFX information model of a server (OPC 10000-81): its AutomationComponents with their Assets, FunctionalEntities and ConnectionEndpoints, the ConnectionManager, and where the address space deviates from Part 81 (`--check` exits 1 on findings: a check of the model for CI, not certification). `fx connect` calls EstablishConnections on an AutomationComponent with a request from a JSON or YAML file (verify, create a ConnectionEndpoint, write ConfigurationData, set up and enable its PubSub communication), `fx close` calls CloseConnections.
+- **OPC UA FX** — `fx inspect` reads the UAFX information model of a server (OPC 10000-81): its AutomationComponents with their Assets, FunctionalEntities and ConnectionEndpoints, the ConnectionManager, and where the address space deviates from Part 81 (`--check` exits 1 on findings: a check of the model for CI, not certification). `fx connect` calls EstablishConnections on an AutomationComponent with a request from a JSON or YAML file (verify, create a ConnectionEndpoint, write ConfigurationData, set up and enable its PubSub communication), `fx close` calls CloseConnections. `fx cm` works with the ConnectionManager of a server (§6.7): `list` its ConnectionConfigurationSets with their state and diagnostics, `process` them (establish, enable, disable, remove), `edit` their configurable Variables and commit a new Version, and `export` and `import` them as the ConnectionConfigurationSet file of Annex F.
 - **PubSub** — `pubsub subscribe` prints the DataSets publishers send as UADP or JSON over UDP (unicast and multicast), Ethernet, MQTT 3.1.1 / 5.0 or AMQP 1.0, `pubsub publish` sends test DataSets (chunked if they are large, answering discovery probes), `pubsub discover` probes for publishers, their metadata and configuration, `pubsub call` calls a PubSub Action of a Responder and `pubsub respond` answers Action requests for testing, `pubsub decode` decodes a capture, `pubsub sks get-keys` fetches the keys of a SecurityGroup, and `pubsub config` shows and changes the PubSub configuration of a server and reads its diagnostics counters.
 - **HTTPS and WebSocket** — `-e opc.wss://…` (OPC UA over a TLS WebSocket) and `-e opc.https://…` (UA Binary over HTTPS) work for every command, in UA Binary or with `--transport wss-uajson|https-uajson` in UA JSON; `--tls-ca`, `--tls-cert` / `--tls-key` (mutual TLS) set up the TLS, and endpoint listings show the transport of each endpoint.
 - **A test server** — `serve` runs an OPC UA server with a demo address space (changing, writable and historized values, an alarm, an event history, a method) or your NodeSet2 models, over `opc.tcp`, `opc.wss` and `opc.https` (UA Binary and UA JSON), with self-signed or your own certificates, a client trust list and users — for trying things out, for CI, and for testing other clients.
@@ -637,6 +637,25 @@ opcuactl fx connect -e opc.tcp://localhost:4840 --ac "ns=2;i=1000" --request ver
 # Close endpoints; --remove also removes what EstablishConnections created for them
 opcuactl fx close -e opc.tcp://localhost:4840 --ac "ns=2;i=1000" "ns=2;i=5001" --remove
 ```
+
+```bash
+# The ConnectionConfigurationSets of a ConnectionManager, their state and the result per Connection
+opcuactl fx cm list -e opc.tcp://localhost:4856
+
+# Add the sets of a ConnectionConfigurationSet file (Part 81 F.2), all or nothing
+opcuactl fx cm import -e opc.tcp://localhost:4856 --file sets.bin --op add --require-complete
+
+# Change a configurable Variable of a set and commit it as the next Version
+opcuactl fx cm edit -e opc.tcp://localhost:4856 Plant/Line1 --write Flow/PublishingInterval=250
+
+# Establish the Connections of a set and wait for the outcome
+opcuactl fx cm process -e opc.tcp://localhost:4856 --action establish-enabled Plant/Line1 --wait 30s
+
+# Read the sets as a file
+opcuactl fx cm export -e opc.tcp://localhost:4856 --out sets.bin
+```
+
+`fx cm` finds the ConnectionManager (FxRoot.ConnectionManager, §12.3), its ConnectionConfigurationSets (in their Folders) and the ConnectionManagerConfiguration file by browsing, so it works with any server that has the CM model; a set is named by its NodeId or by the path `fx cm list` prints (Folders and Name joined by `/`). `fx cm process` calls ProcessConnectionConfigurationSets (§6.7.5), which starts a run per set and returns; `--wait` then reads the state of each set until it leaves Processing and exits 6 when one ended in Error (`fx cm list` shows ConnectionsDiagnostics and the ProcessingResult per Connection) and 5 when `--wait` ran out. The edit Lock of EditConnectionConfigurationSets (§6.7.4) belongs to the session, so `fx cm edit` runs StartEditing, the `--write`s and CommitUpdates in one session and calls DiscardUpdates when a step fails; a value is converted to the type of the Variable, or given as an OPC UA JSON Variant. A commit does not touch the Connections: process the set to apply the new Version. `fx cm import` checks that the file decodes, writes it and calls CloseAndUpdate (F.3.3) with one `--op` (`add`, `remove`, `replace`) for every set or one per set; with `--require-complete` the server applies all or none. These Methods usually need the Role ConfigureAdmin: a refusal exits 9. None of the pinned references of opcua-interop implements UAFX, so `fx cm` is tested against go-opcua only.
 
 `fx inspect` reads the model only. "UAFX server: yes" means the server has the namespaces of Part 81 §14.2 and FxRoot (§12.2): it is not a conformance statement.
 

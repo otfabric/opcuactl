@@ -1,5 +1,27 @@
 # opcuactl Releases
 
+## v0.22.0
+
+**Date:** unreleased
+**Previous release:** v0.21.1
+
+Moves to go-opcua v1.39.0 (was v1.38.0) and adds `fx cm`, which works with the ConnectionManager of a server (OPC 10000-81 §6.7): it lists, processes and edits ConnectionConfigurationSets and reads and writes them as the file of Annex F. The existing commands, their output and exit codes are unchanged; no changes need attention when upgrading.
+
+### Added
+
+- `fx cm list` lists the ConnectionConfigurationSets of the ConnectionManager (§6.7.2), in their Folders as well, with the state of each (§6.9.2: Ready, Processing, Error), LastTransition, Version, Edit, RollbackOnError, its Connections with their ProcessingResult and the ConnectionsDiagnostics of the last run (§6.8.2), and the AggregatedCurrentState of the ConnectionManager. It finds them by browsing, so it works with any server that has the CM model. At most 10000 sets and 8 Folder levels are read; more exits 7 (JSON: `FxCMList`).
+- `fx cm process --action <establish-enabled|establish-disabled|establish|enable|disable|remove> <set>... [--wait <duration>]` calls ProcessConnectionConfigurationSets (§6.7.5) and prints the result per set; `--wait` then reads the state of each started set until it leaves Processing. It exits 7 when some sets were started and 6 when none was; with `--wait` 6 when a set ended in Error and 5 when the wait ran out (JSON: `FxCMCallResult`). A set is named by its NodeId or by the path `fx cm list` prints.
+- `fx cm edit <set> --write <path>=<value>...` edits a set in one session (§6.7.4): StartEditing, the writes of the configurable Variables (named by their BrowseNames below the set; the value is converted to the type of the Variable, or given as an OPC UA JSON Variant) and CommitUpdates, with DiscardUpdates when a step fails. The Lock belongs to the session, so the steps cannot be split over commands. It exits 6 when a step failed and 2 when a `--write` names no Variable (JSON: `FxCMEdit`).
+- `fx cm export [--out <file>]` reads the ConnectionManagerConfiguration file (F.3, Open for Read) and writes it, a ConnectionConfigurationSet file (F.2), to `--out`; it prints a summary of the sets (JSON: `FxCMExport`). A file larger than 64 MiB exits 7.
+- `fx cm import --file <file> --op <add|remove|replace>[,...] [--require-complete]` checks that the file decodes, writes it to ConnectionManagerConfiguration (Write with EraseExisting) and applies its sets with CloseAndUpdate (F.3.3), with one operation for every set or one per set; it prints ChangesApplied (Table F.39), the result of each operation and the set Objects. It exits 7 when some operations were applied and 6 when none was (JSON: `FxCMImport`). The Operations go as an array of Byte (Table F.39); a server that answers `Bad_TypeMismatch` before it uses the file handle gets them as a ByteString, as go-opcua v1.39.0 takes them.
+- `fx cm` against a server without a ConnectionManager exits 8, and so do `export` and `import` against one without the ConnectionManagerConfiguration file. A refusal of the user (most servers grant these Methods to the Role ConfigureAdmin) exits 9.
+- The end-to-end tests run every `fx cm` command against a go-opcua ConnectionManager whose AutomationComponents are not running: a run that ends in Error and one still Processing when `--wait` runs out, a commit and a discarded edit, the bounds of what `fx cm` reads, files moved in many chunks, and file Methods that fail or answer what OPC 10000-20 §4.2 does not allow. None of the pinned references of opcua-interop implements UAFX, so this is tested against go-opcua only.
+
+### Changed
+
+- Built on go-opcua v1.39.0 (go-opcua RELEASE.md, v1.39.0). The output of `fx inspect`, `fx connect` and `fx close` is unchanged.
+
+---
 ## v0.21.1
 
 **Date:** 2026-11-24

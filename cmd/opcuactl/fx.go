@@ -17,7 +17,7 @@ import (
 func newFxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fx",
-		Short: "Inspect the OPC UA FX model of a server and establish its connections",
+		Short: "Inspect the OPC UA FX model of a server, establish its connections and manage ConnectionConfigurationSets",
 		Long: `Work with OPC UA FX (UAFX, OPC 10000-81): the information model of
 field-level communication. fx inspect reads the UAFX model of a server: its
 AutomationComponents with their Assets, FunctionalEntities and
@@ -28,17 +28,22 @@ fx connect calls EstablishConnections on an AutomationComponent (§6.2.4)
 with a request from a file: verify its Assets and FunctionalEntities,
 create a ConnectionEndpoint, write ConfigurationData and set up and enable
 the PubSub communication of the endpoint. fx close calls CloseConnections
-(§6.2.5). ControlGroups, persistent connections and the ConnectionManager
-are the server's to support; opcuactl sends what the request holds.
+(§6.2.5). ControlGroups and persistent connections are the server's to
+support; opcuactl sends what the request holds.
+
+fx cm works with the ConnectionManager of a server (§6.7): it lists,
+processes and edits its ConnectionConfigurationSets and reads and writes
+them as the file of Annex F.
 
 Examples:
   opcuactl fx inspect -e opc.tcp://localhost:4840
   opcuactl fx inspect -e opc.tcp://localhost:4840 --format json
   opcuactl fx inspect -e opc.tcp://localhost:4840 --check
   opcuactl fx connect -e opc.tcp://localhost:4840 --ac "ns=2;i=1000" --request connect.yaml
-  opcuactl fx close -e opc.tcp://localhost:4840 --ac "ns=2;i=1000" "ns=2;i=5001" --remove`,
+  opcuactl fx close -e opc.tcp://localhost:4840 --ac "ns=2;i=1000" "ns=2;i=5001" --remove
+  opcuactl fx cm list -e opc.tcp://localhost:4856`,
 	}
-	cmd.AddCommand(newFxInspectCmd(), newFxConnectCmd(), newFxCloseCmd())
+	cmd.AddCommand(newFxInspectCmd(), newFxConnectCmd(), newFxCloseCmd(), newFxCMCmd())
 	return cmd
 }
 
