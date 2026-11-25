@@ -328,20 +328,24 @@ type FxCMEdit struct {
 	Path   string      `json:"path"`
 	NodeID string      `json:"nodeId"`
 	Writes []FxCMWrite `json:"writes"`
-	// Outcome is "committed" when CommitUpdates answered Good, the Version
-	// went up by one and the written Variables read the values written;
-	// "not-committed" when the edit ended before a commit, the server
-	// refused it, or answered Good with the Version unchanged (a commit of
-	// an edit that had ended is ignored, Part 81 §6.7.4); and "unknown"
-	// when CommitUpdates got no answer or the commit cannot be
-	// established: the set may or may not have its next Version.
+	// Outcome is "committed" when the Version went up by one and the
+	// written Variables read the values written, after a Good
+	// CommitUpdates or one that got no answer; "not-committed" when the
+	// edit ended before a commit, the server refused it, or answered Good
+	// with the Version unchanged (a commit of an edit that had ended is
+	// ignored, Part 81 §6.7.4); and "unknown" when the commit cannot be
+	// established: the set may or may not have its next Version. A
+	// CommitUpdates without an answer is never not-committed.
 	Outcome string `json:"outcome"`
 	// Committed is TRUE for the outcome committed. Version is the Version
-	// of the set read after a Good CommitUpdates.
+	// of the set read after CommitUpdates.
 	Committed bool    `json:"committed"`
 	Version   *uint32 `json:"version,omitempty"`
 	// Failed names the step that failed; Discarded is TRUE when
-	// DiscardUpdates then dropped the edit. CleanupError is why
+	// DiscardUpdates answered Good for an edit known to be open, before
+	// CommitUpdates was sent or after the server refused it; never after a
+	// CommitUpdates without an answer, since a server ignores
+	// DiscardUpdates once a commit ended the edit. CleanupError is why
 	// DiscardUpdates failed, when it did.
 	Failed       string `json:"failed,omitempty"`
 	Discarded    bool   `json:"discarded,omitempty"`

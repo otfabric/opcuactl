@@ -456,8 +456,11 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 	}
 	var mu sync.Mutex
 	steps := map[uafx.FxEdit]step{}
-	var committed atomic.Bool
-	var serial sync.Mutex // one call at a time: DiscardUpdates sees what the CommitUpdates before it did
+	// One call at a time: DiscardUpdates sees what the CommitUpdates
+	// before it did. Like a conformant server (Part 81 §6.7.4) and
+	// go-opcua, it answers Good to a DiscardUpdates of a set no longer in
+	// edit, and ignores it.
+	var serial sync.Mutex
 	f.onEdit(func(_ context.Context, _, _ *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
 		serial.Lock()
 		defer serial.Unlock()
@@ -467,14 +470,10 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 		mu.Unlock()
 		time.Sleep(st.delay)
 		if uafx.FxEdit(a) == uafx.CommitUpdates && st.sc == ua.StatusOK {
-			committed.Store(true)
 			version.Add(bump.Load())
 			if other.Load() {
 				_ = x.SetAttribute(ua.AttributeIDValue, server.DataValueFromValue(7.0))
 			}
-		}
-		if uafx.FxEdit(a) == uafx.DiscardUpdates && committed.Load() {
-			return []*ua.Variant{ua.MustVariant([]ua.StatusCode{ua.StatusBadInvalidState})}, ua.StatusOK
 		}
 		return []*ua.Variant{ua.MustVariant([]ua.StatusCode{st.sc})}, ua.StatusOK
 	})
@@ -503,8 +502,14 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 		{"commit reads another value", nil, 1, true, 0, "5s", exitProtocol, "unknown", false, false, "CommitUpdates"},
 		{"commit refused", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState}}, 1, false, 0, "5s", exitProtocol, "not-committed", true, false, "CommitUpdates"},
 		{"discard fails", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState}, uafx.DiscardUpdates: {sc: ua.StatusBadInternalError}}, 1, false, 0, "5s", exitProtocol, "not-committed", false, true, "CommitUpdates"},
-		{"commit lost, still open", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState, delay: 700 * time.Millisecond}}, 1, false, 0, "400ms", exitTimeout, "not-committed", true, false, "CommitUpdates"},
-		{"commit lost, applied", map[uafx.FxEdit]step{uafx.CommitUpdates: {delay: 700 * time.Millisecond}}, 1, false, 0, "400ms", exitTimeout, "unknown", false, true, "CommitUpdates"},
+		// CommitUpdates gets no answer within --timeout. A Good
+		// DiscardUpdates after it shows nothing (the server ignores it
+		// once the commit ended the edit) and is never reported as a
+		// rollback; only the Version and the values read back decide.
+		{"commit lost, not applied", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState, delay: 700 * time.Millisecond}}, 1, false, 0, "400ms", exitTimeout, "unknown", false, false, "CommitUpdates"},
+		{"commit lost, applied", map[uafx.FxEdit]step{uafx.CommitUpdates: {delay: 700 * time.Millisecond}}, 1, false, 0, "400ms", exitOK, "committed", false, false, ""},
+		{"commit lost, applied, another value", map[uafx.FxEdit]step{uafx.CommitUpdates: {delay: 700 * time.Millisecond}}, 1, true, 0, "400ms", exitTimeout, "unknown", false, false, "CommitUpdates"},
+		{"commit lost, discard fails", map[uafx.FxEdit]step{uafx.CommitUpdates: {delay: 700 * time.Millisecond}, uafx.DiscardUpdates: {sc: ua.StatusBadInternalError}}, 2, false, 0, "400ms", exitTimeout, "unknown", false, true, "CommitUpdates"},
 		{"lock lost", nil, 1, false, -1, "5s", exitProtocol, "not-committed", true, false, "RenewLock"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -514,7 +519,6 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 				steps = map[uafx.FxEdit]step{}
 			}
 			mu.Unlock()
-			committed.Store(false)
 			bump.Store(c.bump)
 			other.Store(c.other)
 			v0 := version.Load()
@@ -537,6 +541,9 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 			}
 			if c.outcome != "committed" && ed.Committed {
 				t.Fatalf("committed TRUE: %+v", ed)
+			}
+			if c.name == "commit lost, applied" && !strings.Contains(stderr, "show the commit") {
+				t.Fatalf("stderr does not say how the commit was shown: %s", stderr)
 			}
 			if c.name == "commit ignored, edit expired" && !strings.Contains(stderr, "ignored the commit") {
 				t.Fatalf("stderr does not say the commit was ignored: %s", stderr)
