@@ -190,7 +190,8 @@ func (f *cmFile) update(ctx context.Context, data []byte, require bool, ops []ua
 	// Operations is an array of ConnectionConfigurationSetOperation, an
 	// OptionSet of Byte (Table F.39). It is sent as a ByteString, which a
 	// server takes where an array of Byte is expected (OPC 10000-4
-	// §5.12.2.4), and the only form go-opcua v1.39.0 accepts.
+	// §5.12.2.4), and the only form go-opcua v1.39.0 accepted
+	// (v1.39.1 takes both).
 	out, err := f.call(ctx, "CloseAndUpdate", f.closeAndUpdate, ua.MustVariant(h), ua.MustVariant(require), ua.MustVariant(raw))
 	if err != nil {
 		return cmUpdate{}, err

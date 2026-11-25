@@ -135,10 +135,13 @@ func fxJSON(t *testing.T, out string) model.FxReport {
 }
 
 func TestE2E_FxInspect(t *testing.T) {
+	t.Parallel()
+	// A worker: a parallel test cannot run the CLI in this process.
+	w := startCLIWorker(t)
 	url := startFxServer(t, false, "")
 
 	t.Run("table", func(t *testing.T) {
-		out := mustRun(t, "fx", "inspect", "-e", url)
+		out := w.mustRun(t, "fx", "inspect", "-e", url)
 		for _, want := range []string{
 			"UAFX server: yes",
 			"http://opcfoundation.org/UA/FX/AC/",
@@ -160,7 +163,7 @@ func TestE2E_FxInspect(t *testing.T) {
 	})
 
 	t.Run("json", func(t *testing.T) {
-		r := fxJSON(t, mustRun(t, "fx", "inspect", "-e", url, "--format", "json"))
+		r := fxJSON(t, w.mustRun(t, "fx", "inspect", "-e", url, "--format", "json"))
 		if !r.IsFxServer || !r.HasFxNamespaces || r.Truncated || len(r.Findings) != 0 || r.FxRoot == "" {
 			t.Fatalf("report: %+v", r)
 		}
@@ -195,28 +198,28 @@ func TestE2E_FxInspect(t *testing.T) {
 	t.Run("formats", func(t *testing.T) {
 		// YAML holds the fields of a node where JSON does, not below a key
 		// of their own.
-		out := mustRun(t, "fx", "inspect", "-e", url, "--format", "yaml")
+		out := w.mustRun(t, "fx", "inspect", "-e", url, "--format", "yaml")
 		if !strings.Contains(out, "\n    - nodeid: ns=6;i=1000\n      browsename: 6:Controller\n") || strings.Contains(out, "fxnode") {
 			t.Errorf("yaml:\n%s", out)
 		}
-		out = mustRun(t, "fx", "inspect", "-e", url, "--format", "jsonl")
+		out = w.mustRun(t, "fx", "inspect", "-e", url, "--format", "jsonl")
 		if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) != 1 {
 			t.Errorf("jsonl: %d lines", len(lines))
 		} else if r := fxJSON(t, lines[0]); !r.IsFxServer {
 			t.Errorf("jsonl: %+v", r)
 		}
-		out = mustRun(t, "fx", "inspect", "-e", url, "--format", "csv")
+		out = w.mustRun(t, "fx", "inspect", "-e", url, "--format", "csv")
 		if !strings.HasPrefix(out, "hasFxNamespaces,isFxServer,namespaces,fxRoot,automationComponents,connectionManagers,findings,truncated\ntrue,true,") {
 			t.Errorf("csv:\n%s", out)
 		}
 	})
 
 	t.Run("check clean", func(t *testing.T) {
-		mustRun(t, "fx", "inspect", "-e", url, "--check")
+		w.mustRun(t, "fx", "inspect", "-e", url, "--check")
 	})
 
 	t.Run("limits", func(t *testing.T) {
-		out, errOut, err := runCLI(t, "fx", "inspect", "-e", url, "--max-nodes", "1", "--format", "json")
+		out, errOut, err := w.run(t, "fx", "inspect", "-e", url, "--max-nodes", "1", "--format", "json")
 		if ExitCode(err) != exitPartial {
 			t.Fatalf("exit %d, want 7: %v\n%s", ExitCode(err), err, errOut)
 		}
@@ -230,7 +233,7 @@ func TestE2E_FxInspect(t *testing.T) {
 
 	t.Run("bad limits", func(t *testing.T) {
 		for _, f := range []string{"--max-components", "--max-children", "--max-depth", "--max-nodes"} {
-			_, errOut, err := runCLI(t, "fx", "inspect", "-e", url, f, "-1")
+			_, errOut, err := w.run(t, "fx", "inspect", "-e", url, f, "-1")
 			if ExitCode(err) != exitUsage || !strings.Contains(errOut, f) {
 				t.Errorf("%s -1: exit %d, stderr %s", f, ExitCode(err), errOut)
 			}

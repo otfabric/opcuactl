@@ -135,16 +135,19 @@ func (s *fxConnServer) endpoints() []string {
 // with --wait (Ready, endpoints on both, data both ways), disable, enable
 // and remove (no endpoints left).
 func TestE2E_FxCMLifecycle(t *testing.T) {
+	t.Parallel()
+	// A worker: a parallel test cannot run the CLI in this process.
+	w := startCLIWorker(t)
 	a, b := startFxConnServer(t), startFxConnServer(t)
 	b.set(t, fxActual, 17.0)
 	s := startFxCMServer(t)
 	file := writeSetFile(t, cmLifecycleConf(t, "Line", a, b))
-	if out, stderr, err := runCLI(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add"); err != nil {
+	if out, stderr, err := w.run(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add"); err != nil {
 		t.Fatalf("import: %v\n%s%s", err, out, stderr)
 	}
 	process := func(action string) {
 		t.Helper()
-		out, stderr, err := runCLI(t, "fx", "cm", "process", "-e", s.url, "--action", action, "Plant/Line", "--wait", "30s", "--format", "json")
+		out, stderr, err := w.run(t, "fx", "cm", "process", "-e", s.url, "--action", action, "Plant/Line", "--wait", "30s", "--format", "json")
 		if err != nil {
 			t.Fatalf("%s: %v\n%s%s", action, err, out, stderr)
 		}
@@ -174,7 +177,7 @@ func TestE2E_FxCMLifecycle(t *testing.T) {
 	}
 	eventually("data from a to b", func() bool { return b.value(fxSetpoint) == 42.5 })
 	eventually("data from b to a", func() bool { return a.value(fxSetpoint) == 17.0 })
-	out, _, err := runCLI(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
+	out, _, err := w.run(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
 	if err != nil {
 		t.Fatal(err)
 	}

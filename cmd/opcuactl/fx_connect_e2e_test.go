@@ -208,11 +208,14 @@ func fxConnectJSON(t *testing.T, out string) model.FxConnectResult {
 // TestE2E_FxConnect establishes a connection endpoint with fx connect, sees
 // data flow over UDP PubSub and closes it with fx close.
 func TestE2E_FxConnect(t *testing.T) {
+	t.Parallel()
+	// A worker: a parallel test cannot run the CLI in this process.
+	w := startCLIWorker(t)
 	s := startFxConnServer(t)
 	dir := t.TempDir()
 	req := writeRequest(t, dir, "connect.yaml", connectYAML("ToLine", s.pubsubFile(t, dir), 7))
 
-	stdout, stderr, err := runCLI(t, "fx", "connect", "-e", s.url, "--ac", nsu(fxCtl), "--request", req, "--format", "json")
+	stdout, stderr, err := w.run(t, "fx", "connect", "-e", s.url, "--ac", nsu(fxCtl), "--request", req, "--format", "json")
 	if err != nil {
 		t.Fatalf("fx connect: %v\n%s\n%s", err, stdout, stderr)
 	}
@@ -251,7 +254,7 @@ func TestE2E_FxConnect(t *testing.T) {
 	}
 
 	// The same name again: the server aborts the call.
-	stdout, _, err = runCLI(t, "fx", "connect", "-e", s.url, "--ac", nsu(fxCtl), "--request", req, "--format", "json")
+	stdout, _, err = w.run(t, "fx", "connect", "-e", s.url, "--ac", nsu(fxCtl), "--request", req, "--format", "json")
 	if code := ExitCode(err); code != exitProtocol {
 		t.Fatalf("second connect: exit %d (%v)\n%s", code, err, stdout)
 	}
@@ -260,7 +263,7 @@ func TestE2E_FxConnect(t *testing.T) {
 	}
 
 	// fx close with --remove deletes the endpoint.
-	stdout, stderr, err = runCLI(t, "fx", "close", "-e", s.url, "--ac", nsu(fxCtl), e.ConnectionEndpoint, "--remove", "--format", "json")
+	stdout, stderr, err = w.run(t, "fx", "close", "-e", s.url, "--ac", nsu(fxCtl), e.ConnectionEndpoint, "--remove", "--format", "json")
 	if err != nil {
 		t.Fatalf("fx close: %v\n%s\n%s", err, stdout, stderr)
 	}
@@ -280,7 +283,7 @@ func TestE2E_FxConnect(t *testing.T) {
 	}
 
 	// Closing it again: the endpoint is unknown.
-	_, _, err = runCLI(t, "fx", "close", "-e", s.url, "--ac", nsu(fxCtl), e.ConnectionEndpoint)
+	_, _, err = w.run(t, "fx", "close", "-e", s.url, "--ac", nsu(fxCtl), e.ConnectionEndpoint)
 	if code := ExitCode(err); code != exitProtocol {
 		t.Errorf("close again: exit %d (%v)", code, err)
 	}
@@ -406,6 +409,9 @@ func TestE2E_FxClose(t *testing.T) {
 // TestE2E_FxConnectErrors checks the exit codes of requests that cannot be
 // sent and of servers that cannot take them.
 func TestE2E_FxConnectErrors(t *testing.T) {
+	t.Parallel()
+	// A worker: a parallel test cannot run the CLI in this process.
+	w := startCLIWorker(t)
 	s := startFxConnServer(t)
 	notFX := startFxServerWithoutModel(t)
 	dir := t.TempDir()
@@ -436,7 +442,7 @@ func TestE2E_FxConnectErrors(t *testing.T) {
 			if c.request != "" {
 				args = append(args, "--request", writeRequest(t, t.TempDir(), "r.yaml", c.request))
 			}
-			_, stderr, err := runCLI(t, args...)
+			_, stderr, err := w.run(t, args...)
 			if code := ExitCode(err); code != c.want {
 				t.Errorf("exit %d, want %d (%v)", code, c.want, err)
 			}

@@ -165,11 +165,14 @@ func cmJSON[T any](t *testing.T, out string) T {
 // TestE2E_FxCM: import, list, export, edit, process with --wait and remove
 // against a ConnectionManager whose AutomationComponents are not running.
 func TestE2E_FxCM(t *testing.T) {
+	t.Parallel()
+	// A worker: a parallel test cannot run the CLI in this process.
+	w := startCLIWorker(t)
 	s := startFxCMServer(t)
 	file := writeSetFile(t, cmSetConf("Line1"), cmSetConf("Line2"))
 
 	// import: add both sets.
-	out, stderr, err := runCLI(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add", "--require-complete", "--format", "json")
+	out, stderr, err := w.run(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add", "--require-complete", "--format", "json")
 	if err != nil {
 		t.Fatalf("import: %v\n%s", err, stderr)
 	}
@@ -178,13 +181,13 @@ func TestE2E_FxCM(t *testing.T) {
 		t.Fatalf("import: %+v", imp)
 	}
 	// The same sets again: their Names are taken.
-	_, _, err = runCLI(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add", "--format", "json")
+	_, _, err = w.run(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add", "--format", "json")
 	if code := ExitCode(err); code != exitProtocol {
 		t.Fatalf("re-import: exit %d (%v)", code, err)
 	}
 
 	// list: both sets, Ready, Version 1, not in edit.
-	out, stderr, err = runCLI(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
+	out, stderr, err = w.run(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
 	if err != nil {
 		t.Fatalf("list: %v\n%s", err, stderr)
 	}
@@ -199,14 +202,14 @@ func TestE2E_FxCM(t *testing.T) {
 	if len(one.Connections) != 1 || one.Connections[0].Name != "C1" {
 		t.Fatalf("connections: %+v", one.Connections)
 	}
-	out, _, err = runCLI(t, "fx", "cm", "list", "-e", s.url)
+	out, _, err = w.run(t, "fx", "cm", "list", "-e", s.url)
 	if err != nil || !strings.Contains(out, "Plant/Line2") || !strings.Contains(out, "Ready") {
 		t.Fatalf("list table: %v\n%s", err, out)
 	}
 
 	// export: the file holds both sets.
 	exported := filepath.Join(t.TempDir(), "out.bin")
-	out, stderr, err = runCLI(t, "fx", "cm", "export", "-e", s.url, "--out", exported, "--format", "json")
+	out, stderr, err = w.run(t, "fx", "cm", "export", "-e", s.url, "--out", exported, "--format", "json")
 	if err != nil {
 		t.Fatalf("export: %v\n%s", err, stderr)
 	}
@@ -221,13 +224,13 @@ func TestE2E_FxCM(t *testing.T) {
 	if sets, err := fxcm.DecodeFile(b); err != nil || len(sets) != 2 {
 		t.Fatalf("exported file: %d sets, %v", len(sets), err)
 	}
-	out, _, err = runCLI(t, "fx", "cm", "export", "-e", s.url)
+	out, _, err = w.run(t, "fx", "cm", "export", "-e", s.url)
 	if err != nil || !strings.Contains(out, "Plant/Line1") {
 		t.Fatalf("export table: %v\n%s", err, out)
 	}
 
 	// edit: a new PublishingInterval becomes Version 2.
-	out, stderr, err = runCLI(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=250", "--format", "json")
+	out, stderr, err = w.run(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=250", "--format", "json")
 	if err != nil {
 		t.Fatalf("edit: %v\n%s", err, stderr)
 	}
@@ -243,7 +246,7 @@ func TestE2E_FxCM(t *testing.T) {
 		t.Fatalf("PublishingInterval %v", pi)
 	}
 	// An unknown Variable: usage, and the edit is discarded.
-	out, _, err = runCLI(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/Nope=1", "--format", "json")
+	out, _, err = w.run(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/Nope=1", "--format", "json")
 	if code := ExitCode(err); code != exitUsage {
 		t.Fatalf("edit unknown: exit %d (%v)", code, err)
 	}
@@ -252,14 +255,14 @@ func TestE2E_FxCM(t *testing.T) {
 	}
 	// A value the Variable does not take: the write fails, the edit is
 	// discarded, the Version stays.
-	out, _, err = runCLI(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=fast", "--format", "json")
+	out, _, err = w.run(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=fast", "--format", "json")
 	if code := ExitCode(err); code != exitUsage {
 		t.Fatalf("edit bad value: exit %d (%v)", code, err)
 	}
 	if ed := cmJSON[model.FxCMEdit](t, out); !ed.Discarded {
 		t.Fatalf("edit bad value: %+v", ed)
 	}
-	out, _, err = runCLI(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=300")
+	out, _, err = w.run(t, "fx", "cm", "edit", "-e", s.url, "Plant/Line1", "--write", "Flow/PublishingInterval=300")
 	if err != nil || !strings.Contains(out, "PublishingInterval") {
 		t.Fatalf("edit table: %v\n%s", err, out)
 	}
@@ -267,7 +270,7 @@ func TestE2E_FxCM(t *testing.T) {
 	// process: the AutomationComponents are not running, so the run ends in
 	// Error: exit 6 with --wait.
 	setID := imp.Operations[0].NodeID
-	out, stderr, err = runCLI(t, "fx", "cm", "process", "-e", s.url, "--action", "establish-enabled", setID, "--wait", "30s", "--format", "json")
+	out, stderr, err = w.run(t, "fx", "cm", "process", "-e", s.url, "--action", "establish-enabled", setID, "--wait", "30s", "--format", "json")
 	if code := ExitCode(err); code != exitProtocol {
 		t.Fatalf("process: exit %d (%v)\n%s", code, err, stderr)
 	}
@@ -275,7 +278,7 @@ func TestE2E_FxCM(t *testing.T) {
 	if pr.Status != "Good" || len(pr.Sets) != 1 || pr.Sets[0].State != "Error" {
 		t.Fatalf("process: %+v", pr)
 	}
-	out, _, err = runCLI(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
+	out, _, err = w.run(t, "fx", "cm", "list", "-e", s.url, "--format", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,12 +291,12 @@ func TestE2E_FxCM(t *testing.T) {
 	}
 
 	// remove: nothing was established, the set goes back to Ready.
-	out, stderr, err = runCLI(t, "fx", "cm", "process", "-e", s.url, "--action", "remove", "Plant/Line1", "--wait", "30s")
+	out, stderr, err = w.run(t, "fx", "cm", "process", "-e", s.url, "--action", "remove", "Plant/Line1", "--wait", "30s")
 	if err != nil || !strings.Contains(out, "Ready") {
 		t.Fatalf("remove: %v\n%s%s", err, out, stderr)
 	}
 	// Without --wait the call result alone.
-	out, stderr, err = runCLI(t, "fx", "cm", "process", "-e", s.url, "--action", "remove", "Plant/Line2", "--format", "json")
+	out, stderr, err = w.run(t, "fx", "cm", "process", "-e", s.url, "--action", "remove", "Plant/Line2", "--format", "json")
 	if err != nil {
 		t.Fatalf("process without --wait: %v\n%s", err, stderr)
 	}
@@ -302,7 +305,7 @@ func TestE2E_FxCM(t *testing.T) {
 	}
 
 	// import remove: both sets go.
-	out, stderr, err = runCLI(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "remove,remove", "--format", "json")
+	out, stderr, err = w.run(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "remove,remove", "--format", "json")
 	if err != nil {
 		t.Fatalf("import remove: %v\n%s", err, stderr)
 	}
@@ -316,9 +319,12 @@ func TestE2E_FxCM(t *testing.T) {
 
 // TestE2E_FxCMErrors: exit codes of fx cm.
 func TestE2E_FxCMErrors(t *testing.T) {
+	t.Parallel()
+	// A worker: a parallel test cannot run the CLI in this process.
+	w := startCLIWorker(t)
 	s := startFxCMServer(t)
 	file := writeSetFile(t, cmSetConf("Line1"))
-	if _, _, err := runCLI(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add"); err != nil {
+	if _, _, err := w.run(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add"); err != nil {
 		t.Fatal(err)
 	}
 	bad := filepath.Join(t.TempDir(), "bad.bin")
@@ -349,7 +355,7 @@ func TestE2E_FxCMErrors(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			args := append([]string{"fx", "cm"}, c.args...)
 			args = append(args, "-e", s.url)
-			_, _, err := runCLI(t, args...)
+			_, _, err := w.run(t, args...)
 			if code := ExitCode(err); code != c.want {
 				t.Fatalf("exit %d, want %d (%v)", code, c.want, err)
 			}
@@ -357,7 +363,7 @@ func TestE2E_FxCMErrors(t *testing.T) {
 	}
 
 	t.Run("no ConnectionManager", func(t *testing.T) {
-		_, _, err := runCLI(t, "fx", "cm", "list", "-e", other.url)
+		_, _, err := w.run(t, "fx", "cm", "list", "-e", other.url)
 		if code := ExitCode(err); code != exitUnsupported {
 			t.Fatalf("exit %d (%v)", code, err)
 		}
@@ -371,7 +377,7 @@ func TestE2E_FxCMErrors(t *testing.T) {
 			{"edit", "Plant/Line1", "--write", "Flow/PublishingInterval=1"},
 			{"import", "--file", file, "--op", "replace"},
 		} {
-			_, _, err := runCLI(t, append(append([]string{"fx", "cm"}, args...), "-e", s.url)...)
+			_, _, err := w.run(t, append(append([]string{"fx", "cm"}, args...), "-e", s.url)...)
 			if code := ExitCode(err); code != exitPermission {
 				t.Fatalf("%v: exit %d (%v)", args, code, err)
 			}
@@ -583,9 +589,11 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 		}
 	}
 	var calls atomic.Int32
-	typeMismatch := func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+	// CloseAndUpdate refused: counted, then answered as fail answers.
+	refused := fail(ua.StatusBadTypeMismatch)
+	typeMismatch := func(ctx context.Context, obj, method *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
 		calls.Add(1)
-		return nil, ua.StatusBadTypeMismatch
+		return refused(ctx, obj, method, args)
 	}
 	byteString := func(_ context.Context, _, _ *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
 		if len(args) != 3 {
