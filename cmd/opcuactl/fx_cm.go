@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strconv"
@@ -58,9 +59,15 @@ Examples:
 	return cmd
 }
 
-// withCM runs fn with the ConnectionManager of the server.
+// withCM runs fn with the ConnectionManager of the server, bounded by
+// --timeout.
 func withCM(fn func(ctx context.Context, x *cmClient) error) error {
-	return withClient(func(ctx context.Context, c *opcua.Client) error {
+	return withCMTimeout(connCfg.Timeout, fn)
+}
+
+// withCMTimeout is withCM bounded by timeout (0: unbounded).
+func withCMTimeout(timeout time.Duration, fn func(ctx context.Context, x *cmClient) error) error {
+	return withClientTimeout(timeout, func(ctx context.Context, c *opcua.Client) error {
 		x, err := newCMClient(ctx, c)
 		if errors.Is(err, errNoCM) {
 			format.Errf("%v", err)
@@ -85,7 +92,9 @@ RollbackOnError, its Connections with their ProcessingResult and the
 ConnectionsDiagnostics of the last run (§6.8.2). The ConnectionManager's
 AggregatedCurrentState is TRUE while a set is in Error.
 
-opcuactl reads at most 10000 sets and 8 Folder levels; more is exit 7.
+opcuactl reads at most 10000 sets, 8 Folder levels and 100000 Objects
+below ConnectionConfigurationSets; more is exit 7. A value the server
+does not return is left out and named in "unread" (JSON).
 
 Exit codes: 0 when the sets were read; 7 when a bound cut the listing
 short; 8 when the server has no ConnectionManager; 4, 5 or 6 when a
@@ -119,7 +128,7 @@ Examples:
 					return err
 				}
 				if truncated {
-					return exitCodef(exitPartial, "the listing was cut short at %d sets or %d Folder levels", cmMaxSets, cmMaxDepth)
+					return exitCodef(exitPartial, "the listing was cut short at %d sets, %d Folder levels or %d nodes", cmMaxSets, cmMaxDepth, cmMaxNodes)
 				}
 				return nil
 			})
@@ -150,6 +159,11 @@ func writeFxCMList(out model.FxCMList) error {
 	}
 	if err := newWriter().WriteTable([]string{"SET", "STATE", "VERSION", "EDIT", "CONNECTIONS"}, rows); err != nil {
 		return err
+	}
+	for _, s := range out.Sets {
+		if len(s.Unread) > 0 {
+			format.Errf("%s: the server did not return %s", s.Path, strings.Join(s.Unread, ", "))
+		}
 	}
 	if out.AggregatedCurrentState != nil && *out.AggregatedCurrentState {
 		format.Errf("AggregatedCurrentState is TRUE: a set is in Error")
@@ -195,14 +209,20 @@ func newFxCMProcessCmd() *cobra.Command {
   remove              remove the Connections
 
 The Method starts a run per set and returns. With --wait opcuactl then
-reads the state of each set (§6.9.2) until it leaves Processing, at most
-for the duration given, and prints the state it ended in: Ready, or Error
-when the run failed (fx cm list shows the diagnostics).
+reads the state of the sets that were started (§6.9.2), by the NodeId in
+CurrentState.Id, until each left Processing, and prints the state it
+ended in: Ready, or Error when the run failed (fx cm list shows the
+diagnostics). --wait bounds the whole wait, the reads included, and
+comes on top of --timeout; when it runs out opcuactl stops watching, and
+the server goes on processing.
+Only a set read in Ready counts as done: one whose state cannot be read
+or is not a state of §6.9.2 is a failure.
 
-Exit codes: 0 when every set was started (with --wait: and ended Ready);
-7 when some were; 6 when none was, for a Bad status of the call, or with
---wait when a set ended in Error; 5 when --wait ran out; 9 when the
-server refuses the call to the user.
+Exit codes: 0 when every set was started (with --wait: and read in
+Ready); 7 when some were; 6 when none was, for a Bad status of the call,
+or with --wait when a set ended in Error or its state could not be
+established; 5 when --wait ran out; 8 when the server has no such
+Method; 9 when the server refuses the call to the user.
 
 Examples:
   opcuactl fx cm process -e opc.tcp://localhost:4856 --action establish-enabled Plant/Line1
@@ -218,7 +238,12 @@ Examples:
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withCM(func(ctx context.Context, x *cmClient) error {
+			// --timeout bounds the call; --wait comes on top of it.
+			timeout := connCfg.Timeout
+			if timeout > 0 && wait > 0 {
+				timeout += wait
+			}
+			return withCMTimeout(timeout, func(ctx context.Context, x *cmClient) error {
 				sets, err := x.resolve(ctx, args)
 				if err != nil {
 					return err
@@ -226,13 +251,12 @@ Examples:
 				a := cmProcessActions[action]
 				status, results, err := uafx.ProcessConnectionConfigurationSets(ctx, x.c, a, setIDs(sets))
 				if err != nil {
-					format.Errf("ProcessConnectionConfigurationSets: %v", err)
-					return exitCode(exitProtocol, err)
+					return cmMethodExit("ProcessConnectionConfigurationSets", err)
 				}
 				out := cmCallResult("ProcessConnectionConfigurationSets", action, status, sets, results)
 				var waitErr error
 				if wait > 0 {
-					waitErr = x.waitSets(ctx, &out, wait)
+					waitErr = x.waitSets(ctx, &out, sets, wait)
 				}
 				return cmp.Or(writeFxCMCallResult(out), waitErr, cmCallExit(out.Method, status, results))
 			})
@@ -248,54 +272,114 @@ Examples:
 var cmPoll = 200 * time.Millisecond
 
 // waitSets reads the state of the sets that were started until each left
-// Processing, at most for d. It sets their State and returns the exit for a
-// set in Error or one still Processing.
-func (x *cmClient) waitSets(ctx context.Context, out *model.FxCMCallResult, d time.Duration) error {
-	deadline := time.Now().Add(d)
-	failed, pending := 0, 0
+// Processing, within d for all of it. It sets their State and returns the
+// exit for a set in Error, one whose state was not established, or one
+// still Processing.
+func (x *cmClient) waitSets(ctx context.Context, out *model.FxCMCallResult, sets []cmSet, d time.Duration) error {
+	wctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
+	waitErr := func(err error) error {
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return exitCodef(exitTimeout, "--wait %s ran out: the server goes on processing (fx cm list shows the state)", d)
+		}
+		format.Errf("reading the state of the sets: %v", err)
+		return exitCode(exitProtocol, err)
+	}
+	type pending struct {
+		r  *model.FxCMSetResult
+		id *ua.NodeID
+	}
+	var ps []*pending
+	failed, unknown := 0, 0
 	for i := range out.Sets {
 		r := &out.Sets[i]
 		if r.StatusCode != uint32(ua.StatusOK) {
 			continue
 		}
-		n, err := parseSetID(r.NodeID)
+		r.State = "unread"
+		sm, err := x.stateMachine(wctx, sets[i].NodeID)
+		var curID *ua.NodeID
+		if err == nil {
+			_, _, curID, err = x.stateNodes(wctx, sm)
+		}
 		if err != nil {
-			return exitCode(exitProtocol, err)
+			return waitErr(err)
 		}
-		for {
-			st, err := x.status(ctx, cmSet{Path: r.Path, NodeID: n})
-			if err != nil {
-				format.Errf("reading %s: %v", r.Path, err)
-				return exitCode(exitProtocol, err)
-			}
-			r.State = cmp.Or(st.StateID, st.State)
-			if r.State != "Processing" || !time.Now().Before(deadline) {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				return exitCode(exitInterrupted, ctx.Err())
-			case <-time.After(cmPoll):
+		if curID == nil {
+			r.State = "unknown"
+			unknown++
+			continue
+		}
+		ps = append(ps, &pending{r: r, id: curID})
+	}
+	for len(ps) > 0 {
+		reads := make([]cmRead, len(ps))
+		for i, p := range ps {
+			reads[i] = cmRead{name: strconv.Itoa(i), n: p.id, set: func(v any) bool {
+				_, ok := v.(*ua.NodeID)
+				p.r.State = cmp.Or(x.stateName(v), "unknown")
+				return ok
+			}}
+		}
+		unread, err := x.readValues(wctx, reads)
+		if err != nil {
+			return waitErr(err)
+		}
+		for _, name := range unread {
+			i, _ := strconv.Atoi(name)
+			ps[i].r.State = "unread"
+		}
+		next := ps[:0]
+		for _, p := range ps {
+			switch p.r.State {
+			case "Processing":
+				next = append(next, p)
+			case "Ready":
+			case "Error":
+				failed++
+			default:
+				unknown++
 			}
 		}
-		switch r.State {
-		case "Processing":
-			pending++
-		case "Error":
-			failed++
+		ps = next
+		if len(ps) == 0 {
+			break
+		}
+		select {
+		case <-wctx.Done():
+			return waitErr(wctx.Err())
+		case <-time.After(cmPoll):
 		}
 	}
 	switch {
-	case pending > 0:
-		return exitCodef(exitTimeout, "%d sets still Processing after %s", pending, d)
 	case failed > 0:
 		return exitCodef(exitProtocol, "%d sets ended in Error (fx cm list shows the diagnostics)", failed)
+	case unknown > 0:
+		return exitCodef(exitProtocol, "the state of %d sets could not be established", unknown)
 	}
 	return nil
 }
 
-func parseSetID(s string) (*ua.NodeID, error) {
-	return ua.ParseNodeID(s)
+// cmMethodExit is the exit for a failed call of a ConnectionManager
+// Method: 8 when the server has not the Method, 9 when it refuses the
+// user (refine), 4 or 5 when the call got no answer, 6 otherwise.
+func cmMethodExit(method string, err error) error {
+	format.Errf("%s: %v", method, err)
+	if errors.Is(err, ua.StatusBadMethodInvalid) || errors.Is(err, ua.StatusBadNotImplemented) {
+		return exitCode(exitUnsupported, err)
+	}
+	return exitCode(exitProtocol, err)
+}
+
+// answered reports whether err is a Bad status the server returned, so
+// that the call is known to have had no effect, rather than a call that
+// got no answer.
+func answered(err error) bool {
+	var sc ua.StatusCode
+	if !errors.As(err, &sc) || connectionLost(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	return sc != ua.StatusBadTimeout && sc != ua.StatusBadRequestTimeout
 }
 
 func newFxCMEditCmd() *cobra.Command {
@@ -308,13 +392,21 @@ func newFxCMEditCmd() *cobra.Command {
 the set, opcuactl writes each --write, and CommitUpdates makes the edit the
 next Version of the set. When a write or the commit fails, opcuactl calls
 DiscardUpdates, so the set keeps its Version. The Lock belongs to the
-session, which is why the steps run in one command.
+session, which is why the steps run in one command; opcuactl renews it
+(RenewLock, OPC 10000-100 §7.6) when the edit takes longer than a few
+seconds, and a Lock that is lost ends the edit.
+
+The result says what became of the edit ("outcome" in JSON): committed;
+not-committed, when it ended before the commit or the server refused the
+commit; or unknown, when CommitUpdates got no answer and DiscardUpdates
+could not tell (the set may have its next Version: fx cm list shows it).
 
 --write <path>=<value> names a Variable below the set by the BrowseNames
-on the way to it, joined by "/" (for example
-"Flow1/PublishingInterval=50"); the value is converted to the type of the
-Variable's current value (Boolean, the integer and float types, String,
-NodeId). A value that starts with "{" is a Variant in the OPC UA JSON
+of the hierarchical references on the way to it, joined by "/" (for
+example "Flow1/PublishingInterval=50"). A name that more than one child
+has is refused; "<namespace index>:<name>" picks one (fx browse shows the
+BrowseNames). The value is converted to the type of the Variable's
+current value (Boolean, the integer and float types, String, NodeId). A value that starts with "{" is a Variant in the OPC UA JSON
 encoding (Part 6), as write value --type ua-json takes it, for the other
 types. The server checks the value against the Selections of the
 SelectionList Variable (Bad_OutOfRange when RestrictToList forbids it).
@@ -322,9 +414,11 @@ SelectionList Variable (Bad_OutOfRange when RestrictToList forbids it).
 A commit does not change the Connections: fx cm process applies the new
 Version.
 
-Exit codes: 0 when the edit was committed; 6 when StartEditing, a write
-or CommitUpdates failed (the edit was discarded); 2 when --write is not
-<path>=<value> or a path is not found; 9 when the server refuses the user.
+Exit codes: 0 when the edit was committed; 6 when StartEditing, a write,
+RenewLock or CommitUpdates failed; 4 or 5 when the server stopped
+answering (see the outcome); 2 when --write is not <path>=<value> or a
+path is not found, is ambiguous or is not a Variable; 9 when the server
+refuses the user.
 
 Examples:
   opcuactl fx cm edit -e opc.tcp://localhost:4856 Plant/Line1 --write Flow1/PublishingInterval=50`,
@@ -355,17 +449,18 @@ Examples:
 	return cmd
 }
 
+// cmRenewAfter is how long an edit goes without a call to the server
+// before opcuactl renews its Lock.
+var cmRenewAfter = 5 * time.Second
+
 // edit runs StartEditing, the writes and CommitUpdates on s in one session,
 // and DiscardUpdates when a step after StartEditing fails.
 func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.FxCMEdit, error) {
-	out := model.FxCMEdit{Path: s.Path, NodeID: s.NodeID.String(), Writes: []model.FxCMWrite{}}
-	call := func(a uafx.FxEdit) (ua.StatusCode, error) {
+	out := model.FxCMEdit{Path: s.Path, NodeID: s.NodeID.String(), Writes: []model.FxCMWrite{}, Outcome: "not-committed"}
+	call := func(ctx context.Context, a uafx.FxEdit) (ua.StatusCode, error) {
 		status, results, err := uafx.EditConnectionConfigurationSets(ctx, x.c, a, []*ua.NodeID{s.NodeID})
 		if err != nil {
 			return 0, err
-		}
-		if status == ua.StatusOK && len(results) == 1 {
-			return results[0], nil
 		}
 		if len(results) == 1 && results[0] != ua.StatusOK {
 			return results[0], nil
@@ -379,19 +474,39 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 		out.Failed = step
 		format.Errf("%s: %v", step, err)
 		code := exitProtocol
-		if errors.Is(err, ua.StatusBadUserAccessDenied) {
-			code = exitPermission
+		if errors.Is(err, ua.StatusBadMethodInvalid) || errors.Is(err, ua.StatusBadNotImplemented) {
+			code = exitUnsupported
 		}
 		return out, exitCode(code, fmt.Errorf("%s: %w", step, err))
 	}
-	sc, err := call(uafx.StartEditing)
+	usage := func(path string, err error) (model.FxCMEdit, error) {
+		out.Failed = "write " + path
+		format.Errf("%v", err)
+		return out, exitCode(exitUsage, err)
+	}
+	discard := func() {
+		cctx, cancel := cleanupContext(ctx)
+		defer cancel()
+		sc, err := call(cctx, uafx.DiscardUpdates)
+		switch {
+		case err != nil:
+			out.CleanupError = err.Error()
+		case sc != ua.StatusOK:
+			out.CleanupError = sc.Symbol()
+		default:
+			out.Discarded = true
+			return
+		}
+		format.Errf("DiscardUpdates: %s: the server discards the edit when the session ends (Part 81 §6.7.4)", out.CleanupError)
+	}
+	sc, err := call(ctx, uafx.StartEditing)
 	if err != nil || sc != ua.StatusOK {
 		return fail("StartEditing", sc, err)
 	}
-	discard := func() {
-		if sc, err := call(uafx.DiscardUpdates); err == nil && sc == ua.StatusOK {
-			out.Discarded = true
-		}
+	renew, err := x.lockRenewal(ctx, s.NodeID)
+	if err != nil {
+		discard()
+		return fail("Lock", 0, err)
 	}
 	for _, w := range writes {
 		path, value, _ := strings.Cut(w, "=")
@@ -400,17 +515,18 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 		if err != nil {
 			discard()
 			out.Writes = append(out.Writes, r)
-			out.Failed = "write " + path
-			format.Errf("%v", err)
-			return out, exitCode(exitUsage, err)
+			return usage(path, err)
 		}
 		v, err := x.coerce(ctx, n, value)
 		if err != nil {
 			discard()
 			out.Writes = append(out.Writes, r)
-			out.Failed = "write " + path
-			format.Errf("%s: %v", path, err)
-			return out, exitCode(exitUsage, err)
+			return usage(path, fmt.Errorf("%s: %w", path, err))
+		}
+		if err := renew(); err != nil {
+			discard()
+			out.Writes = append(out.Writes, r)
+			return fail("RenewLock", 0, err)
 		}
 		r.NodeID = n.String()
 		wsc, err := x.c.WriteNodeValue(ctx, n, v)
@@ -423,54 +539,129 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 			return fail("write "+path, wsc, err)
 		}
 	}
-	sc, err = call(uafx.CommitUpdates)
-	if err != nil || sc != ua.StatusOK {
+	if err := renew(); err != nil {
+		discard()
+		return fail("RenewLock", 0, err)
+	}
+	sc, err = call(ctx, uafx.CommitUpdates)
+	switch {
+	case err == nil && sc == ua.StatusOK:
+		out.Committed, out.Outcome = true, "committed"
+		if st, err := x.status(ctx, s); err == nil {
+			out.Version = st.Version
+		}
+		return out, nil
+	case err == nil || answered(err):
 		discard()
 		return fail("CommitUpdates", sc, err)
+	default:
+		// CommitUpdates got no answer: it may have been applied. A
+		// DiscardUpdates that succeeds shows that the edit was still open.
+		discard()
+		if !out.Discarded {
+			out.Outcome = "unknown"
+			format.Errf("CommitUpdates got no answer: whether %s has its next Version is unknown (fx cm list shows it)", s.Path)
+		}
+		return fail("CommitUpdates", sc, err)
 	}
-	out.Committed = true
-	if st, err := x.status(ctx, s); err == nil {
-		out.Version = st.Version
-	}
-	return out, nil
 }
 
-// path resolves the BrowseNames of p, joined by "/", below n.
-func (x *cmClient) path(ctx context.Context, n *ua.NodeID, p string) (*ua.NodeID, error) {
-	cur := n
-	for _, name := range strings.Split(p, "/") {
-		next, err := x.childNamed(ctx, cur, name)
-		if err != nil {
+// lockRenewal returns a func that renews the Lock of set n (RenewLock,
+// OPC 10000-100 §7.6) when cmRenewAfter passed since it last ran; it does
+// nothing for a set whose Lock has no RenewLock.
+func (x *cmClient) lockRenewal(ctx context.Context, n *ua.NodeID) (func() error, error) {
+	var lock, renew *ua.NodeID
+	if x.di != 0 {
+		var err error
+		if lock, err = x.child(ctx, n, x.di, "Lock"); err != nil {
 			return nil, err
 		}
+		if lock != nil {
+			if renew, err = x.child(ctx, lock, x.di, "RenewLock"); err != nil {
+				return nil, err
+			}
+		}
+	}
+	last := time.Now()
+	return func() error {
+		if renew == nil || time.Since(last) < cmRenewAfter {
+			return nil
+		}
+		res, err := x.c.Call(ctx, &ua.CallMethodRequest{ObjectID: lock, MethodID: renew})
+		if err != nil {
+			return err
+		}
+		if res.StatusCode.Uint32()&0x80000000 != 0 {
+			return res.StatusCode
+		}
+		if len(res.OutputArguments) != 1 || res.OutputArguments[0] == nil {
+			return fmt.Errorf("RenewLock returned %d output arguments, want 1", len(res.OutputArguments))
+		}
+		st, ok := res.OutputArguments[0].Value().(int32)
+		if !ok {
+			return fmt.Errorf("the RenewLockStatus is a %T, not an Int32", res.OutputArguments[0].Value())
+		}
+		if st != 0 {
+			return fmt.Errorf("RenewLockStatus %d: the session no longer holds the Lock", st)
+		}
+		last = time.Now()
+		return nil
+	}, nil
+}
+
+// path resolves the BrowseNames of p, joined by "/", below n along
+// hierarchical references, to a Variable.
+func (x *cmClient) path(ctx context.Context, n *ua.NodeID, p string) (*ua.NodeID, error) {
+	cur := n
+	segs := strings.Split(p, "/")
+	for i, seg := range segs {
+		next, class, err := x.childNamed(ctx, cur, seg)
+		if err != nil {
+			return nil, fmt.Errorf("--write %s: %w", p, err)
+		}
 		if next == nil {
-			return nil, fmt.Errorf("--write %s: %s has no child %q", p, cur, name)
+			return nil, fmt.Errorf("--write %s: %s has no child %q", p, cur, seg)
+		}
+		if i == len(segs)-1 && class != ua.NodeClassVariable {
+			return nil, fmt.Errorf("--write %s: %s is not a Variable", p, next)
 		}
 		cur = next
 	}
 	return cur, nil
 }
 
-// childNamed returns the child of n with the BrowseName name in any
-// namespace, preferring the CM namespace.
-func (x *cmClient) childNamed(ctx context.Context, n *ua.NodeID, name string) (*ua.NodeID, error) {
-	refs, err := x.c.Node(n).References(ctx, id.References, ua.BrowseDirectionForward, ua.NodeClassObject|ua.NodeClassVariable, true)
+// childNamed returns the hierarchical child of n with the BrowseName seg:
+// a name in any namespace, or "<namespace index>:<name>". A name more than
+// one child has is an error.
+func (x *cmClient) childNamed(ctx context.Context, n *ua.NodeID, seg string) (*ua.NodeID, ua.NodeClass, error) {
+	name, ns, qualified := seg, uint16(0), false
+	if i := strings.IndexByte(seg, ':'); i > 0 {
+		if v, err := strconv.ParseUint(seg[:i], 10, 16); err == nil {
+			name, ns, qualified = seg[i+1:], uint16(v), true
+		}
+	}
+	refs, err := x.c.Node(n).References(ctx, id.HierarchicalReferences, ua.BrowseDirectionForward, ua.NodeClassObject|ua.NodeClassVariable, true)
 	if err != nil {
-		return nil, fmt.Errorf("browsing %s: %w", n, err)
+		return nil, 0, fmt.Errorf("browsing %s: %w", n, err)
 	}
 	var found *ua.NodeID
+	var class ua.NodeClass
+	var names []string
 	for _, r := range refs {
-		if r.BrowseName == nil || r.BrowseName.Name != name || r.NodeID == nil || r.NodeID.NodeID == nil {
+		nid := local(r)
+		if nid == nil || r.BrowseName.Name != name || qualified && r.BrowseName.NamespaceIndex != ns {
 			continue
 		}
-		if r.BrowseName.NamespaceIndex == x.ns.CM {
-			return r.NodeID.NodeID, nil
+		if found != nil && found.Equal(nid) {
+			continue
 		}
-		if found == nil {
-			found = r.NodeID.NodeID
-		}
+		names = append(names, fmt.Sprintf("%d:%s", r.BrowseName.NamespaceIndex, r.BrowseName.Name))
+		found, class = nid, r.NodeClass
 	}
-	return found, nil
+	if len(names) > 1 {
+		return nil, 0, fmt.Errorf("%s has %d children named %q (%s): give \"<namespace index>:<name>\": %w", n, len(names), name, strings.Join(names, ", "), errAmbiguous)
+	}
+	return found, class, nil
 }
 
 // coerce converts value to the type of the current value of n, or decodes
@@ -494,6 +685,12 @@ func (x *cmClient) coerce(ctx context.Context, n *ua.NodeID, value string) (any,
 func coerceLike(cur any, value string) (any, error) {
 	var typ string
 	switch cur.(type) {
+	case int8:
+		v, err := strconv.ParseInt(value, 10, 8)
+		return int8(v), err
+	case uint8:
+		v, err := strconv.ParseUint(value, 10, 8)
+		return uint8(v), err
 	case bool:
 		typ = "bool"
 	case int16:
@@ -538,8 +735,12 @@ func writeFxCMEdit(out model.FxCMEdit) error {
 		format.Infof("committed %s: Version %d", out.Path, *out.Version)
 	case out.Committed:
 		format.Infof("committed %s", out.Path)
+	case out.Outcome == "unknown":
+		format.Errf("the outcome of the edit of %s is unknown", out.Path)
 	case out.Discarded:
 		format.Errf("the edit of %s was discarded", out.Path)
+	default:
+		format.Errf("the edit of %s was not committed", out.Path)
 	}
 	return nil
 }
@@ -724,13 +925,15 @@ Write with EraseExisting, F.3.2) and apply its sets with CloseAndUpdate
 order of the file (--op add,replace). With --require-complete the server
 applies all operations or none.
 
-opcuactl checks the file decodes before it writes it, and prints
-ChangesApplied (Table F.39), the result of each operation and the set
-Objects the server returned.
+opcuactl checks the file decodes and is at most 64 MiB before it writes
+it, and prints ChangesApplied (Table F.39), the result of each operation
+and the set Objects the server returned. CloseAndUpdate is called once and
+never retried; an answer whose ChangesApplied contradicts its Results is
+exit 6.
 
 Exit codes: 0 when every operation was applied; 7 when some were; 6 when
-none was or for a Bad status of the call; 3 when the file cannot be read
-or decoded; 2 when --op does not fit the file; 8 when the server has no
+none was, for a Bad status of the call or an answer that does not fit
+Table F.39; 3 when the file cannot be read or decoded or is too large; 2 when --op does not fit the file; 8 when the server has no
 ConnectionManager or file; 9 when the server refuses the user.
 
 Examples:
@@ -738,7 +941,7 @@ Examples:
   opcuactl fx cm import -e opc.tcp://localhost:4856 --file sets.bin --op replace,add --require-complete`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := os.ReadFile(file)
+			data, err := readBounded(file, cmMaxFileSize)
 			if err != nil {
 				format.Errf("%v", err)
 				return exitCode(exitInvalidInput, err)
@@ -760,10 +963,11 @@ Examples:
 				if err != nil {
 					return cmFileErr(err)
 				}
-				applied, results, objs, err := f.update(ctx, data, complete, operations)
+				u, err := f.update(ctx, data, complete, operations)
 				if err != nil {
 					return cmFileErr(err)
 				}
+				applied, results, objs := u.applied, u.results, u.objs
 				out := model.FxCMImport{File: file, RequireCompleteUpdate: complete, ChangesApplied: applied, Operations: []model.FxCMOperation{}}
 				paths := cmFileSets(sets)
 				good := 0
@@ -792,8 +996,31 @@ Examples:
 	return cmd
 }
 
+// isNullNodeID reports whether n is the null NodeId in any of its numeric
+// encodings (Part 3 §8.2.4, Part 6 §5.2.2.9).
 func isNullNodeID(n *ua.NodeID) bool {
-	return n.Namespace() == 0 && n.Type() == ua.NodeIDTypeTwoByte && n.IntID() == 0
+	switch n.Type() {
+	case ua.NodeIDTypeTwoByte, ua.NodeIDTypeFourByte, ua.NodeIDTypeNumeric:
+		return n.Namespace() == 0 && n.IntID() == 0
+	}
+	return false
+}
+
+// readBounded reads the file name, at most max bytes.
+func readBounded(name string, max int) ([]byte, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, int64(max)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > max {
+		return nil, fmt.Errorf("%s is larger than %d bytes", name, max)
+	}
+	return data, nil
 }
 
 // cmImportOps returns the operation of each of n sets from --op.

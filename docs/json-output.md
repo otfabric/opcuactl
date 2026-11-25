@@ -363,9 +363,9 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `connectionManager`, `aggregatedCurrentState`?, `sets`, `truncated`?
 
-**FxCMSet** — the state of one ConnectionConfigurationSet: `path` is its Folders and Name joined by `/`; `state` is the CurrentState of its state machine (§6.9.2) as the server shows it, `stateId` Ready, Processing or Error from its Id; `diagnostics` is ConnectionsDiagnostics.
+**FxCMSet** — the state of one ConnectionConfigurationSet: `path` is its Folders and Name joined by `/`; `state` is the CurrentState of its state machine (§6.9.2) as the server shows it, `stateId` Ready, Processing or Error from its Id; `diagnostics` is ConnectionsDiagnostics; `unread` names the values the server did not return (a Bad status or another type) and the ConnectionsDiagnostics entries that did not decode, so the fields for them are missing.
 
-`path`, `nodeId`, `state`?, `stateId`?, `lastTransition`?, `version`?, `edit`?, `rollbackOnError`?, `connections`, `diagnostics`
+`path`, `nodeId`, `state`?, `stateId`?, `lastTransition`?, `version`?, `edit`?, `rollbackOnError`?, `connections`, `diagnostics`, `unread`?
 
 **FxCMConnection** — a ConnectionConfiguration of a set with its ProcessingResult.
 
@@ -379,7 +379,7 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `method`, `action`, `status`, `statusCode`, `sets`
 
-**FxCMSetResult** — the result for one set; `state` is the state the set ended in with `--wait`.
+**FxCMSetResult** — the result for one set; with `--wait`, `state` is the state the set was last read in: `Ready`, `Processing` or `Error` by the NodeId in CurrentState.Id, `unknown` when that is no state of §6.9.2 or the set has none, `unread` when it could not be read.
 
 `path`, `nodeId`, `status`, `statusCode`, `state`?
 
@@ -399,9 +399,9 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `path`, `operation`, `status`, `statusCode`, `nodeId`?
 
-**FxCMEdit** — what `fx cm edit` did (§6.7.4): the writes, whether CommitUpdates succeeded and the Version after it; `failed` names the step that failed and `discarded` is TRUE when DiscardUpdates then dropped the edit.
+**FxCMEdit** — what `fx cm edit` did (§6.7.4): the writes, whether CommitUpdates succeeded and the Version after it. `outcome` is `committed`, `not-committed` (the edit ended before the commit or the server refused it) or `unknown` (CommitUpdates got no answer and DiscardUpdates could not tell); `failed` names the step that failed, `discarded` is TRUE when DiscardUpdates then dropped the edit and `cleanupError` says why DiscardUpdates failed.
 
-`path`, `nodeId`, `writes`, `committed`, `version`?, `failed`?, `discarded`?
+`path`, `nodeId`, `writes`, `outcome`, `committed`, `version`?, `failed`?, `discarded`?, `cleanupError`?
 
 **FxCMWrite** — one write of an edit.
 

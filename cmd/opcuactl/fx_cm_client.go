@@ -13,6 +13,7 @@ import (
 	"github.com/otfabric/go-opcua/ua"
 	"github.com/otfabric/go-opcua/uafx"
 	"github.com/otfabric/go-opcua/uafx/fxcmid"
+	"github.com/otfabric/opcuactl/internal/format"
 	"github.com/otfabric/opcuactl/internal/model"
 )
 
@@ -22,32 +23,42 @@ import (
 var (
 	cmMaxSets      = 10000    // ConnectionConfigurationSets listed
 	cmMaxDepth     = 8        // Folder levels below ConnectionConfigurationSets
+	cmMaxNodes     = 100000   // Objects visited below ConnectionConfigurationSets
 	cmMaxTypeDepth = 16       // supertypes followed to recognise a set type
-	cmMaxFileSize  = 64 << 20 // bytes read from ConnectionManagerConfiguration
+	cmMaxFileSize  = 64 << 20 // bytes of a ConnectionConfigurationSet file, read or written
 	cmChunk        = 64 << 10 // bytes per Read or Write call of the file
+	cmMaxPerRead   = 1000     // values per Read request when the server sets no lower MaxNodesPerRead
 )
 
 // errNoCM reports that the server has no ConnectionManager.
 var errNoCM = errors.New("the server has no UAFX ConnectionManager (FxRoot.ConnectionManager, Part 81 §12.3)")
 
-// cmClient works with the ConnectionManager of a server (Part 81 §6.7):
-// it finds its ConnectionConfigurationSets and its file by browsing, so it
-// does not depend on how a server names its NodeIds.
+// errAmbiguous reports that a name matches more than one node.
+var errAmbiguous = errors.New("ambiguous")
+
+// cmClient works with the ConnectionManager of a server (Part 81 §6.7).
+// The ConnectionManager and its two Methods have the NodeIds Part 81 §12.3
+// gives them in the CM namespace; below it opcuactl finds the
+// ConnectionConfigurationSets and the file by browsing, so it does not
+// depend on how a server names those NodeIds.
 type cmClient struct {
 	c          *opcua.Client
 	namespaces []string
 	ns         uafx.NamespaceIndexes
+	di         uint16 // index of the DI namespace (the Lock of a set), 0 without
 	cm         *ua.NodeID
+	perRead    int             // values per Read request
 	types      map[string]bool // TypeDefinition -> is a ConnectionConfigurationSetType
 }
 
-// newCMClient finds the ConnectionManager of the server.
+// newCMClient finds the ConnectionManager of the server: errNoCM when the
+// server has none, another error when it could not be checked.
 func newCMClient(ctx context.Context, c *opcua.Client) (*cmClient, error) {
 	nsa, err := c.NamespaceArray(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading the NamespaceArray: %w", err)
 	}
-	x := &cmClient{c: c, namespaces: nsa, types: map[string]bool{}}
+	x := &cmClient{c: c, namespaces: nsa, types: map[string]bool{}, perRead: cmMaxPerRead}
 	for i, u := range nsa {
 		if i > 0xffff {
 			break
@@ -59,14 +70,34 @@ func newCMClient(ctx context.Context, c *opcua.Client) (*cmClient, error) {
 			x.ns.AC = uint16(i)
 		case fxcmid.NamespaceURI:
 			x.ns.CM = uint16(i)
+		case "http://opcfoundation.org/UA/DI/":
+			x.di = uint16(i)
 		}
 	}
 	if x.ns.CM == 0 {
 		return nil, errNoCM
 	}
 	x.cm = ua.NewNumericNodeID(x.ns.CM, fxcmid.FxRootConnectionManager)
-	if _, err := c.Node(x.cm).BrowseName(ctx); err != nil {
-		return nil, fmt.Errorf("%w: %w", errNoCM, err)
+	res, err := c.Read(ctx, &ua.ReadRequest{TimestampsToReturn: ua.TimestampsToReturnNeither, NodesToRead: []*ua.ReadValueID{
+		{NodeID: x.cm, AttributeID: ua.AttributeIDBrowseName},
+		{NodeID: ua.NewNumericNodeID(0, id.ServerServerCapabilitiesOperationLimitsMaxNodesPerRead), AttributeID: ua.AttributeIDValue},
+	}})
+	if err != nil {
+		return nil, fmt.Errorf("reading FxRoot.ConnectionManager: %w", err)
+	}
+	if len(res.Results) != 2 || res.Results[0] == nil {
+		return nil, fmt.Errorf("reading FxRoot.ConnectionManager: %d results for 2 values", len(res.Results))
+	}
+	switch sc := res.Results[0].Status; {
+	case sc == ua.StatusBadNodeIDUnknown:
+		return nil, errNoCM
+	case sc.Uint32()&0x80000000 != 0:
+		return nil, fmt.Errorf("reading FxRoot.ConnectionManager: %w", sc)
+	}
+	if dv := res.Results[1]; dv != nil && dv.Status == ua.StatusOK && dv.Value != nil {
+		if n, ok := dv.Value.Value().(uint32); ok && n > 0 && int64(n) < int64(x.perRead) {
+			x.perRead = int(n)
+		}
 	}
 	return x, nil
 }
@@ -78,22 +109,39 @@ type cmSet struct {
 	NodeID *ua.NodeID
 }
 
-// child returns the hierarchical child of n with the BrowseName ns:name.
+// local returns the NodeId of r when it is a node of this server: a
+// reference to another server (ServerIndex) is not followed.
+func local(r *ua.ReferenceDescription) *ua.NodeID {
+	if r == nil || r.NodeID == nil || r.NodeID.NodeID == nil || r.NodeID.ServerIndex != 0 || r.BrowseName == nil {
+		return nil
+	}
+	return r.NodeID.NodeID
+}
+
+// child returns the hierarchical child of n with the BrowseName ns:name,
+// nil when it has none and an error when it has several.
 func (x *cmClient) child(ctx context.Context, n *ua.NodeID, ns uint16, name string) (*ua.NodeID, error) {
 	refs, err := x.c.Node(n).References(ctx, id.HierarchicalReferences, ua.BrowseDirectionForward, ua.NodeClassAll, true)
 	if err != nil {
 		return nil, fmt.Errorf("browsing %s: %w", n, err)
 	}
+	var found *ua.NodeID
 	for _, r := range refs {
-		if r.BrowseName != nil && r.BrowseName.NamespaceIndex == ns && r.BrowseName.Name == name && r.NodeID != nil && r.NodeID.NodeID != nil {
-			return r.NodeID.NodeID, nil
+		nid := local(r)
+		if nid == nil || r.BrowseName.NamespaceIndex != ns || r.BrowseName.Name != name {
+			continue
 		}
+		if found != nil && !found.Equal(nid) {
+			return nil, fmt.Errorf("%s has more than one child %d:%s: %w", n, ns, name, errAmbiguous)
+		}
+		found = nid
 	}
-	return nil, nil
+	return found, nil
 }
 
 // sets lists the ConnectionConfigurationSets of the ConnectionManager
-// (§6.7.2), in the Folders below ConnectionConfigurationSets as well.
+// (§6.7.2), in the Folders below ConnectionConfigurationSets as well. The
+// bool is TRUE when a bound cut the listing short.
 func (x *cmClient) sets(ctx context.Context) ([]cmSet, bool, error) {
 	root, err := x.child(ctx, x.cm, x.ns.CM, "ConnectionConfigurationSets")
 	if err != nil {
@@ -112,14 +160,18 @@ func (x *cmClient) sets(ctx context.Context) ([]cmSet, bool, error) {
 			return fmt.Errorf("browsing %s: %w", n, err)
 		}
 		for _, r := range refs {
-			if r.NodeID == nil || r.NodeID.NodeID == nil || r.BrowseName == nil || seen[r.NodeID.NodeID.String()] {
+			nid := local(r)
+			if nid == nil || seen[nid.String()] {
 				continue
 			}
-			nid := r.NodeID.NodeID
+			if len(seen) >= cmMaxNodes {
+				truncated = true
+				return nil
+			}
 			seen[nid.String()] = true
 			path := append(append([]string{}, prefix...), r.BrowseName.Name)
 			var typ *ua.NodeID
-			if r.TypeDefinition != nil {
+			if r.TypeDefinition != nil && r.TypeDefinition.ServerIndex == 0 {
 				typ = r.TypeDefinition.NodeID
 			}
 			isSet, err := x.isSetType(ctx, typ)
@@ -176,7 +228,7 @@ func (x *cmClient) isSetType(ctx context.Context, typ *ua.NodeID) (bool, error) 
 		if err != nil {
 			return false, fmt.Errorf("browsing the supertype of %s: %w", t, err)
 		}
-		if len(refs) == 0 || refs[0].NodeID == nil || refs[0].NodeID.NodeID == nil {
+		if len(refs) == 0 || local(refs[0]) == nil {
 			return x.remember(chain, false), nil
 		}
 		t = refs[0].NodeID.NodeID
@@ -192,10 +244,13 @@ func (x *cmClient) remember(chain []string, v bool) bool {
 }
 
 // resolve returns the NodeIds of the sets named by args: a NodeId
-// (ns=<index>;..., nsu=<uri>;...) or the path fx cm list prints.
+// (ns=<index>;..., nsu=<uri>;...) or the path fx cm list prints. A path
+// that two sets share, or one looked up in a listing a bound cut short, is
+// refused: name the set by its NodeId then.
 func (x *cmClient) resolve(ctx context.Context, args []string) ([]cmSet, error) {
 	var listed []cmSet
-	byPath := map[string]cmSet{}
+	truncated := false
+	byPath := map[string][]cmSet{}
 	out := make([]cmSet, 0, len(args))
 	for _, a := range args {
 		if isNodeIDArg(a) {
@@ -209,18 +264,28 @@ func (x *cmClient) resolve(ctx context.Context, args []string) ([]cmSet, error) 
 		}
 		if listed == nil {
 			var err error
-			if listed, _, err = x.sets(ctx); err != nil {
+			if listed, truncated, err = x.sets(ctx); err != nil {
+				format.Errf("listing the sets: %v", err)
 				return nil, exitCode(exitProtocol, err)
 			}
+			if listed == nil {
+				listed = []cmSet{}
+			}
 			for _, s := range listed {
-				byPath[s.Path] = s
+				byPath[s.Path] = append(byPath[s.Path], s)
 			}
 		}
-		s, ok := byPath[a]
-		if !ok {
-			return nil, exitCodef(exitUsage, "no ConnectionConfigurationSet %q (fx cm list prints the paths)", a)
+		if truncated {
+			return nil, exitCodef(exitPartial, "the listing of the sets was cut short at %d sets, %d Folder levels or %d nodes: name %q by its NodeId", cmMaxSets, cmMaxDepth, cmMaxNodes, a)
 		}
-		out = append(out, s)
+		switch m := byPath[a]; len(m) {
+		case 0:
+			return nil, exitCodef(exitUsage, "no ConnectionConfigurationSet %q (fx cm list prints the paths)", a)
+		case 1:
+			out = append(out, m[0])
+		default:
+			return nil, exitCodef(exitUsage, "%d ConnectionConfigurationSets have the path %q: name it by its NodeId (fx cm list prints them)", len(m), a)
+		}
 	}
 	return out, nil
 }
@@ -235,18 +300,78 @@ func isNodeIDArg(a string) bool {
 	return false
 }
 
+// read is one value of a Read request and what to do with it.
+type cmRead struct {
+	name string
+	n    *ua.NodeID
+	set  func(v any) bool // FALSE: the value has another type
+}
+
+// readValues reads the Values of reads in requests of at most x.perRead
+// and returns the names of those the server did not return.
+func (x *cmClient) readValues(ctx context.Context, reads []cmRead) ([]string, error) {
+	var unread []string
+	for start := 0; start < len(reads); start += x.perRead {
+		batch := reads[start:min(start+x.perRead, len(reads))]
+		req := &ua.ReadRequest{TimestampsToReturn: ua.TimestampsToReturnNeither}
+		for _, r := range batch {
+			req.NodesToRead = append(req.NodesToRead, &ua.ReadValueID{NodeID: r.n, AttributeID: ua.AttributeIDValue})
+		}
+		res, err := x.c.Read(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if len(res.Results) != len(batch) {
+			return nil, fmt.Errorf("%d results for %d values", len(res.Results), len(batch))
+		}
+		for i, dv := range res.Results {
+			if dv == nil || dv.Status.Uint32()&0x80000000 != 0 || dv.Value == nil || !batch[i].set(dv.Value.Value()) {
+				unread = append(unread, batch[i].name)
+			}
+		}
+	}
+	return unread, nil
+}
+
+// stateNodes returns the CurrentState and LastTransition Variables of the
+// state machine of set n (§6.9.2) and the Id Property of CurrentState; nil
+// for those the set has not.
+func (x *cmClient) stateNodes(ctx context.Context, sm *ua.NodeID) (cur, last, curID *ua.NodeID, err error) {
+	if sm == nil {
+		return nil, nil, nil, nil
+	}
+	if cur, err = x.child(ctx, sm, 0, "CurrentState"); err != nil {
+		return nil, nil, nil, err
+	}
+	if last, err = x.child(ctx, sm, 0, "LastTransition"); err != nil {
+		return nil, nil, nil, err
+	}
+	if cur != nil {
+		if curID, err = x.child(ctx, cur, 0, "Id"); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return cur, last, curID, nil
+}
+
+// stateMachine returns the ConnectionConfigurationSetStateMachine of set n.
+func (x *cmClient) stateMachine(ctx context.Context, n *ua.NodeID) (*ua.NodeID, error) {
+	return x.child(ctx, n, x.ns.CM, "ConnectionConfigurationSetStateMachine")
+}
+
 // status reads the state of set s (§6.8.2, §6.9.2).
 func (x *cmClient) status(ctx context.Context, s cmSet) (model.FxCMSet, error) {
 	out := model.FxCMSet{Path: s.Path, NodeID: s.NodeID.String(), Connections: []model.FxCMConnection{}, Diagnostics: []model.FxCMDiagnostics{}}
 	members := map[string]*ua.NodeID{}
-	refs, err := x.c.Node(s.NodeID).References(ctx, id.References, ua.BrowseDirectionForward, ua.NodeClassObject|ua.NodeClassVariable, true)
+	refs, err := x.c.Node(s.NodeID).References(ctx, id.HierarchicalReferences, ua.BrowseDirectionForward, ua.NodeClassObject|ua.NodeClassVariable, true)
 	if err != nil {
 		return out, fmt.Errorf("browsing %s: %w", s.NodeID, err)
 	}
 	var conns []*ua.ReferenceDescription
 	hasConn := ua.NewNumericNodeID(x.ns.CM, fxcmid.HasConnectionConfiguration).String()
 	for _, r := range refs {
-		if r.NodeID == nil || r.NodeID.NodeID == nil || r.BrowseName == nil {
+		nid := local(r)
+		if nid == nil {
 			continue
 		}
 		if r.ReferenceTypeID != nil && r.ReferenceTypeID.String() == hasConn {
@@ -254,46 +379,71 @@ func (x *cmClient) status(ctx context.Context, s cmSet) (model.FxCMSet, error) {
 			continue
 		}
 		if r.BrowseName.NamespaceIndex == x.ns.CM {
-			members[r.BrowseName.Name] = r.NodeID.NodeID
+			members[r.BrowseName.Name] = nid
 		}
 	}
-	var sm, cur, last *ua.NodeID
-	if sm = members["ConnectionConfigurationSetStateMachine"]; sm != nil {
-		if cur, err = x.child(ctx, sm, 0, "CurrentState"); err != nil {
-			return out, err
-		}
-		if last, err = x.child(ctx, sm, 0, "LastTransition"); err != nil {
-			return out, err
-		}
+	cur, last, curID, err := x.stateNodes(ctx, members["ConnectionConfigurationSetStateMachine"])
+	if err != nil {
+		return out, err
 	}
-	type read struct {
-		n   *ua.NodeID
-		set func(v any)
-	}
-	var reads []read
-	add := func(n *ua.NodeID, set func(v any)) {
+	var reads []cmRead
+	add := func(name string, n *ua.NodeID, set func(v any) bool) {
 		if n != nil {
-			reads = append(reads, read{n, set})
+			reads = append(reads, cmRead{name, n, set})
 		}
 	}
-	add(members["Version"], func(v any) {
-		if u, ok := v.(uint32); ok {
+	add("Version", members["Version"], func(v any) bool {
+		u, ok := v.(uint32)
+		if ok {
 			out.Version = &u
 		}
+		return ok
 	})
-	add(members["Edit"], func(v any) {
-		if b, ok := v.(bool); ok {
+	add("Edit", members["Edit"], func(v any) bool {
+		b, ok := v.(bool)
+		if ok {
 			out.Edit = &b
 		}
+		return ok
 	})
-	add(members["RollbackOnError"], func(v any) {
-		if b, ok := v.(bool); ok {
+	add("RollbackOnError", members["RollbackOnError"], func(v any) bool {
+		b, ok := v.(bool)
+		if ok {
 			out.RollbackOnError = &b
 		}
+		return ok
 	})
-	add(cur, func(v any) { out.State = localizedText(v) })
-	add(last, func(v any) { out.LastTransition = localizedText(v) })
-	add(members["ConnectionsDiagnostics"], func(v any) { out.Diagnostics = x.diagnostics(v) })
+	add("CurrentState", cur, func(v any) bool {
+		lt, ok := v.(*ua.LocalizedText)
+		if ok && lt != nil {
+			out.State = lt.Text
+		}
+		return ok
+	})
+	add("CurrentState/Id", curID, func(v any) bool {
+		out.StateID = x.stateName(v)
+		_, ok := v.(*ua.NodeID)
+		return ok
+	})
+	add("LastTransition", last, func(v any) bool {
+		lt, ok := v.(*ua.LocalizedText)
+		if ok && lt != nil {
+			out.LastTransition = lt.Text
+		}
+		return ok
+	})
+	add("ConnectionsDiagnostics", members["ConnectionsDiagnostics"], func(v any) bool {
+		eos, ok := v.([]*ua.ExtensionObject)
+		if !ok && v != nil {
+			return false
+		}
+		var bad []int
+		out.Diagnostics, bad = x.diagnostics(eos)
+		for _, i := range bad {
+			out.Unread = append(out.Unread, fmt.Sprintf("ConnectionsDiagnostics[%d]", i))
+		}
+		return true
+	})
 	for _, r := range conns {
 		i := len(out.Connections)
 		out.Connections = append(out.Connections, model.FxCMConnection{Name: r.BrowseName.Name, NodeID: r.NodeID.NodeID.String()})
@@ -301,47 +451,29 @@ func (x *cmClient) status(ctx context.Context, s cmSet) (model.FxCMSet, error) {
 		if err != nil {
 			return out, err
 		}
-		add(pr, func(v any) {
-			if sc, ok := v.(ua.StatusCode); ok {
+		add(r.BrowseName.Name+"/ProcessingResult", pr, func(v any) bool {
+			sc, ok := v.(ua.StatusCode)
+			if ok {
 				out.Connections[i].ProcessingResult = sc.Symbol()
 				code := sc.Uint32()
 				out.Connections[i].ProcessingResultCode = &code
 			}
+			return ok
 		})
 	}
-	if cur != nil {
-		if stateID, err := x.child(ctx, cur, 0, "Id"); err == nil && stateID != nil {
-			add(stateID, func(v any) { out.StateID = x.stateName(v) })
-		}
-	}
-	if len(reads) == 0 {
-		return out, nil
-	}
-	req := &ua.ReadRequest{TimestampsToReturn: ua.TimestampsToReturnNeither}
-	for _, r := range reads {
-		req.NodesToRead = append(req.NodesToRead, &ua.ReadValueID{NodeID: r.n, AttributeID: ua.AttributeIDValue})
-	}
-	res, err := x.c.Read(ctx, req)
+	unread, err := x.readValues(ctx, reads)
 	if err != nil {
 		return out, fmt.Errorf("reading %s: %w", s.NodeID, err)
 	}
-	if len(res.Results) != len(reads) {
-		return out, fmt.Errorf("reading %s: %d results for %d values", s.NodeID, len(res.Results), len(reads))
-	}
-	for i, dv := range res.Results {
-		if dv == nil || dv.Value == nil || dv.Status.Uint32()&0x80000000 != 0 {
-			continue
-		}
-		reads[i].set(dv.Value.Value())
-	}
+	out.Unread = append(unread, out.Unread...)
 	return out, nil
 }
 
 // stateName maps the NodeId of a state of ConnectionConfigurationSetStateMachineType
-// (§6.9.2) to Ready, Processing or Error.
+// (§6.9.2) to Ready, Processing or Error, "" for any other value.
 func (x *cmClient) stateName(v any) string {
 	n, ok := v.(*ua.NodeID)
-	if !ok || n == nil || n.Namespace() != x.ns.CM {
+	if !ok || n == nil || n.Namespace() != x.ns.CM || n.Type() == ua.NodeIDTypeString || n.Type() == ua.NodeIDTypeGUID || n.Type() == ua.NodeIDTypeByteString {
 		return ""
 	}
 	switch n.IntID() {
@@ -356,14 +488,16 @@ func (x *cmClient) stateName(v any) string {
 }
 
 // diagnostics decodes ConnectionsDiagnostics, an array of
-// ConnectionDiagnosticsDataType (§6.8.2).
-func (x *cmClient) diagnostics(v any) []model.FxCMDiagnostics {
-	eos, _ := v.([]*ua.ExtensionObject)
+// ConnectionDiagnosticsDataType (§6.8.2), and returns the indexes of the
+// entries that did not decode.
+func (x *cmClient) diagnostics(eos []*ua.ExtensionObject) ([]model.FxCMDiagnostics, []int) {
 	out := []model.FxCMDiagnostics{}
-	for _, eo := range eos {
+	var bad []int
+	for i, eo := range eos {
 		st, err := uafx.DecodeStructure(eo, x.ns)
 		d, ok := st.(*uafx.ConnectionDiagnostics)
 		if err != nil || !ok || d == nil {
+			bad = append(bad, i)
 			continue
 		}
 		e := model.FxCMDiagnostics{
@@ -379,15 +513,7 @@ func (x *cmClient) diagnostics(v any) []model.FxCMDiagnostics {
 		}
 		out = append(out, e)
 	}
-	return out
-}
-
-// localizedText returns the text of a LocalizedText value.
-func localizedText(v any) string {
-	if lt, ok := v.(*ua.LocalizedText); ok && lt != nil {
-		return lt.Text
-	}
-	return ""
+	return out, bad
 }
 
 // aggregated reads AggregatedCurrentState of the ConnectionManager
@@ -401,8 +527,9 @@ func (x *cmClient) aggregated(ctx context.Context) (*bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading AggregatedCurrentState: %w", err)
 	}
-	if b, ok := v.Value().(bool); ok {
-		return &b, nil
+	b, ok := v.Value().(bool)
+	if !ok {
+		return nil, fmt.Errorf("AggregatedCurrentState is a %T, not a Boolean", v.Value())
 	}
-	return nil, nil
+	return &b, nil
 }

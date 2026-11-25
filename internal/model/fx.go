@@ -237,6 +237,10 @@ type FxCMSet struct {
 	// Diagnostics is ConnectionsDiagnostics: the outcome of the last run
 	// per Connection.
 	Diagnostics []FxCMDiagnostics `json:"diagnostics"`
+	// Unread names the values the server did not return (a Bad status, or
+	// a value of another type) and the ConnectionsDiagnostics entries that
+	// did not decode: the fields above are incomplete for them.
+	Unread []string `json:"unread,omitempty"`
 }
 
 // FxCMConnection is a ConnectionConfiguration of a set.
@@ -270,7 +274,9 @@ type FxCMCallResult struct {
 }
 
 // FxCMSetResult is the result for one set; with fx cm process --wait also
-// the state the set ended in.
+// the state the set was last read in: Ready, Processing or Error by the
+// NodeId of the state, "unknown" when the server gave none opcuactl
+// recognises, "unread" when it could not be read.
 type FxCMSetResult struct {
 	Path       string `json:"path"`
 	NodeID     string `json:"nodeId"`
@@ -322,14 +328,21 @@ type FxCMEdit struct {
 	Path   string      `json:"path"`
 	NodeID string      `json:"nodeId"`
 	Writes []FxCMWrite `json:"writes"`
+	// Outcome is "committed" when the server answered CommitUpdates with
+	// Good, "not-committed" when the edit ended before a commit or the
+	// server refused it, and "unknown" when CommitUpdates was sent and no
+	// answer came back: the set may or may not have its next Version.
+	Outcome string `json:"outcome"`
 	// Committed is TRUE when CommitUpdates succeeded; Version is then the
 	// Version of the set after it.
 	Committed bool    `json:"committed"`
 	Version   *uint32 `json:"version,omitempty"`
 	// Failed names the step that failed; Discarded is TRUE when
-	// DiscardUpdates then dropped the edit.
-	Failed    string `json:"failed,omitempty"`
-	Discarded bool   `json:"discarded,omitempty"`
+	// DiscardUpdates then dropped the edit. CleanupError is why
+	// DiscardUpdates failed, when it did.
+	Failed       string `json:"failed,omitempty"`
+	Discarded    bool   `json:"discarded,omitempty"`
+	CleanupError string `json:"cleanupError,omitempty"`
 }
 
 // FxCMWrite is one write of an edit.

@@ -563,8 +563,8 @@ func TestE2E_FxCMModelOnly(t *testing.T) {
 }
 
 // TestE2E_FxCMFileFaults: fx cm export and import against file Methods
-// that fail or answer what OPC 10000-20 §4.2 does not allow, and a server
-// that takes Operations as the array of Byte of Table F.39.
+// that fail or answer what OPC 10000-20 §4.2 and Table F.39 do not allow.
+// CloseAndUpdate is called once whatever it answers.
 func TestE2E_FxCMFileFaults(t *testing.T) {
 	file := writeSetFile(t, cmSetConf("Line1"))
 	type handler = func(ctx context.Context, obj, method *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode)
@@ -583,17 +583,15 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 		}
 	}
 	var calls atomic.Int32
-	typeMismatchThenGone := func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
-		if calls.Add(1) == 1 {
-			return nil, ua.StatusBadTypeMismatch
-		}
-		return nil, ua.StatusBadInvalidArgument
+	typeMismatch := func(context.Context, *ua.NodeID, *ua.NodeID, []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+		calls.Add(1)
+		return nil, ua.StatusBadTypeMismatch
 	}
-	byteArray := func(_ context.Context, _, _ *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+	byteString := func(_ context.Context, _, _ *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
 		if len(args) != 3 {
 			return nil, ua.StatusBadArgumentsMissing
 		}
-		if _, ok := args[2].Value().(ua.ByteArray); !ok {
+		if b, ok := args[2].Value().([]byte); !ok || len(b) != 1 || b[0] != byte(uafx.ElementAdd) {
 			return nil, ua.StatusBadTypeMismatch
 		}
 		return []*ua.Variant{ua.MustVariant(true), ua.MustVariant([]ua.StatusCode{ua.StatusOK}), ua.MustVariant([]*ua.NodeID{ua.NewNumericNodeID(1, 7)})}, ua.StatusOK
@@ -625,19 +623,31 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 		{"read fails", "Read", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
 		{"read byte array", "Read", readArray(), []string{"export"}, exitOK},
 		{"read without end", "Read", answer([]byte("x")), []string{"export"}, exitPartial},
+		{"read no data", "Read", answer(), []string{"export"}, exitProtocol},
+		{"read wrong type", "Read", answer(int32(7)), []string{"export"}, exitProtocol},
+		{"read too much", "Read", answer(make([]byte, 2)), []string{"export"}, exitProtocol},
 		{"close fails", "Close", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
 		{"write fails", "Write", fail(ua.StatusBadResourceUnavailable), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
 		{"update outputs", "CloseAndUpdate", answer(true), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
 		{"update results", "CloseAndUpdate", answer(true, []ua.StatusCode{}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-		{"update not decoded", "CloseAndUpdate", typeMismatchThenGone, []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-		{"update byte array", "CloseAndUpdate", byteArray, []string{"import", "--file", file, "--op", "add"}, exitOK},
+		{"update not decoded", "CloseAndUpdate", typeMismatch, []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update byte string", "CloseAndUpdate", byteString, []string{"import", "--file", file, "--op", "add"}, exitOK},
+		{"update applied type", "CloseAndUpdate", answer("yes", []ua.StatusCode{ua.StatusOK}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update contradiction", "CloseAndUpdate", answer(true, []ua.StatusCode{ua.StatusBadInvalidArgument}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update objects", "CloseAndUpdate", answer(true, []ua.StatusCode{ua.StatusOK}, []*ua.NodeID{ua.NewNumericNodeID(1, 1), ua.NewNumericNodeID(1, 2)}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if c.name == "read without end" {
+			switch c.name {
+			case "read without end":
 				// A server that never ends the file stops at the bound.
 				prev := cmMaxFileSize
 				cmMaxFileSize = 10
 				t.Cleanup(func() { cmMaxFileSize = prev })
+			case "read too much":
+				// More bytes than the Length asked for.
+				prev := cmChunk
+				cmChunk = 1
+				t.Cleanup(func() { cmChunk = prev })
 			}
 			s := startFxCMServer(t)
 			ns := s.cmNS(t)
@@ -648,8 +658,17 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 			}
 		})
 	}
-	if calls.Load() != 2 {
-		t.Fatalf("CloseAndUpdate called %d times for the file it could not decode, want 2", calls.Load())
+	if calls.Load() != 1 {
+		t.Fatalf("CloseAndUpdate called %d times, want 1: it is not retried", calls.Load())
+	}
+
+	// An import larger than the bound is refused before it is sent.
+	prev := cmMaxFileSize
+	cmMaxFileSize = 100
+	t.Cleanup(func() { cmMaxFileSize = prev })
+	s := startFxCMServer(t)
+	if _, _, err := runCLI(t, "fx", "cm", "import", "-e", s.url, "--file", file, "--op", "add"); ExitCode(err) != exitInvalidInput {
+		t.Fatalf("large import: exit %d (%v)", ExitCode(err), err)
 	}
 }
 

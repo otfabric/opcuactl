@@ -44,9 +44,10 @@ const (
 // fxConnServer is a server that serves EstablishConnections and
 // CloseConnections on the AutomationComponents of fx_connections.xml.
 type fxConnServer struct {
-	srv *server.Server
-	url string
-	ns  uint16 // index of fxConnNS
+	srv   *server.Server
+	conns *fxserver.Connections
+	url   string
+	ns    uint16 // index of fxConnNS
 }
 
 func (s *fxConnServer) id(n uint32) *ua.NodeID { return ua.NewNumericNodeID(s.ns, n) }
@@ -81,6 +82,7 @@ func startFxConnServer(t *testing.T) *fxConnServer {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.conns = conns
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
