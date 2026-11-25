@@ -328,13 +328,16 @@ type FxCMEdit struct {
 	Path   string      `json:"path"`
 	NodeID string      `json:"nodeId"`
 	Writes []FxCMWrite `json:"writes"`
-	// Outcome is "committed" when the server answered CommitUpdates with
-	// Good, "not-committed" when the edit ended before a commit or the
-	// server refused it, and "unknown" when CommitUpdates was sent and no
-	// answer came back: the set may or may not have its next Version.
+	// Outcome is "committed" when CommitUpdates answered Good, the Version
+	// went up by one and the written Variables read the values written;
+	// "not-committed" when the edit ended before a commit, the server
+	// refused it, or answered Good with the Version unchanged (a commit of
+	// an edit that had ended is ignored, Part 81 §6.7.4); and "unknown"
+	// when CommitUpdates got no answer or the commit cannot be
+	// established: the set may or may not have its next Version.
 	Outcome string `json:"outcome"`
-	// Committed is TRUE when CommitUpdates succeeded; Version is then the
-	// Version of the set after it.
+	// Committed is TRUE for the outcome committed. Version is the Version
+	// of the set read after a Good CommitUpdates.
 	Committed bool    `json:"committed"`
 	Version   *uint32 `json:"version,omitempty"`
 	// Failed names the step that failed; Discarded is TRUE when

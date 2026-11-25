@@ -297,6 +297,10 @@ func TestE2E_FxCMFakeResolve(t *testing.T) {
 	f.variable(e, "E.Hidden", f.ns, "Hidden", 4.0, id.GeneratesEvent)
 	f.onProcess(started)
 	var commits atomic.Int32
+	// Version is 1 + the commits: each commit makes the next Version.
+	f.variable(e, "E.Version", f.ns, "Version", server.ValueFunc(func() *ua.DataValue {
+		return server.DataValueFromValue(uint32(1 + commits.Load()))
+	}), id.HasProperty)
 	f.onEdit(func(_ context.Context, _, _ *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
 		if a, _ := args[0].Value().(int32); uafx.FxEdit(a) == uafx.CommitUpdates {
 			commits.Add(1)
@@ -379,7 +383,15 @@ func TestE2E_FxCMFakeResolve(t *testing.T) {
 func TestE2E_FxCMFakeEdit(t *testing.T) {
 	f := startFakeCM(t)
 	e := f.set(f.folders, "E", "E")
-	f.variable(e, "E.X", f.ns, "X", 1.0, id.HasComponent)
+	x := f.variable(e, "E.X", f.ns, "X", 1.0, id.HasComponent)
+	// Version: CommitUpdates adds bump to it, 1 unless a case says; with
+	// other, the commit leaves X another value than the one written.
+	var version, bump atomic.Uint32
+	var other atomic.Bool
+	version.Store(1)
+	f.variable(e, "E.Version", f.ns, "Version", server.ValueFunc(func() *ua.DataValue {
+		return server.DataValueFromValue(version.Load())
+	}), id.HasProperty)
 	lock := f.object(e, "E.Lock", f.di, "Lock", nil)
 	var renewals atomic.Int32
 	var renewStatus atomic.Int32
@@ -405,6 +417,10 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 		time.Sleep(st.delay)
 		if uafx.FxEdit(a) == uafx.CommitUpdates && st.sc == ua.StatusOK {
 			committed.Store(true)
+			version.Add(bump.Load())
+			if other.Load() {
+				_ = x.SetAttribute(ua.AttributeIDValue, server.DataValueFromValue(7.0))
+			}
 		}
 		if uafx.FxEdit(a) == uafx.DiscardUpdates && committed.Load() {
 			return []*ua.Variant{ua.MustVariant([]ua.StatusCode{ua.StatusBadInvalidState})}, ua.StatusOK
@@ -418,6 +434,8 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 	for _, c := range []struct {
 		name      string
 		steps     map[uafx.FxEdit]step
+		bump      uint32
+		other     bool
 		renew     int32
 		timeout   string
 		want      int
@@ -426,12 +444,17 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 		cleanup   bool
 		failed    string
 	}{
-		{"committed", nil, 0, "5s", exitOK, "committed", false, false, ""},
-		{"commit refused", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState}}, 0, "5s", exitProtocol, "not-committed", true, false, "CommitUpdates"},
-		{"discard fails", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState}, uafx.DiscardUpdates: {sc: ua.StatusBadInternalError}}, 0, "5s", exitProtocol, "not-committed", false, true, "CommitUpdates"},
-		{"commit lost, still open", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState, delay: 700 * time.Millisecond}}, 0, "400ms", exitTimeout, "not-committed", true, false, "CommitUpdates"},
-		{"commit lost, applied", map[uafx.FxEdit]step{uafx.CommitUpdates: {delay: 700 * time.Millisecond}}, 0, "400ms", exitTimeout, "unknown", false, true, "CommitUpdates"},
-		{"lock lost", nil, -1, "5s", exitProtocol, "not-committed", true, false, "RenewLock"},
+		{"committed", nil, 1, false, 0, "5s", exitOK, "committed", false, false, ""},
+		// The Lock expired after the last write: the server ignores
+		// CommitUpdates and answers Good (§6.7.4); the Version stays.
+		{"commit ignored, edit expired", nil, 0, false, 0, "5s", exitProtocol, "not-committed", false, false, "CommitUpdates"},
+		{"commit not established", nil, 2, false, 0, "5s", exitProtocol, "unknown", false, false, "CommitUpdates"},
+		{"commit reads another value", nil, 1, true, 0, "5s", exitProtocol, "unknown", false, false, "CommitUpdates"},
+		{"commit refused", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState}}, 1, false, 0, "5s", exitProtocol, "not-committed", true, false, "CommitUpdates"},
+		{"discard fails", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState}, uafx.DiscardUpdates: {sc: ua.StatusBadInternalError}}, 1, false, 0, "5s", exitProtocol, "not-committed", false, true, "CommitUpdates"},
+		{"commit lost, still open", map[uafx.FxEdit]step{uafx.CommitUpdates: {sc: ua.StatusBadInvalidState, delay: 700 * time.Millisecond}}, 1, false, 0, "400ms", exitTimeout, "not-committed", true, false, "CommitUpdates"},
+		{"commit lost, applied", map[uafx.FxEdit]step{uafx.CommitUpdates: {delay: 700 * time.Millisecond}}, 1, false, 0, "400ms", exitTimeout, "unknown", false, true, "CommitUpdates"},
+		{"lock lost", nil, 1, false, -1, "5s", exitProtocol, "not-committed", true, false, "RenewLock"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			mu.Lock()
@@ -441,6 +464,9 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 			}
 			mu.Unlock()
 			committed.Store(false)
+			bump.Store(c.bump)
+			other.Store(c.other)
+			v0 := version.Load()
 			renewStatus.Store(c.renew)
 			renewals.Store(0)
 			cmRenewAfter = 0
@@ -455,13 +481,23 @@ func TestE2E_FxCMFakeEdit(t *testing.T) {
 			if renewals.Load() == 0 {
 				t.Fatal("the Lock was not renewed")
 			}
-			if c.outcome == "unknown" && !strings.Contains(stderr, "unknown") {
+			if c.outcome == "committed" && (ed.Version == nil || *ed.Version != v0+1 || !ed.Committed) {
+				t.Fatalf("committed without Version %d: %+v", v0+1, ed)
+			}
+			if c.outcome != "committed" && ed.Committed {
+				t.Fatalf("committed TRUE: %+v", ed)
+			}
+			if c.name == "commit ignored, edit expired" && !strings.Contains(stderr, "ignored the commit") {
+				t.Fatalf("stderr does not say the commit was ignored: %s", stderr)
+			}
+			if c.outcome == "unknown" && !strings.Contains(stderr, "unknown") && !strings.Contains(stderr, "cannot be established") {
 				t.Fatalf("stderr does not say the outcome is unknown: %s", stderr)
 			}
 		})
 	}
 	// The Lock is not renewed while the edit is young.
 	cmRenewAfter = time.Hour
+	bump.Store(1)
 	renewals.Store(0)
 	renewStatus.Store(0)
 	mu.Lock()

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -396,10 +397,16 @@ session, which is why the steps run in one command; opcuactl renews it
 (RenewLock, OPC 10000-100 §7.6) when the edit takes longer than a few
 seconds, and a Lock that is lost ends the edit.
 
-The result says what became of the edit ("outcome" in JSON): committed;
-not-committed, when it ended before the commit or the server refused the
-commit; or unknown, when CommitUpdates got no answer and DiscardUpdates
-could not tell (the set may have its next Version: fx cm list shows it).
+The result says what became of the edit ("outcome" in JSON). A Good
+CommitUpdates is not enough: a server ignores the commit of a set no
+longer in edit, for one when the Lock expired (§6.7.4). So opcuactl reads
+the Version before StartEditing and after the commit, and the written
+Variables: committed when the Version went up by one and they read the
+values written; not-committed when the edit ended before the commit, the
+server refused it, or answered Good with the Version unchanged; unknown
+when CommitUpdates got no answer and DiscardUpdates could not tell, or the
+commit cannot be established (the Version cannot be read, went up by more
+than one, or a Variable reads another value): fx cm list shows the set.
 
 --write <path>=<value> names a Variable below the set by the BrowseNames
 of the hierarchical references on the way to it, joined by "/" (for
@@ -415,7 +422,8 @@ A commit does not change the Connections: fx cm process applies the new
 Version.
 
 Exit codes: 0 when the edit was committed; 6 when StartEditing, a write,
-RenewLock or CommitUpdates failed; 4 or 5 when the server stopped
+RenewLock or CommitUpdates failed, or the commit was ignored or cannot be
+established; 4 or 5 when the server stopped
 answering (see the outcome); 2 when --write is not <path>=<value> or a
 path is not found, is ambiguous or is not a Variable; 9 when the server
 refuses the user.
@@ -499,6 +507,14 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 		}
 		format.Errf("DiscardUpdates: %s: the server discards the edit when the session ends (Part 81 §6.7.4)", out.CleanupError)
 	}
+	// The Version before the edit: a Good CommitUpdates alone does not
+	// show a commit, since a server ignores CommitUpdates of a set that is
+	// no longer in edit (§6.7.4), for one when the Lock expired after the
+	// last write.
+	var before *uint32
+	if st, err := x.status(ctx, s); err == nil {
+		before = st.Version
+	}
 	sc, err := call(ctx, uafx.StartEditing)
 	if err != nil || sc != ua.StatusOK {
 		return fail("StartEditing", sc, err)
@@ -508,6 +524,7 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 		discard()
 		return fail("Lock", 0, err)
 	}
+	var written []cmWritten
 	for _, w := range writes {
 		path, value, _ := strings.Cut(w, "=")
 		r := model.FxCMWrite{Path: path, Value: value}
@@ -538,6 +555,7 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 			discard()
 			return fail("write "+path, wsc, err)
 		}
+		written = append(written, cmWritten{path, n, v})
 	}
 	if err := renew(); err != nil {
 		discard()
@@ -546,11 +564,7 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 	sc, err = call(ctx, uafx.CommitUpdates)
 	switch {
 	case err == nil && sc == ua.StatusOK:
-		out.Committed, out.Outcome = true, "committed"
-		if st, err := x.status(ctx, s); err == nil {
-			out.Version = st.Version
-		}
-		return out, nil
+		return x.verifyCommit(ctx, s, before, written, out)
 	case err == nil || answered(err):
 		discard()
 		return fail("CommitUpdates", sc, err)
@@ -564,6 +578,68 @@ func (x *cmClient) edit(ctx context.Context, s cmSet, writes []string) (model.Fx
 		}
 		return fail("CommitUpdates", sc, err)
 	}
+}
+
+// cmWritten is a write of an edit: the Variable and the value written.
+type cmWritten struct {
+	path string
+	n    *ua.NodeID
+	v    any
+}
+
+// verifyCommit establishes what a Good CommitUpdates did (§6.7.4):
+// committed when the Version went from before to before+1 and the written
+// Variables read the values written; not-committed when the Version is
+// unchanged (the server ignored the commit of an edit that had ended);
+// unknown otherwise.
+func (x *cmClient) verifyCommit(ctx context.Context, s cmSet, before *uint32, written []cmWritten, out model.FxCMEdit) (model.FxCMEdit, error) {
+	unknown := func(why string) (model.FxCMEdit, error) {
+		out.Outcome, out.Failed = "unknown", "CommitUpdates"
+		err := fmt.Errorf("CommitUpdates answered Good, but the commit cannot be established: %s (fx cm list shows the Version of %s)", why, s.Path)
+		format.Errf("%v", err)
+		return out, exitCode(exitProtocol, err)
+	}
+	st, err := x.status(ctx, s)
+	switch {
+	case err != nil:
+		return unknown(fmt.Sprintf("reading the set: %v", err))
+	case before == nil || st.Version == nil:
+		return unknown("the Version of the set cannot be read")
+	}
+	out.Version = st.Version
+	switch after := *st.Version; {
+	case after == *before:
+		out.Failed = "CommitUpdates"
+		err := fmt.Errorf("CommitUpdates answered Good, but the Version of %s is still %d: the edit had ended (its Lock went) and the server ignored the commit (Part 81 §6.7.4)", s.Path, after)
+		format.Errf("%v", err)
+		return out, exitCode(exitProtocol, err)
+	case after != *before+1:
+		return unknown(fmt.Sprintf("the Version went from %d to %d, not %d", *before, after, *before+1))
+	}
+	if len(written) > 0 {
+		req := &ua.ReadRequest{TimestampsToReturn: ua.TimestampsToReturnNeither}
+		for _, w := range written {
+			req.NodesToRead = append(req.NodesToRead, &ua.ReadValueID{NodeID: w.n, AttributeID: ua.AttributeIDValue})
+		}
+		res, err := x.c.Read(ctx, req)
+		if err != nil {
+			return unknown(fmt.Sprintf("reading the written Variables: %v", err))
+		}
+		if len(res.Results) != len(written) {
+			return unknown(fmt.Sprintf("the server answered %d of %d reads of the written Variables", len(res.Results), len(written)))
+		}
+		for i, w := range written {
+			dv := res.Results[i]
+			if dv == nil || dv.Status != ua.StatusOK || dv.Value == nil {
+				return unknown(fmt.Sprintf("%s cannot be read back", w.path))
+			}
+			if got := dv.Value.Value(); !reflect.DeepEqual(got, w.v) {
+				return unknown(fmt.Sprintf("%s reads %v, not the %v written", w.path, got, w.v))
+			}
+		}
+	}
+	out.Committed, out.Outcome = true, "committed"
+	return out, nil
 }
 
 // lockRenewal returns a func that renews the Lock of set n (RenewLock,
@@ -591,7 +667,7 @@ func (x *cmClient) lockRenewal(ctx context.Context, n *ua.NodeID) (func() error,
 		if err != nil {
 			return err
 		}
-		if res.StatusCode.Uint32()&0x80000000 != 0 {
+		if res.StatusCode != ua.StatusOK {
 			return res.StatusCode
 		}
 		if len(res.OutputArguments) != 1 || res.OutputArguments[0] == nil {

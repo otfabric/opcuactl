@@ -399,7 +399,7 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `path`, `operation`, `status`, `statusCode`, `nodeId`?
 
-**FxCMEdit** — what `fx cm edit` did (§6.7.4): the writes, whether CommitUpdates succeeded and the Version after it. `outcome` is `committed`, `not-committed` (the edit ended before the commit or the server refused it) or `unknown` (CommitUpdates got no answer and DiscardUpdates could not tell); `failed` names the step that failed, `discarded` is TRUE when DiscardUpdates then dropped the edit and `cleanupError` says why DiscardUpdates failed.
+**FxCMEdit** — what `fx cm edit` did (§6.7.4): the writes, whether CommitUpdates succeeded and the Version after it. `outcome` is `committed` (CommitUpdates answered Good, the Version read after it is the one before StartEditing plus one, and the written Variables read the values written), `not-committed` (the edit ended before the commit, the server refused it, or it answered Good with the Version unchanged: a server ignores the commit of an edit that ended, §6.7.4) or `unknown` (CommitUpdates got no answer and DiscardUpdates could not tell, or a Good answer whose commit cannot be established: the Version cannot be read, went up by more than one, or a Variable reads another value); `version` is the Version read after a Good CommitUpdates; `failed` names the step that failed, `discarded` is TRUE when DiscardUpdates then dropped the edit and `cleanupError` says why DiscardUpdates failed.
 
 `path`, `nodeId`, `writes`, `outcome`, `committed`, `version`?, `failed`?, `discarded`?, `cleanupError`?
 
