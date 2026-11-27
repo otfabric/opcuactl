@@ -150,7 +150,8 @@ func TestE2E_FxInspect(t *testing.T) {
 			"asset 6:Drive",
 			"functional entity 6:Motion",
 			"Motion-1 v1.2.0.0",
-			"endpoint ",
+			"persistent true, cleanup timeout never, created 2026-11-20T08:00:00Z, modified 2026-11-27T09:30:00Z",
+			"capabilities: supports persistence yes, max connections 16, command bundle required no",
 			"ConnectionManager ",
 		} {
 			if !strings.Contains(out, want) {
@@ -191,7 +192,18 @@ func TestE2E_FxInspect(t *testing.T) {
 			t.Errorf("entity: %+v", fe)
 		}
 		if len(fe.ConnectionEndpoints) != 1 || fe.ConnectionEndpoints[0].Status == "" {
-			t.Errorf("endpoints: %+v", fe.ConnectionEndpoints)
+			t.Fatalf("endpoints: %+v", fe.ConnectionEndpoints)
+		}
+		// The persistence of the component and its endpoint (Part 81
+		// §6.2.6 Table 26, §6.6.2 Table 74).
+		if ep := fe.ConnectionEndpoints[0]; !ep.IsPersistent || ep.CleanupTimeoutMs != -1 ||
+			ep.CreationTime != "2026-11-20T08:00:00Z" || ep.ModificationTime != "2026-11-27T09:30:00Z" {
+			t.Errorf("endpoint: %+v", ep)
+		}
+		c := ac.Capabilities
+		if c == nil || c.SupportsPersistence == nil || !*c.SupportsPersistence || c.MaxConnections == nil || *c.MaxConnections != 16 ||
+			c.CommandBundleRequired == nil || *c.CommandBundleRequired || c.MinConnections != nil {
+			t.Errorf("capabilities: %+v", c)
 		}
 	})
 

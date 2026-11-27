@@ -4,6 +4,8 @@ package opcuactl
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -60,14 +62,18 @@ func newFxInspectCmd() *cobra.Command {
   - the UAFX namespaces (DI, Data, AC, CM) with their NamespaceMetadata
     versions, and the ServerCapabilities (FXAC, FXCM),
   - FxRoot (§12.2) and the AutomationComponents it organizes (§6.2.2):
-    ConformanceName, AggregatedHealth, Descriptors, the Assets with their
-    nameplate (§6.3.2), the FunctionalEntities and SubFunctionalEntities
-    (§6.4.2) and their ConnectionEndpoints (§6.6.2: Status, IsPersistent,
-    CleanupTimeout),
+    ConformanceName, AggregatedHealth, Descriptors, the ComponentCapabilities
+    (§6.2.6: SupportsPersistence and the other members the component has),
+    the Assets with their nameplate (§6.3.2), the FunctionalEntities and
+    SubFunctionalEntities (§6.4.2) and their ConnectionEndpoints (§6.6.2:
+    Status, IsPersistent, CleanupTimeout, "never" when it is negative, and
+    the CreationTime and ModificationTime of their Diagnostics, Table 74),
   - the ConnectionManager (§12.3) with its ConnectionConfigurationSets,
   - findings: where the address space deviates from Part 81 (a missing
     namespace or FxRoot, missing mandatory members, values that cannot be
-    decoded), each with its clause.
+    decoded, a persistent endpoint whose CleanupTimeout is not negative or
+    whose component does not announce SupportsPersistence), each with its
+    clause.
 
 "UAFX server: yes" means the server has the namespaces of §14.2 and FxRoot;
 it is not a conformance statement, and the behaviour of the model is not
@@ -206,6 +212,16 @@ func fxReport(r *uafx.Report) model.FxReport {
 		for _, d := range ac.Descriptors {
 			m.Descriptors = append(m.Descriptors, fxNode(d))
 		}
+		if c := ac.Capabilities; c != nil {
+			m.Capabilities = &model.FxCapabilities{
+				SupportsPersistence:   c.SupportsPersistence,
+				MaxConnections:        c.MaxConnections,
+				MaxConnectionsPerCall: c.MaxConnectionsPerCall,
+				MaxFunctionalEntities: c.MaxFunctionalEntities,
+				MinConnections:        c.MinConnections,
+				CommandBundleRequired: c.CommandBundleRequired,
+			}
+		}
 		rep.AutomationComponents = append(rep.AutomationComponents, m)
 	}
 	for _, cm := range r.ConnectionManagers {
@@ -223,6 +239,35 @@ func fxReport(r *uafx.Report) model.FxReport {
 		rep.Findings = append(rep.Findings, m)
 	}
 	return rep
+}
+
+// fxCleanupMs is the CleanupTimeout of ep in whole milliseconds: a
+// negative value rounds down, so that it stays negative (never cleaned up,
+// Part 81 §6.6.2); NaN is 0. Without the value the server holds it is
+// that of CleanupTimeout.
+func fxCleanupMs(ep uafx.ConnectionEndpoint) int64 {
+	ms := ep.CleanupTimeoutMs
+	switch {
+	case ms == nil:
+		return ep.CleanupTimeout.Milliseconds()
+	case math.IsNaN(*ms):
+		return 0
+	case *ms < 0:
+		f := math.Floor(*ms)
+		if f < math.MinInt64 {
+			return math.MinInt64
+		}
+		return int64(f)
+	}
+	return ep.CleanupTimeout.Milliseconds()
+}
+
+// fxTime is t in RFC 3339 in UTC, "" for the zero time.
+func fxTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 func fxNode(n uafx.Node) model.FxNode {
@@ -257,8 +302,10 @@ func fxEntity(fe uafx.FunctionalEntity) model.FxFunctionalEntity {
 		e := model.FxConnectionEndpoint{
 			FxNode:                          fxNode(ep.Node),
 			IsPersistent:                    ep.IsPersistent,
-			CleanupTimeoutMs:                ep.CleanupTimeout.Milliseconds(),
+			CleanupTimeoutMs:                fxCleanupMs(ep),
 			ConnectionManagerApplicationURI: ep.ConnectionManagerApplicationURI,
+			CreationTime:                    fxTime(ep.CreationTime),
+			ModificationTime:                fxTime(ep.ModificationTime),
 		}
 		if ep.Status != nil {
 			e.Status = ep.Status.String()
@@ -309,6 +356,9 @@ func printFxReport(rep model.FxReport) {
 		for _, d := range ac.Descriptors {
 			format.Printf("  descriptor %s (%s)\n", d.BrowseName, d.NodeID)
 		}
+		if c := ac.Capabilities; c != nil {
+			format.Printf("  capabilities: %s\n", capabilities(*c))
+		}
 	}
 	for _, cm := range rep.ConnectionManagers {
 		format.Printf("\nConnectionManager %s (%s): %d connection configuration set(s)\n",
@@ -330,6 +380,28 @@ func printFxReport(rep model.FxReport) {
 	if rep.Truncated {
 		format.Printf("\nThe server holds more than the limits of the inspection: the report is incomplete.\n")
 	}
+}
+
+// capabilities are the ComponentCapabilities c as one line: whether the
+// component supports persistent endpoints, then the members it has.
+func capabilities(c model.FxCapabilities) string {
+	yes := map[bool]string{true: "yes", false: "no"}
+	parts := []string{"supports persistence " + yes[c.SupportsPersistence != nil && *c.SupportsPersistence]}
+	for _, m := range []struct {
+		name string
+		v    *uint32
+	}{
+		{"max connections", c.MaxConnections}, {"max connections per call", c.MaxConnectionsPerCall},
+		{"max functional entities", c.MaxFunctionalEntities}, {"min connections", c.MinConnections},
+	} {
+		if m.v != nil {
+			parts = append(parts, fmt.Sprintf("%s %d", m.name, *m.v))
+		}
+	}
+	if c.CommandBundleRequired != nil {
+		parts = append(parts, "command bundle required "+yes[*c.CommandBundleRequired])
+	}
+	return strings.Join(parts, ", ")
 }
 
 // nameplate is the nameplate of a as one line.
@@ -366,9 +438,19 @@ func printFxEntity(fe model.FxFunctionalEntity, indent string) {
 		if status == "" {
 			status = "status unknown"
 		}
-		format.Printf("%s  endpoint %s (%s): %s, persistent %v, cleanup timeout %s\n",
-			indent, ep.BrowseName, ep.NodeID, status, ep.IsPersistent,
-			(time.Duration(ep.CleanupTimeoutMs) * time.Millisecond).String())
+		cleanup := "never"
+		if ep.CleanupTimeoutMs >= 0 {
+			cleanup = (time.Duration(ep.CleanupTimeoutMs) * time.Millisecond).String()
+		}
+		line := fmt.Sprintf("%s  endpoint %s (%s): %s, persistent %v, cleanup timeout %s",
+			indent, ep.BrowseName, ep.NodeID, status, ep.IsPersistent, cleanup)
+		if ep.CreationTime != "" {
+			line += ", created " + ep.CreationTime
+		}
+		if ep.ModificationTime != "" {
+			line += ", modified " + ep.ModificationTime
+		}
+		format.Printf("%s\n", line)
 	}
 	for _, sub := range fe.SubFunctionalEntities {
 		printFxEntity(sub, indent+"  ")

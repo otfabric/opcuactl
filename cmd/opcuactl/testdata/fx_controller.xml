@@ -2,7 +2,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- From go-opcua examples/uafx/server (v1.36.0). The AutomationComponent: a controller with
      one Asset (a drive), one FunctionalEntity (Motion) with a sub-entity and
-     a PubSub ConnectionEndpoint. The NodeIds of namespace 1 are the
+     a persistent PubSub ConnectionEndpoint with Diagnostics, on a component
+     that supports persistence (Part 81 §6.2.6, §6.6.2). The NodeIds of namespace 1 are the
      example's own; namespaces 2 to 5 are the UAFX Data, AC, DI and CM
      models that fxserver.AddModel adds. -->
 <UANodeSet xmlns="http://opcfoundation.org/UA/2011/03/UANodeSet.xsd">
@@ -47,6 +48,30 @@
       <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1000</Reference>
     </References>
   </UAObject>
+  <UAVariable NodeId="ns=1;i=1050" BrowseName="3:SupportsPersistence" DataType="i=1" AccessLevel="1">
+    <DisplayName>SupportsPersistence</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=63</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1003</Reference>
+    </References>
+    <Value><Boolean xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">true</Boolean></Value>
+  </UAVariable>
+  <UAVariable NodeId="ns=1;i=1051" BrowseName="3:MaxConnections" DataType="i=7" AccessLevel="1">
+    <DisplayName>MaxConnections</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=63</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1003</Reference>
+    </References>
+    <Value><UInt32 xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">16</UInt32></Value>
+  </UAVariable>
+  <UAVariable NodeId="ns=1;i=1052" BrowseName="3:CommandBundleRequired" DataType="i=1" AccessLevel="1">
+    <DisplayName>CommandBundleRequired</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=63</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1003</Reference>
+    </References>
+    <Value><Boolean xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">false</Boolean></Value>
+  </UAVariable>
   <UAVariable NodeId="ns=1;i=1004" BrowseName="3:AggregatedHealth" DataType="ns=3;i=3003" AccessLevel="1">
     <DisplayName>AggregatedHealth</DisplayName>
     <References>
@@ -250,6 +275,29 @@
       <Reference ReferenceType="Organizes" IsForward="false">ns=1;i=1205</Reference>
     </References>
   </UAObject>
+  <UAObject NodeId="ns=1;i=1310" BrowseName="4:Diagnostics">
+    <DisplayName>Diagnostics</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=61</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1300</Reference>
+    </References>
+  </UAObject>
+  <UAVariable NodeId="ns=1;i=1311" BrowseName="3:CreationTime" DataType="i=13" AccessLevel="1">
+    <DisplayName>CreationTime</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=63</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1310</Reference>
+    </References>
+    <Value><DateTime xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">2026-11-20T08:00:00Z</DateTime></Value>
+  </UAVariable>
+  <UAVariable NodeId="ns=1;i=1312" BrowseName="3:ModificationTime" DataType="i=13" AccessLevel="1">
+    <DisplayName>ModificationTime</DisplayName>
+    <References>
+      <Reference ReferenceType="HasTypeDefinition">i=63</Reference>
+      <Reference ReferenceType="HasComponent" IsForward="false">ns=1;i=1310</Reference>
+    </References>
+    <Value><DateTime xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">2026-11-27T09:30:00Z</DateTime></Value>
+  </UAVariable>
   <UAVariable NodeId="ns=1;i=1301" BrowseName="3:Status" DataType="ns=3;i=3007" AccessLevel="1">
     <DisplayName>Status</DisplayName>
     <References>
@@ -272,7 +320,7 @@
       <Reference ReferenceType="HasTypeDefinition">i=68</Reference>
       <Reference ReferenceType="HasProperty" IsForward="false">ns=1;i=1300</Reference>
     </References>
-    <Value><Double xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">1500</Double></Value>
+    <Value><Double xmlns="http://opcfoundation.org/UA/2008/02/Types.xsd">-1</Double></Value>
   </UAVariable>
   <UAVariable NodeId="ns=1;i=1304" BrowseName="3:RelatedEndpoint" DataType="ns=2;i=3003" AccessLevel="1">
     <DisplayName>RelatedEndpoint</DisplayName>

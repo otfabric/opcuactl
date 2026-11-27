@@ -54,7 +54,7 @@ endpoints:
     inputs: ["ns=2;i=1"]
     outputs: []
     persistent: true
-    cleanupTimeoutMs: 2500
+    cleanupTimeoutMs: -2500
     preconfigured: true
     relatedEndpoint: {address: "opc.tcp://peer", name: Other, path: ["urn:x;A", "B"]}
     controlGroups: ["ns=2;i=1251"]
@@ -95,7 +95,7 @@ communicationConfigurations:
 	e := req.ConnectionEndpointConfigurations[0]
 	p := e.ConnectionEndpoint.Parameter
 	if p == nil || p.Name != "ToLine" || p.ConnectionEndpointTypeID.String() != "ns=3;i=99" || p.Mode != uafx.PubSubSubscriber ||
-		!p.IsPersistent || p.CleanupTimeout != 2500 || !p.IsPreconfigured || len(p.InputVariableIDs) != 1 || p.OutputVariableIDs == nil {
+		!p.IsPersistent || p.CleanupTimeout != -2500 || !p.IsPreconfigured || len(p.InputVariableIDs) != 1 || p.OutputVariableIDs == nil {
 		t.Fatalf("parameter: %+v", p)
 	}
 	if r := p.RelatedEndpoint; r.Address != "opc.tcp://peer" || r.ConnectionEndpointName != "Other" || len(r.ConnectionEndpointPath) != 2 ||
@@ -172,6 +172,8 @@ func TestFxRequestErrors(t *testing.T) {
 		{"commands: [CreateConnectionEndpoint]\nendpoints: [{functionalEntity: \"ns=2;i=1\", name: E, mode: Publisher, inputs: [\"\"]}]\n", "endpoints[0].inputs[0]"},
 		{"commands: [CreateConnectionEndpoint]\nendpoints: [{functionalEntity: \"ns=2;i=1\", name: E, mode: Publisher, outputs: [\"\"]}]\n", "endpoints[0].outputs[0]"},
 		{"commands: [CreateConnectionEndpoint]\nendpoints: [{functionalEntity: \"ns=2;i=1\", name: E, mode: Publisher, expectedVerificationVariables: [{node: \"\"}]}]\n", "expectedVerificationVariables[0].node"},
+		{"commands: [CreateConnectionEndpoint]\nendpoints: [{functionalEntity: \"ns=2;i=1\", name: E, mode: Publisher, persistent: true, cleanupTimeoutMs: 0}]\n", "endpoints[0]: a persistent endpoint needs a negative cleanupTimeoutMs, not 0 (Part 81 §6.6.2)"},
+		{"commands: [CreateConnectionEndpoint]\nendpoints: [{functionalEntity: \"ns=2;i=1\", name: E, mode: Publisher, persistent: true, cleanupTimeoutMs: 1500}]\n", "not 1500"},
 		{"commands: [SetCommunicationConfiguration]\ncommunicationConfigurations: [{}]\n", "no pubsubConfiguration"},
 		{"commands: [SetCommunicationConfiguration]\ncommunicationConfigurations: [{pubsubConfiguration: {Enabled: 3}}]\n", "communicationConfigurations[0].pubsubConfiguration"},
 		{"commands: [SetCommunicationConfiguration]\ncommunicationConfigurations: [{pubsubConfiguration: {}, references: [{mask: [Add]}]}]\n", "references[0]: unknown mask bit"},

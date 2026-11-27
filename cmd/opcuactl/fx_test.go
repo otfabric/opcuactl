@@ -3,6 +3,7 @@
 package opcuactl
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -54,9 +55,16 @@ func TestFxReport(t *testing.T) {
 			ConnectionConfigurationSets: []uafx.Node{set},
 		}},
 		AutomationComponents: []uafx.AutomationComponent{{
-			Node:               uafx.Node{},
-			Assets:             []uafx.Asset{{}},
-			FunctionalEntities: []uafx.FunctionalEntity{{ConnectionEndpoints: []uafx.ConnectionEndpoint{{CleanupTimeout: 2 * time.Second}}}},
+			Node:   uafx.Node{},
+			Assets: []uafx.Asset{{}},
+			FunctionalEntities: []uafx.FunctionalEntity{{ConnectionEndpoints: []uafx.ConnectionEndpoint{
+				{CleanupTimeout: 2 * time.Second},
+				{CleanupTimeoutMs: ptr(-0.5)},
+				{CleanupTimeoutMs: ptr(math.NaN())},
+				{CleanupTimeoutMs: ptr(-1e300)},
+				{CleanupTimeoutMs: ptr(2500.0), CleanupTimeout: 2500 * time.Millisecond, CreationTime: date},
+			}}},
+			Capabilities: &uafx.ComponentCapabilities{MinConnections: ptr(uint32(1)), MaxConnectionsPerCall: ptr(uint32(3)), MaxFunctionalEntities: ptr(uint32(2))},
 		}},
 		Findings: []uafx.Finding{{Clause: "14.2", Text: "no DI"}},
 	}
@@ -81,12 +89,24 @@ func TestFxReport(t *testing.T) {
 	if fe.OperationalHealth != "" || fe.OperationalHealthBits != nil || fe.AuthorAssignedVersion != "" {
 		t.Errorf("entity: %+v", fe)
 	}
-	if ep := fe.ConnectionEndpoints[0]; ep.Status != "" || ep.CleanupTimeoutMs != 2000 {
+	if ep := fe.ConnectionEndpoints[0]; ep.Status != "" || ep.CleanupTimeoutMs != 2000 || ep.CreationTime != "" {
 		t.Errorf("endpoint: %+v", ep)
+	}
+	// A negative CleanupTimeout stays negative (never cleaned up, Part 81
+	// §6.6.2), NaN is 0, the times are UTC.
+	for i, want := range []int64{-1, 0, math.MinInt64, 2500} {
+		if got := fe.ConnectionEndpoints[i+1].CleanupTimeoutMs; got != want {
+			t.Errorf("endpoint %d: cleanup %d, want %d", i+1, got, want)
+		}
+	}
+	if got := fe.ConnectionEndpoints[4].CreationTime; got != "2025-04-01T11:00:00Z" || fe.ConnectionEndpoints[4].ModificationTime != "" {
+		t.Errorf("creation time %q", got)
 	}
 	// The text output of such a report: no panics, the unknowns named.
 	out := captureStdout(t, func() { printFxReport(rep) })
-	for _, want := range []string{"UAFX server: no", "absent urn:cm", "status unknown", "server: no DI (Part 81 §14.2)", "  5:Set (ns=5;i=7)"} {
+	for _, want := range []string{"UAFX server: no", "absent urn:cm", "status unknown", "server: no DI (Part 81 §14.2)", "  5:Set (ns=5;i=7)",
+		"cleanup timeout never", "cleanup timeout 2.5s, created 2025-04-01T11:00:00Z\n",
+		"capabilities: supports persistence no, max connections per call 3, max functional entities 2, min connections 1\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}

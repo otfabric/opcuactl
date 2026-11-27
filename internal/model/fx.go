@@ -46,6 +46,22 @@ type FxAutomationComponent struct {
 	Assets             []FxAsset            `json:"assets"`
 	FunctionalEntities []FxFunctionalEntity `json:"functionalEntities"`
 	Descriptors        []FxNode             `json:"descriptors,omitempty"`
+	// Capabilities are the ComponentCapabilities (Part 81 §6.2.6 Table
+	// 26), absent when the component has none.
+	Capabilities *FxCapabilities `json:"capabilities,omitempty"`
+}
+
+// FxCapabilities are the ComponentCapabilities of an AutomationComponent
+// (Part 81 §6.2.6 Table 26). A member the component does not have, or that
+// cannot be read, is absent; SupportsPersistence absent or false means the
+// component does not support persistent ConnectionEndpoints.
+type FxCapabilities struct {
+	SupportsPersistence   *bool   `json:"supportsPersistence,omitempty"`
+	MaxConnections        *uint32 `json:"maxConnections,omitempty"`
+	MaxConnectionsPerCall *uint32 `json:"maxConnectionsPerCall,omitempty"`
+	MaxFunctionalEntities *uint32 `json:"maxFunctionalEntities,omitempty"`
+	MinConnections        *uint32 `json:"minConnections,omitempty"`
+	CommandBundleRequired *bool   `json:"commandBundleRequired,omitempty"`
 }
 
 // FxHealth is an AggregatedHealthDataType (Part 81 §10.1): the option sets
@@ -91,10 +107,18 @@ type FxConnectionEndpoint struct {
 	FxNode `yaml:",inline"`
 	// Status is the ConnectionEndpointStatusEnum (Part 81 §10.17), ""
 	// when it cannot be read.
-	Status                          string `json:"status,omitempty"`
-	IsPersistent                    bool   `json:"isPersistent"`
+	Status       string `json:"status,omitempty"`
+	IsPersistent bool   `json:"isPersistent"`
+	// CleanupTimeoutMs is the CleanupTimeout in whole milliseconds; a
+	// negative value (the endpoint is never cleaned up, which a persistent
+	// endpoint requires, §6.6.2) stays negative.
 	CleanupTimeoutMs                int64  `json:"cleanupTimeoutMs"`
 	ConnectionManagerApplicationURI string `json:"connectionManagerApplicationUri,omitempty"`
+	// CreationTime and ModificationTime are those of the Diagnostics of
+	// the endpoint (§6.6.2 Table 74), RFC 3339 in UTC, absent when it has
+	// none.
+	CreationTime     string `json:"creationTime,omitempty"`
+	ModificationTime string `json:"modificationTime,omitempty"`
 }
 
 // FxConnectionManager is a ConnectionManager (Part 81 §6.7.2).

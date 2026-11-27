@@ -301,7 +301,11 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 **FxAutomationComponent** — an AutomationComponent (§6.2.2).
 
-`conformanceName`?, `aggregatedHealth`?, `assets`, `functionalEntities`, `descriptors`?
+`conformanceName`?, `aggregatedHealth`?, `assets`, `functionalEntities`, `descriptors`?, `capabilities`?
+
+**FxCapabilities** — the ComponentCapabilities of an AutomationComponent (§6.2.6 Table 26); a member the component does not have is absent. `supportsPersistence` absent or false: the component does not support persistent ConnectionEndpoints.
+
+`supportsPersistence`?, `maxConnections`?, `maxConnectionsPerCall`?, `maxFunctionalEntities`?, `minConnections`?, `commandBundleRequired`?
 
 **FxHealth** — an AggregatedHealthDataType (§10.1): the option sets as names (`OK` when no bit is set, else the bits joined by `|`) and as numbers.
 
@@ -315,9 +319,9 @@ The field lists of `internal/model`, which a test keeps in step with this page. 
 
 `authorUri`?, `authorAssignedIdentifier`?, `authorAssignedVersion`?, `operationalHealth`?, `operationalHealthBits`?, `connectionEndpoints`, `subFunctionalEntities`?
 
-**FxConnectionEndpoint** — a ConnectionEndpoint (§6.6.2); `status` is the name of the ConnectionEndpointStatusEnum value (§10.17).
+**FxConnectionEndpoint** — a ConnectionEndpoint (§6.6.2); `status` is the name of the ConnectionEndpointStatusEnum value (§10.17). `cleanupTimeoutMs` is negative for an endpoint that is never cleaned up, which a persistent endpoint requires; `creationTime` and `modificationTime` (RFC 3339, UTC) are those of its Diagnostics (Table 74).
 
-`status`?, `isPersistent`, `cleanupTimeoutMs`, `connectionManagerApplicationUri`?
+`status`?, `isPersistent`, `cleanupTimeoutMs`, `connectionManagerApplicationUri`?, `creationTime`?, `modificationTime`?
 
 **FxConnectionManager** — a ConnectionManager (§6.7.2).
 
