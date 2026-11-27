@@ -716,7 +716,7 @@ Inspect the OPC UA FX model of a server and establish its connections.
 opcuactl fx [command]
 ```
 
-Subcommands: [`close`](#opcuactl-fx-close), [`connect`](#opcuactl-fx-connect), [`inspect`](#opcuactl-fx-inspect).
+Subcommands: [`close`](#opcuactl-fx-close), [`cm`](#opcuactl-fx-cm), [`connect`](#opcuactl-fx-connect), [`inspect`](#opcuactl-fx-inspect).
 
 ## opcuactl fx close
 
@@ -730,6 +730,77 @@ opcuactl fx close <connection endpoint>... [flags]
 |---|---|---|
 | `--ac` | `string` | NodeId of the AutomationComponent (ns=<index>;... or nsu=<uri>;...) |
 | `--remove` |  | Also remove the endpoint and what EstablishConnections created for it |
+
+## opcuactl fx cm
+
+Work with the ConnectionManager of a server (ConnectionConfigurationSets).
+
+```text
+opcuactl fx cm [command]
+```
+
+Subcommands: [`edit`](#opcuactl-fx-cm-edit), [`export`](#opcuactl-fx-cm-export), [`import`](#opcuactl-fx-cm-import), [`list`](#opcuactl-fx-cm-list), [`process`](#opcuactl-fx-cm-process).
+
+## opcuactl fx cm edit
+
+Change the configurable Variables of a set and commit them as its next Version.
+
+```text
+opcuactl fx cm edit <set> --write <path>=<value>... [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--write` | `stringArray` | <path>=<value>: a Variable below the set and its new value (repeatable) |
+
+## opcuactl fx cm export
+
+Read the sets as a ConnectionConfigurationSet file.
+
+```text
+opcuactl fx cm export [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--out` | `string` | Write the file (F.2) here |
+
+## opcuactl fx cm import
+
+Write a ConnectionConfigurationSet file and apply its sets.
+
+```text
+opcuactl fx cm import [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--file` | `string` | ConnectionConfigurationSet file (F.2) to apply |
+| `--op` | `strings` | Operation per set: add, remove or replace (one for all, or one per set) |
+| `--require-complete` |  | Apply all operations or none (RequireCompleteUpdate) |
+
+## opcuactl fx cm list
+
+List the ConnectionConfigurationSets of the ConnectionManager.
+
+```text
+opcuactl fx cm list [flags]
+```
+
+No flags of its own; the global flags apply.
+
+## opcuactl fx cm process
+
+Establish, enable, disable or remove the Connections of sets.
+
+```text
+opcuactl fx cm process <set>... [flags]
+```
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--action` | `string` | What to do: disable, enable, establish, establish-disabled, establish-enabled, remove |
+| `--wait` | `duration` | Wait up to this long for each set to leave Processing (0: do not wait) |
 
 ## opcuactl fx connect
 

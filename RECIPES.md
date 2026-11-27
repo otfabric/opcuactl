@@ -2,7 +2,7 @@
 
 End-to-end workflows for typical OPC UA operator tasks using `opcuactl`.
 
-Aligned with **v0.10.0**: a test server (`serve`), UA JSON over WebSockets and HTTPS (wss-uajson, https-uajson), Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, certificate management by the GDS push model (trust list, CSR, certificate renewal, rejected certificates), `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, history `raw|modified|processed|attime`, and historical events (read with filters and paging, insert, replace, update, delete).
+Aligned with **v0.23.0**: OPC UA FX (inspect a controller's UAFX model, verify and connect FunctionalEntities, persistent endpoints, ConnectionManager sets: import, edit, process, export), certificates from a Global Discovery Server (GDS pull), PubSub Actions (request / response), a test server (`serve`), UA JSON over WebSockets and HTTPS (wss-uajson, https-uajson), Alarms & Conditions (list, acknowledge, confirm, shelve, watch), server diagnostics and DiagnosticInfos, certificate management by the GDS push model (trust list, CSR, certificate renewal, rejected certificates), `opc.wss` / `opc.https` endpoints with TLS, OPC UA PubSub (UADP / JSON over UDP and MQTT, message security, Security Key Service, remote configuration), secure authN/Z over RSA and ECC policies, reverse connect, Local Discovery Server queries, IndexRange reads, OPC UA JSON / XML encodings, event WhereClause filters, monitored-item queues/overflow and data-change filters, history `raw|modified|processed|attime`, and historical events (read with filters and paging, insert, replace, update, delete).
 
 ## Table of Contents
 
@@ -36,6 +36,7 @@ Aligned with **v0.10.0**: a test server (`serve`), UA JSON over WebSockets and H
 - [27. Alarm Maintenance: Out of Service, Suppression, Latched Alarms, Dialogs, Audit](#27-alarm-maintenance-out-of-service-suppression-latched-alarms-dialogs-audit)
 - [28. Get a Certificate from a GDS (Pull)](#28-get-a-certificate-from-a-gds-pull)
 - [29. Run a Test Server and Talk to It (incl. UA JSON)](#29-run-a-test-server-and-talk-to-it-incl-ua-json)
+- [30. Commission OPC UA FX: Inspect a Controller, Connect, Manage Connection Sets](#30-commission-opc-ua-fx-inspect-a-controller-connect-manage-connection-sets)
 ## Connection presets
 
 Most examples reuse a shell array for connection flags:
@@ -1216,3 +1217,162 @@ opcuactl serve --cert ./pki/server.pem --key ./pki/server.key --no-demo \
   --nodeset Opc.Ua.Di.NodeSet2.xml --nodeset machine.NodeSet2.xml
 opcuactl find namespace -e opc.tcp://localhost:4840
 ```
+
+---
+
+## 30. Commission OPC UA FX: Inspect a Controller, Connect, Manage Connection Sets
+
+OPC UA FX (OPC 10000-81, UAFX) describes a controller as an **AutomationComponent** with **FunctionalEntities** whose **ConnectionEndpoints** exchange data with other controllers, and a **ConnectionManager** that sets up those connections from **ConnectionConfigurationSets**. The outputs below are from `opcuactl` v0.23.0 against go-opcua v1.41.0's `examples/uafx/server` (an AutomationComponent, `go run ./examples/uafx/server -port 4855`) and `examples/uafx/cm` (a ConnectionManager, `go run ./examples/uafx/cm -port 4856`). None of the pinned references of opcua-interop implements UAFX, so these commands are tested against go-opcua only.
+
+```sh
+FX=(-e opc.tcp://localhost:4855 --insecure-no-security)     # the AutomationComponent
+CM=(-e opc.tcp://localhost:4856 --insecure-no-security)     # the ConnectionManager
+AC="nsu=urn:example:uafx:controller;i=1000"
+```
+
+**Is it a UAFX server, and what does it offer?** `fx inspect` reads the model (Part 81 §14.2 namespaces, FxRoot, AutomationComponents, Assets, FunctionalEntities, ConnectionEndpoints, the ConnectionManager) and lists where it deviates from Part 81:
+
+```console
+$ opcuactl fx inspect "${FX[@]}"
+UAFX server: yes
+  ns=2   http://opcfoundation.org/UA/DI/  1.05.0
+  ns=3   http://opcfoundation.org/UA/FX/Data/  1.00.04
+  ns=4   http://opcfoundation.org/UA/FX/AC/  1.00.04
+  ns=5   http://opcfoundation.org/UA/FX/CM/  1.00.04
+FxRoot: ns=3;i=71
+
+AutomationComponent 6:Controller (ns=6;i=1000)
+  conformance: https://opcfoundation.org/products/view/example
+  health: device OK, operational 0x1
+  asset 6:Drive (ns=6;i=1100): Example Automation, Drive 100, serial SN-0042, hardware 1.0, software 2.3.1
+  functional entity 6:Motion (ns=6;i=1200) Motion-1 v1.2.0.0, health 0x1
+    endpoint 6:ToLine (ns=6;i=1300): Initial, persistent false, cleanup timeout never
+    functional entity 6:Axis (ns=6;i=1210)
+  descriptor 6:Profile (ns=6;i=1009)
+  capabilities: supports persistence no
+
+ConnectionManager 5:ConnectionManager (ns=5;i=5011): 0 connection configuration set(s)
+```
+
+**In CI:** `--check` exits 1 when the server is not a UAFX server or has findings (a check of the model, not certification); each finding names its Part 81 clause:
+
+```sh
+opcuactl fx inspect "${FX[@]}" --check --format json > fx.json \
+  || { jq -r '.findings[] | "\(.clause)  \(.text)"' fx.json; exit 1; }
+# Persistent endpoints and their cleanup timeouts (negative: never cleaned up)
+jq -r '.automationComponents[] | .functionalEntities[]? | .connectionEndpoints[]
+       | "\(.nodeId)  persistent=\(.isPersistent)  cleanup=\(.cleanupTimeoutMs) ms"' fx.json
+```
+
+**Verify a FunctionalEntity before you connect to it.** `fx connect` sends a request file (JSON or YAML, the fields of Part 81 §10) to EstablishConnections; `VerifyFunctionalEntity` alone checks the expected values and creates nothing:
+
+```yaml
+# verify.yaml
+commands: [VerifyFunctionalEntity]
+endpoints:
+  - functionalEntity: "nsu=urn:example:uafx:controller;i=1200"
+    node: "nsu=urn:example:uafx:controller;i=1300"
+    expectedVerificationVariables:
+      - {node: "nsu=urn:example:uafx:controller;i=1202", type: String, value: Motion-1}
+```
+
+```console
+$ opcuactl fx connect "${FX[@]}" --ac "$AC" --request verify.yaml
+AutomationComponent: ns=6;i=1000
+Commands:            VerifyFunctionalEntity
+Status:              Good
+Endpoint 0: -
+  FunctionalEntity:    Good
+  ConnectionEndpoint:  Good
+  Verification:        Good Match (variables: Good)
+  CommunicationLinks:  Good
+  EnableCommunication: Good
+```
+
+A wrong value aborts the call with `Uncertain` and exit 6 ([EXAMPLES.md](EXAMPLES.md#fx-connect-verify-a-functionalentity)). The full request, with a new endpoint, configuration data and its PubSub communication, is in the [README](README.md#opc-ua-fx).
+
+**Persistent endpoints** survive a restart of the AutomationComponent. Part 81 §6.6.2 requires a negative CleanupTimeout for them, which opcuactl checks before it calls (exit 2):
+
+```console
+$ opcuactl fx connect "${FX[@]}" --ac "$AC" --request persistent.yaml     # persistent: true, cleanupTimeoutMs: 5000
+Error: request file: endpoints[0]: a persistent endpoint needs a negative cleanupTimeoutMs, not 5000 (Part 81 §6.6.2)
+```
+
+With `cleanupTimeoutMs: -1` the request goes out, but this component does not announce SupportsPersistence ("supports persistence no" above), so it answers `BadNotSupported` (§6.2.4.2 Table 12) and opcuactl exits 6:
+
+```console
+$ opcuactl fx connect "${FX[@]}" --ac "$AC" --request persistent.yaml
+AutomationComponent: ns=6;i=1000
+Commands:            CreateConnectionEndpoint
+Status:              Uncertain
+Endpoint 0: -
+  FunctionalEntity:    Good
+  ConnectionEndpoint:  BadNotSupported
+  ...
+```
+
+On a component that supports them, `fx inspect` shows the endpoint as `persistent true, cleanup timeout never` with its creation and modification times, which stay the same across a restart.
+
+**Close an endpoint** (`--remove` also removes what EstablishConnections created for it):
+
+```console
+$ opcuactl fx close "${FX[@]}" --ac "$AC" "nsu=urn:example:uafx:controller;i=1300"
+ENDPOINT     STATUS
+ns=6;i=1300  Good
+```
+
+**Through the ConnectionManager:** load the sets from a ConnectionConfigurationSet file (Part 81 Annex F.2, from your engineering tool or go-opcua's `fxcm.EncodeFile`), all or nothing, and keep a backup before you change anything:
+
+```console
+$ opcuactl fx cm import "${CM[@]}" --file sets.bin --op add --require-complete
+SET          OPERATION   STATUS  NODEID
+Plant/Line1  ElementAdd  Good    ns=4;s=cm.set:Plant/Line1
+Plant/Line2  ElementAdd  Good    ns=4;s=cm.set:Plant/Line2
+$ opcuactl fx cm list "${CM[@]}"
+SET          STATE  VERSION  EDIT   CONNECTIONS
+Plant/Line1  Ready  1        false  C1=Good
+Plant/Line2  Ready  1        false  C1=Good
+$ opcuactl fx cm export "${CM[@]}" --out backup-v1.bin
+SET          VERSION  CONNECTIONS  FLOWS  ACS
+Plant/Line1  1        1            1      2
+Plant/Line2  1        1            1      2
+```
+
+**Change a configurable Variable** and commit it as the next Version; a value the set does not allow is refused and the whole edit discarded (exit 6):
+
+```console
+$ opcuactl fx cm edit "${CM[@]}" Plant/Line1 --write Flow/PublishingInterval=250
+VARIABLE                 VALUE  STATUS
+Flow/PublishingInterval  250    Good
+committed Plant/Line1: Version 2
+$ opcuactl fx cm edit "${CM[@]}" Plant/Line1 --write Flow/PublishingInterval=300
+Error: write Flow/PublishingInterval: The value was out of range. StatusBadOutOfRange (0x803C0000)
+VARIABLE                 VALUE  STATUS
+Flow/PublishingInterval  300    BadOutOfRange
+Error: the edit of Plant/Line1 was discarded
+```
+
+**Apply it:** a commit does not touch the Connections; `fx cm process` does, and `--wait` waits for the outcome (exit 0 in Ready, 6 in Error, 5 when the wait runs out). Here the AutomationComponents of the set are not running, and the diagnostics say so:
+
+```console
+$ opcuactl fx cm process "${CM[@]}" --action establish-enabled Plant/Line1 --wait 30s
+SET          STATUS  STATE
+Plant/Line1  Good    Error
+Error: 1 sets ended in Error (fx cm list shows the diagnostics)
+$ opcuactl fx cm list "${CM[@]}" --format json | jq -c '.sets[0].diagnostics[]'
+{"name":"C1","lastActivity":"EstablishEnabled|Error","connectionState":"ConnectionNotEstablished","errorEndpoint1":"TargetServerConnectionError","endpoint1Status":"BadCommunicationError","errorEndpoint2":"TargetServerConnectionError","endpoint2Status":"BadCommunicationError"}
+```
+
+**Roll back:** remove the Connections, then restore the sets from the backup:
+
+```console
+$ opcuactl fx cm process "${CM[@]}" --action remove Plant/Line1 --wait 30s
+SET          STATUS  STATE
+Plant/Line1  Good    Ready
+$ opcuactl fx cm import "${CM[@]}" --file backup-v1.bin --op replace --require-complete
+SET          OPERATION       STATUS  NODEID
+Plant/Line1  ElementReplace  Good    ns=4;s=cm.set:Plant/Line1
+Plant/Line2  ElementReplace  Good    ns=4;s=cm.set:Plant/Line2
+```
+
+The ConnectionManager Methods usually need the Role ConfigureAdmin: a refusal exits 9. Every flag is in [docs/commands.md](docs/commands.md#opcuactl-fx), the JSON fields in [docs/json-output.md](docs/json-output.md).
