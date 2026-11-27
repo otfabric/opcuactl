@@ -18,14 +18,75 @@ jobs:
       # otfabric-policy runs in docs.yml, on every pull request and push to main.
       run-policy: false
       run-govulncheck: true
-      coverage-min: "90"
       fuzz-time: 10s
       codecov-name: opcuactl
       go-versions: '["1.26", "1.27"]'
-      # The default also leaves out /cmd/, which here is the CLI itself:
-      # cmd/opcuactl holds most of the tests, the e2e suite included.
-      test-exclude-regex: "(/example(s)?($|/))"
+      # The default also leaves out /cmd/, which here is the CLI itself.
+      # cmd/opcuactl holds most of the tests, the e2e suite included, and
+      # runs in the cli and coverage-merged jobs below: under the race
+      # detector on a 2-CPU runner it took 118 s and 121 s of the fixed
+      # 120 s -timeout of go-ci's test jobs. The 90 % coverage gate
+      # (formerly coverage-min here) moved with it to coverage-merged, over
+      # the profiles of every package; never lower it.
+      test-exclude-regex: "(/example(s)?($|/)|/cmd/opcuactl$)"
     secrets: inherit
+
+  # cmd/opcuactl with and without the race detector, on the Go versions of
+  # the ci job. The plain run keeps go-ci's 120 s; the race run gets 10
+  # minutes. No test deadline inside the tests changed.
+  cli:
+    name: ${{ matrix.race && 'Race' || 'Test' }} cmd/opcuactl (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.26", "1.27"]
+        race: [false, true]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Test
+        if: ${{ !matrix.race }}
+        run: go test -count=1 -timeout=120s ./cmd/opcuactl
+      - name: Race test
+        if: ${{ matrix.race }}
+        run: go test -count=1 -timeout=10m -race ./cmd/opcuactl
+
+  # The coverage of cmd/opcuactl merged with the profile of go-ci's coverage
+  # job, and the repository gate (COVER_MIN in the Makefile) on the total.
+  coverage-merged:
+    name: Coverage gate (all packages)
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: cmd/opcuactl tests with coverage
+        # Same -covermode as go-ci's coverage job, so the profiles merge.
+        run: go test -count=1 -timeout=10m -covermode=atomic -coverprofile=cli.out ./cmd/opcuactl
+      - name: Download the shared coverage profile
+        uses: actions/download-artifact@v7
+        with:
+          name: coverage-go-mod-version
+          path: shared
+      - name: Merge and gate
+        run: |
+          { cat shared/coverage.out; tail -n +2 cli.out; } > merged.out
+          make coverage-merged-check PROFILE=merged.out
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: cli.out
+          flags: unittests
+          name: opcuactl
+          fail_ci_if_error: false
 
   # Per-package floor (TEST-012), and the tests that skip without a
   # prerequisite: this job has both multicast and IPv6 loopback, so there a

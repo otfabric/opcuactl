@@ -22,9 +22,9 @@ This repository follows **otfabric/engineering policy 1.6**, profile **cli** (`.
 ## Hard rules
 
 1. Exit codes and output formats are a public contract: changing a code or a field is a breaking change with a RELEASE.md note.
-2. Never lower the CI `coverage-min`, add lint suppressions, or skip or delete tests to make CI pass.
+2. Never lower the coverage gates (`COVER_MIN` and `COVER_PKG_MIN` in the Makefile, gated by the `coverage-merged` and `package-coverage` jobs of ci.yml), add lint suppressions, or skip or delete tests to make CI pass.
 3. go-opcua is pinned to a released tag; no `replace` directives.
-4. Tests live next to the commands in `cmd/opcuactl`; the end-to-end tests there run against the in-process server, so keep `cmd/` in CI.
+4. Tests live next to the commands in `cmd/opcuactl`; the end-to-end tests there run against the in-process server, so keep `cmd/` in CI: it runs in the `cli` jobs of ci.yml (race with a 10-minute timeout) and in `coverage-merged`.
 
 ## Commands
 
