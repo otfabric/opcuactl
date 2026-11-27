@@ -1,8 +1,29 @@
 # opcuactl Releases
 
-## v0.22.0
+## v0.23.0
 
 **Date:** unreleased
+**Previous release:** v0.22.0
+
+Moves to go-opcua v1.41.0 (was v1.39.1). `fx inspect` shows the persistence of UAFX AutomationComponents and their ConnectionEndpoints (OPC 10000-81 §6.2.6, §6.6.2), and `fx connect` refuses a persistent endpoint without a negative CleanupTimeout. Changes that need attention when upgrading: a negative CleanupTimeout is now `cleanupTimeoutMs: -1` in the JSON of `fx inspect` (it was 0), and `fx inspect` reports two new kinds of finding, which make `--check` exit 1.
+
+### Added
+
+- `fx inspect` shows the ComponentCapabilities of each AutomationComponent (§6.2.6 Table 26): whether it supports persistent endpoints (SupportsPersistence) and MaxConnections, MaxConnectionsPerCall, MaxFunctionalEntities, MinConnections and CommandBundleRequired when it has them (text: `capabilities:`; JSON: `capabilities` of `FxAutomationComponent`, record `FxCapabilities`).
+- `fx inspect` shows the CreationTime and ModificationTime of the Diagnostics of each ConnectionEndpoint (§6.6.2 Table 74; JSON: `creationTime`, `modificationTime` of `FxConnectionEndpoint`, RFC 3339 in UTC). A go-opcua AutomationComponent with a store keeps the NodeId and CreationTime of a persistent endpoint across a restart, so the two show whether an endpoint was restored or created again.
+- The end-to-end tests drive a go-opcua AutomationComponent with a store through the CLI only: `fx inspect` shows SupportsPersistence, `fx connect` creates a persistent endpoint, `fx inspect` shows it with `cleanup timeout never` and its CreationTime, and after a restart of the server on the same store `fx inspect` shows it Operational at the same NodeId with the same CreationTime and no persistence finding. Without a store SupportsPersistence is absent and `fx connect` with `persistent: true` gets `BadNotSupported` (Table 12, exit 6). None of the pinned references of opcua-interop implements UAFX, so this is tested against go-opcua only.
+
+### Changed
+
+- `fx inspect` shows a negative CleanupTimeout, the value of an endpoint that is never cleaned up, as `cleanup timeout never` and as a negative `cleanupTimeoutMs` (rounded down to whole milliseconds), where it showed `0s` and 0, the same as an endpoint cleaned up at once.
+- `fx inspect` reports a persistent endpoint whose CleanupTimeout is not negative, 0 and NaN included ("For a persistent ConnectionEndpoint, the CleanupTimeout shall be set to a negative number", §6.6.2), and a persistent endpoint on an AutomationComponent that does not announce SupportsPersistence TRUE (§6.2.6 Table 26), as findings with their clause; `--check` exits 1 for them.
+- `fx connect` refuses a request with `persistent: true` and a `cleanupTimeoutMs` that is not negative (§6.6.2) before it connects (exit 2); without `cleanupTimeoutMs` an endpoint has -1 as before.
+- Built on go-opcua v1.41.0 (go-opcua RELEASE.md, v1.40.0 and v1.41.0): v1.41.0 adds the capabilities, the Diagnostics times and the findings to the report of `uafx.Inspect`. v1.40.0 brings persistent UAFX endpoints on go-opcua servers; a DateTime at or after 9999-12-31 23:59:59 UTC now encodes as the maximum value and one at or before 1601-01-01 as 0 (OPC 10000-6 §5.2.2.5), where the library wrote a wrapped value before, for every DateTime opcuactl writes (a `write` or `call` argument, for one); and a go-opcua AutomationComponent answers an EstablishConnections it cannot persist with `Bad_InvalidState` (Part 81 Table 9), which `fx connect` reports as before (exit 6).
+
+---
+## v0.22.0
+
+**Date:** 2026-11-26
 **Previous release:** v0.21.1
 
 Moves to go-opcua v1.39.1 (was v1.38.0) and adds `fx cm`, which works with the ConnectionManager of a server (OPC 10000-81 §6.7): it lists, processes and edits ConnectionConfigurationSets and reads and writes them as the file of Annex F. The existing commands, their output and exit codes are unchanged; no changes need attention when upgrading.

@@ -57,6 +57,13 @@ func nsu(n uint32) string { return fmt.Sprintf("nsu=%s;i=%d", fxConnNS, n) }
 
 func startFxConnServer(t *testing.T) *fxConnServer {
 	t.Helper()
+	return startFxConnServerWith(t, fxserver.ConnectionOptions{})
+}
+
+// startFxConnServerWith is startFxConnServer with the ConnectionOptions
+// opts (a Store for persistent endpoints); Interval is 10 ms when unset.
+func startFxConnServerWith(t *testing.T, opts fxserver.ConnectionOptions) *fxConnServer {
+	t.Helper()
 	srv, err := server.New(
 		server.EndPoint("localhost", 0),
 		server.InsecureNoSecurity(),
@@ -78,7 +85,10 @@ func startFxConnServer(t *testing.T) *fxConnServer {
 	// The InputVariables and OutputVariables of the preconfigured endpoint.
 	s.set(t, fxPreset+6, []*ua.NodeID{s.id(fxSetpoint)})
 	s.set(t, fxPreset+7, []*ua.NodeID{})
-	conns, err := fxserver.EnableConnections(srv, ns, fxserver.ConnectionOptions{Interval: 10 * time.Millisecond})
+	if opts.Interval == 0 {
+		opts.Interval = 10 * time.Millisecond
+	}
+	conns, err := fxserver.EnableConnections(srv, ns, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,12 +96,15 @@ func startFxConnServer(t *testing.T) *fxConnServer {
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = conns.Close()
-		_ = srv.Close()
-	})
+	t.Cleanup(s.stop)
 	s.url = fmt.Sprintf("opc.tcp://localhost:%d", srv.Port())
 	return s
+}
+
+// stop stops the server as a restart does; it may be called again.
+func (s *fxConnServer) stop() {
+	_ = s.conns.Close()
+	_ = s.srv.Close()
 }
 
 func (s *fxConnServer) set(t *testing.T, n uint32, v any) {

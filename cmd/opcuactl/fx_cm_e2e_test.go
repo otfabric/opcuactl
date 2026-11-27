@@ -634,44 +634,66 @@ func TestE2E_FxCMFileFaults(t *testing.T) {
 		}
 		return readOnce(ua.ByteArray(body))
 	}
+	type fault struct {
+		name   string
+		method string
+		h      handler
+		args   []string
+		want   int
+	}
+	cases := []fault{
+		{"open refused", "Open", fail(ua.StatusBadInvalidState), []string{"export"}, exitProtocol},
+		{"open denied", "Open", fail(ua.StatusBadUserAccessDenied), []string{"import", "--file", file, "--op", "add"}, exitPermission},
+		{"open no handle", "Open", answer(), []string{"export"}, exitProtocol},
+		{"open string handle", "Open", answer("h"), []string{"export"}, exitProtocol},
+		{"read fails", "Read", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
+		{"read byte array", "Read", readArray(), []string{"export"}, exitOK},
+		{"read not a file", "Read", readOnce([]byte("not a file")), []string{"export"}, exitInvalidInput},
+		{"read no data", "Read", answer(), []string{"export"}, exitProtocol},
+		{"read wrong type", "Read", answer(int32(7)), []string{"export"}, exitProtocol},
+		{"close fails", "Close", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
+		{"write fails", "Write", fail(ua.StatusBadResourceUnavailable), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update outputs", "CloseAndUpdate", answer(true), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update results", "CloseAndUpdate", answer(true, []ua.StatusCode{}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update not decoded", "CloseAndUpdate", typeMismatch, []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update byte string", "CloseAndUpdate", byteString, []string{"import", "--file", file, "--op", "add"}, exitOK},
+		{"update applied type", "CloseAndUpdate", answer("yes", []ua.StatusCode{ua.StatusOK}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update contradiction", "CloseAndUpdate", answer(true, []ua.StatusCode{ua.StatusBadInvalidArgument}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+		{"update objects", "CloseAndUpdate", answer(true, []ua.StatusCode{ua.StatusOK}, []*ua.NodeID{ua.NewNumericNodeID(1, 1), ua.NewNumericNodeID(1, 2)}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
+	}
+	// The cases of one Method share a server and a CLI worker and run one
+	// after another, the Method answered by the handler of the running
+	// case; the Methods run in parallel. A server and a worker cost about
+	// 2 s each under the race detector, which a server per case spent 18
+	// times on a 2-CPU runner.
+	var methods []string
+	byMethod := map[string][]fault{}
+	for _, c := range cases {
+		if byMethod[c.method] == nil {
+			methods = append(methods, c.method)
+		}
+		byMethod[c.method] = append(byMethod[c.method], c)
+	}
 	t.Run("cases", func(group *testing.T) {
-		for _, c := range []struct {
-			name   string
-			method string
-			h      handler
-			args   []string
-			want   int
-		}{
-			{"open refused", "Open", fail(ua.StatusBadInvalidState), []string{"export"}, exitProtocol},
-			{"open denied", "Open", fail(ua.StatusBadUserAccessDenied), []string{"import", "--file", file, "--op", "add"}, exitPermission},
-			{"open no handle", "Open", answer(), []string{"export"}, exitProtocol},
-			{"open string handle", "Open", answer("h"), []string{"export"}, exitProtocol},
-			{"read fails", "Read", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
-			{"read byte array", "Read", readArray(), []string{"export"}, exitOK},
-			{"read not a file", "Read", readOnce([]byte("not a file")), []string{"export"}, exitInvalidInput},
-			{"read no data", "Read", answer(), []string{"export"}, exitProtocol},
-			{"read wrong type", "Read", answer(int32(7)), []string{"export"}, exitProtocol},
-			{"close fails", "Close", fail(ua.StatusBadInvalidArgument), []string{"export"}, exitProtocol},
-			{"write fails", "Write", fail(ua.StatusBadResourceUnavailable), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-			{"update outputs", "CloseAndUpdate", answer(true), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-			{"update results", "CloseAndUpdate", answer(true, []ua.StatusCode{}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-			{"update not decoded", "CloseAndUpdate", typeMismatch, []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-			{"update byte string", "CloseAndUpdate", byteString, []string{"import", "--file", file, "--op", "add"}, exitOK},
-			{"update applied type", "CloseAndUpdate", answer("yes", []ua.StatusCode{ua.StatusOK}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-			{"update contradiction", "CloseAndUpdate", answer(true, []ua.StatusCode{ua.StatusBadInvalidArgument}, []*ua.NodeID{}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-			{"update objects", "CloseAndUpdate", answer(true, []ua.StatusCode{ua.StatusOK}, []*ua.NodeID{ua.NewNumericNodeID(1, 1), ua.NewNumericNodeID(1, 2)}), []string{"import", "--file", file, "--op", "add"}, exitProtocol},
-		} {
-			group.Run(c.name, func(t *testing.T) {
-				// Each case starts its own server (about 2 s under the race
-				// detector) and runs the CLI in its own worker.
+		for _, m := range methods {
+			group.Run(m, func(t *testing.T) {
 				t.Parallel()
 				w := startCLIWorker(t)
 				s := startFxCMServer(t)
 				ns := s.cmNS(t)
-				s.srv.RegisterMethod(ua.NewStringNodeID(ns, "cm.File"), ua.NewStringNodeID(ns, "cm.File."+c.method), c.h)
-				out, stderr, err := w.run(t, append(append([]string{"fx", "cm"}, c.args...), "-e", s.url)...)
-				if code := ExitCode(err); code != c.want {
-					t.Fatalf("exit %d, want %d (%v)\n%s%s", code, c.want, err, out, stderr)
+				var current atomic.Pointer[handler]
+				s.srv.RegisterMethod(ua.NewStringNodeID(ns, "cm.File"), ua.NewStringNodeID(ns, "cm.File."+m),
+					func(ctx context.Context, obj, method *ua.NodeID, args []*ua.Variant) ([]*ua.Variant, ua.StatusCode) {
+						return (*current.Load())(ctx, obj, method, args)
+					})
+				for _, c := range byMethod[m] {
+					t.Run(c.name, func(t *testing.T) {
+						current.Store(&c.h)
+						out, stderr, err := w.run(t, append(append([]string{"fx", "cm"}, c.args...), "-e", s.url)...)
+						if code := ExitCode(err); code != c.want {
+							t.Fatalf("exit %d, want %d (%v)\n%s%s", code, c.want, err, out, stderr)
+						}
+					})
 				}
 			})
 		}

@@ -510,6 +510,11 @@ func (b *fxRequestBuilder) parameter(field string, e fxEndpointIn) (*uafx.PubSub
 	if e.CleanupTimeoutMs != nil {
 		p.CleanupTimeout = *e.CleanupTimeoutMs
 	}
+	// "For a persistent ConnectionEndpoint, the CleanupTimeout shall be set
+	// to a negative number" (Part 81 §6.6.2).
+	if p.IsPersistent && !(p.CleanupTimeout < 0) {
+		return nil, fxRequestErrorf("%s: a persistent endpoint needs a negative cleanupTimeoutMs, not %v (Part 81 §6.6.2)", field, p.CleanupTimeout)
+	}
 	if p.InputVariableIDs, err = b.nodeIDs(field+".inputs", e.Inputs); err != nil {
 		return nil, err
 	}

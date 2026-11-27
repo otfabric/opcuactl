@@ -48,6 +48,8 @@ The request file:
       inputs:  [nsu=urn:example:line;i=1211]
       outputs: [nsu=urn:example:line;i=1212]
       cleanupTimeoutMs: 5000          # absent: -1, no cleanup
+      persistent: true                # IsPersistent: needs a negative
+                                      # cleanupTimeoutMs (§6.6.2)
       preconfigured: true             # take the preconfigured endpoint
       relatedEndpoint: {address: opc.tcp://peer:4840, name: FromController,
                         path: ["urn:example:peer;Peer", "urn:example:peer;Motion"]}
