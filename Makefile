@@ -1,4 +1,4 @@
-.PHONY: help all run fmt lint lint-ci vet test check build build-all release-all install clean vuln e2e coverage-check coverage-pkg-check fuzz docs-check
+.PHONY: help all run fmt lint lint-ci vet test check build build-all release-all install clean vuln e2e coverage-check coverage-merged-check coverage-pkg-check fuzz docs-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -8,7 +8,7 @@ help: ## This help
 # A parent go.work must not change this module's dependencies.
 export GOWORK := off
 
-# Same total as coverage-min in ci.yml.
+# Total floor, gated in CI by the coverage-merged job of ci.yml.
 COVER_MIN := 90
 # Per-package floor (TEST-012). main.go only calls os.Exit around Execute, so it
 # is not counted. Lowest package when set: cmd/opcuactl, 93.7 %.
@@ -68,6 +68,14 @@ coverage: ## Run tests with coverage on core library only (writes coverage.out)
 
 coverage-check: coverage ## Fail below COVER_MIN
 	@total=$$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$$3); print $$3}'); \
+	awk -v t="$$total" -v m="$(COVER_MIN)" 'BEGIN { if (t+0 < m+0) { printf "coverage %.1f%% < %s%%\n", t, m; exit 1 } else printf "coverage %.1f%% >= %s%%\n", t, m }'
+
+# coverage-merged in ci.yml merges the profile of go-ci with the one of
+# cmd/opcuactl and gates the total here.
+PROFILE ?= coverage.out
+
+coverage-merged-check: ## Fail when the total of PROFILE is below COVER_MIN
+	@total=$$(go tool cover -func=$(PROFILE) | awk '/^total:/ {sub("%","",$$3); print $$3}'); \
 	awk -v t="$$total" -v m="$(COVER_MIN)" 'BEGIN { if (t+0 < m+0) { printf "coverage %.1f%% < %s%%\n", t, m; exit 1 } else printf "coverage %.1f%% >= %s%%\n", t, m }'
 
 coverage-pkg-check: coverage ## Fail when a package is below COVER_PKG_MIN

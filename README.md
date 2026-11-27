@@ -1,4 +1,4 @@
-# opcuactl — OPC UA Command-Line Client: Discover, Browse, Read, Write, Call Methods, Monitor, Alarms, History, Export & PubSub
+# opcuactl — OPC UA Command-Line Client: Discover, Browse, Read, Write, Call Methods, Monitor, Alarms, History, Export, PubSub, GDS & OPC UA FX
 
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/opcuactl.svg)](https://pkg.go.dev/github.com/otfabric/opcuactl)
@@ -7,7 +7,7 @@
 [![Codecov](https://codecov.io/gh/otfabric/opcuactl/graph/badge.svg)](https://codecov.io/gh/otfabric/opcuactl)
 [![Release](https://img.shields.io/github/v/release/otfabric/opcuactl?label=release)](https://github.com/otfabric/opcuactl/releases)
 
-**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, acknowledges and shelves alarms, reads the server diagnostics, manages the trust list and certificates of a server (GDS push), reads historical data, exports whole subtrees, listens to, publishes and configures OPC UA PubSub, and runs a test server of its own — from a terminal, over `opc.tcp`, `opc.wss` or `opc.https`, and over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
+**opcuactl is a command-line client for OPC UA, the interoperability standard of industrial automation.** It discovers servers and their endpoints, browses and searches the address space, reads and writes values, calls methods, subscribes to data changes, events and alarms, acknowledges and shelves alarms, reads the server diagnostics, manages the trust list and certificates of a server (GDS push) or gets them from a Global Discovery Server (GDS pull), inspects the OPC UA FX model of a server, establishes its FX connections and drives its ConnectionManager, reads historical data, exports whole subtrees, listens to, publishes and configures OPC UA PubSub, and runs a test server of its own — from a terminal, over `opc.tcp`, `opc.wss` or `opc.https`, and over anything from an unsecured lab connection to a signed and encrypted channel with user authentication.
 
 It is built for commissioning, troubleshooting and integration work on PLCs, gateways and SCADA servers, and for scripts and CI: every command can print a table, JSON, YAML, CSV or JSON Lines, and reports failures through stable exit codes. It is written in Go on top of [go-opcua](https://github.com/otfabric/go-opcua), whose client is interop-tested against open62541, Eclipse Milo, async-opcua, the OPC Foundation UA-.NETStandard stack, node-opcua and opcua-asyncio.
 
@@ -123,6 +123,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Data collection** — log live values as JSON Lines, pull historical data as CSV, snapshot a subtree before and after a change.
 - **Certificate rollover** — renew a server's application certificate through your own CA (the server makes the key), trust a new client or CA, back up and restore the trust list, without the vendor's configuration tool.
 - **Automation and CI** — smoke-test an OPC UA server in a pipeline using exit codes and JSON output.
+- **OPC UA FX commissioning** — check that a controller's UAFX model follows Part 81 in CI (`fx inspect --check`), verify a FunctionalEntity and set up a persistent ConnectionEndpoint (`fx connect`), and drive the ConnectionConfigurationSets of a ConnectionManager (`fx cm`): process, edit, back up and restore them as the Annex F file.
 - **PubSub commissioning** — see what is on the wire (publisher ids, writer ids, sequence numbers, security), check that a secured group decrypts with the SKS keys, feed a subscriber with test data, or reconfigure a publisher without its engineering tool.
 
 ---
@@ -177,7 +178,7 @@ More workflows: [RECIPES.md](RECIPES.md). Captured outputs: [EXAMPLES.md](EXAMPL
 - **Transports** — `opc.tcp`, `opc.wss` (WebSocket over TLS) and `opc.https` (HTTPS), the latter two in UA Binary or UA JSON (wss-uajson, https-uajson), with TLS server verification against `--tls-ca` and client certificates for mutual TLS
 - **Reverse connect** — let the server open the connection (`--reverse-listen`)
 - **Test server** — `serve` runs a go-opcua server: opc.tcp, opc.wss and opc.https listeners with the UA JSON mappings, the RSA and ECC security policies with generated or given certificates, a client trust list, anonymous and user name logins, a demo namespace (simulated, writable and historized values, a level alarm, a method) and NodeSet2 import
-- **OPC UA FX (Part 81, information model only)** — the UAFX namespaces and their versions, FxRoot, AutomationComponents (health, ConformanceName, Descriptors), Assets with their nameplate, FunctionalEntities and SubFunctionalEntities, ConnectionEndpoints (status, persistence, cleanup timeout), the ConnectionManager, and findings with the clause they deviate from; it does not establish connections
+- **OPC UA FX (Part 81)** — the UAFX namespaces and their versions, FxRoot, AutomationComponents (health, ConformanceName, Descriptors), Assets with their nameplate, FunctionalEntities and SubFunctionalEntities, ConnectionEndpoints (status, persistence, cleanup timeout, creation and modification time), the ConnectionManager, and findings with the clause they deviate from; establish and close connections (EstablishConnections, CloseConnections, including persistent endpoints), and the ConnectionManager: list, process and edit ConnectionConfigurationSets, export and import them as the Annex F file
 - **PubSub** — subscribe to and publish UADP / JSON NetworkMessages over UDP (unicast, multicast), Ethernet (`opc.eth://`, UADP), MQTT 3.1.1 / 5.0 (QoS 0–2, user properties) and AMQP 1.0 (RabbitMQ, Artemis), chunked NetworkMessages, UADP discovery (probes and announcements), PubSub Actions (request / response: `pubsub call` and a test Responder, `pubsub respond`), decode captures, message security (PubSub-Aes128-CTR / Aes256-CTR) with keys from a Security Key Service, Part 14 diagnostics counters, and remote configuration and diagnostics of a server's PublishSubscribe object
 
 All commands support **table**, **JSON**, **YAML**, **CSV**, and **JSONL** output formats.
@@ -245,7 +246,15 @@ opcuactl
 │   ├── sampling       Sampling intervals in use
 │   └── enable / disable  Switch the collection of server diagnostics (administrators)
 ├── fx
-│   └── inspect        UAFX information model and deviations from Part 81 (--check, --max-*)
+│   ├── inspect        UAFX information model and deviations from Part 81 (--check, --max-*)
+│   ├── connect        Establish a ConnectionEndpoint of an AutomationComponent (EstablishConnections)
+│   ├── close          Close (--remove: and remove) ConnectionEndpoints (CloseConnections)
+│   └── cm             The ConnectionManager of a server (§6.7)
+│       ├── list       ConnectionConfigurationSets with their state and diagnostics
+│       ├── process    Establish, enable, disable or remove the Connections of sets (--wait)
+│       ├── edit       Change configurable Variables and commit the next Version
+│       ├── export     Read the sets as a ConnectionConfigurationSet file (Annex F)
+│       └── import     Write a ConnectionConfigurationSet file and apply it (CloseAndUpdate)
 ├── gds                Certificate management by the push model (Part 12 §7; SecurityAdmin, SignAndEncrypt)
 │   ├── props          ServerConfiguration properties (key formats, certificate types, MaxTrustListSize)
 │   ├── trustlist
