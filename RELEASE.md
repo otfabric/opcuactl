@@ -1,8 +1,20 @@
 # opcuactl Releases
 
-## v0.22.0
+## v0.22.1
 
 **Date:** unreleased
+**Previous release:** v0.22.0
+
+Moves to go-opcua v1.40.0 (was v1.39.1). The commands' options, output and exit codes are unchanged; no changes need attention when upgrading.
+
+### Changed
+
+- Built on go-opcua v1.40.0 (go-opcua RELEASE.md, v1.40.0): a DateTime at or after 9999-12-31 23:59:59 UTC now encodes as the maximum value and one at or before 1601-01-01 as 0 (OPC 10000-6 §5.2.2.5), where the library wrote a wrapped value before; this applies to every DateTime opcuactl writes, such as a `write` or `call` argument. A go-opcua AutomationComponent with persistence answers EstablishConnections that it cannot persist with `Bad_InvalidState` (OPC 10000-81 Table 9), which `fx connect` reports as before (exit 6).
+
+---
+## v0.22.0
+
+**Date:** 2026-11-26
 **Previous release:** v0.21.1
 
 Moves to go-opcua v1.39.1 (was v1.38.0) and adds `fx cm`, which works with the ConnectionManager of a server (OPC 10000-81 §6.7): it lists, processes and edits ConnectionConfigurationSets and reads and writes them as the file of Annex F. The existing commands, their output and exit codes are unchanged; no changes need attention when upgrading.
