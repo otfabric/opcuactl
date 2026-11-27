@@ -2,7 +2,7 @@
 
 Real-world command outputs captured against a **WAGO 750-8102 PFC100 2ETH RS** industrial PLC at `opc.tcp://109.166.142.215:4840`.
 
-The PLC captures were made with `opcuactl` **v0.3.0**, which used [otfabric/go-opcua](https://github.com/otfabric/go-opcua) v1.6.0 at the time; later sections name the release they were captured with, and the [Version](#version) output is from v0.15.0. The captures have not been refreshed for later releases, so current output may differ in detail, and commands added after v0.5.0 (for example `alarms`, `diagnostics`, `gds pull` and `pubsub config export`, `reserve-ids` and `add-action`) have no captures here; see [README.md](README.md) and [docs/commands.md](docs/commands.md) for them.
+The PLC captures were made with `opcuactl` **v0.3.0**, which used [otfabric/go-opcua](https://github.com/otfabric/go-opcua) v1.6.0 at the time; later sections name the release they were captured with, and the [Version](#version) output is from v0.15.0. The captures have not been refreshed for later releases, so current output may differ in detail, and commands added after v0.5.0 (for example `alarms`, `diagnostics`, `gds pull` and `pubsub config export`, `reserve-ids` and `add-action`) have no captures here; [Where each command is shown](#where-each-command-is-shown) points to their recipes in [RECIPES.md](RECIPES.md), and every flag is in [docs/commands.md](docs/commands.md).
 
 This PLC only offers anonymous / username over `None/None`, and does not support events or history — so the live captures below focus on discovery, browse, read, write dry-run, monitor values, export, and search. For secure auth, IndexRange, event filters, queue overflow, and history modes, use the [syntax examples](#v020-features-not-exercised-on-this-plc) at the end and the workflows in [RECIPES.md](RECIPES.md). The [v0.3.0 features](#v030-features-captured-against-a-go-opcua-server) — ECC security policies, reverse connect, Local Discovery Server, data-change filters and the OPC UA JSON / XML encodings — are live captures against a go-opcua v1.6.0 demo server. The [v0.4.0 PubSub features](#v040-features-captured-against-a-go-opcua-server) are live captures against the go-opcua v1.7.0 PubSub example server. The [v0.5.0 PubSub features](#v050-features-captured-against-brokers-and-a-go-opcua-server) (MQTT 5.0, AMQP 1.0, Ethernet, chunks, discovery and diagnostics) are live captures against real brokers, Linux containers and the go-opcua v1.9.0 PubSub example server.
 
@@ -18,24 +18,57 @@ This PLC only offers anonymous / username over `None/None`, and does not support
 
 ---
 
+## Where each command is shown
+
+Every command, and the captures or recipes that show it. Every flag is in [docs/commands.md](docs/commands.md).
+
+| Command | Captured here | Workflows in RECIPES.md |
+|---|---|---|
+| `ping` | [Ping](#ping) | [7. Troubleshoot a Connection](RECIPES.md#7-troubleshoot-a-connection) |
+| `discover servers`, `endpoints`, `lds`, `register` | [Discovery](#discovery), [Local Discovery Server and mDNS](#local-discovery-server-and-mdns) | [1. First Contact with an Unknown Server](RECIPES.md#1-first-contact-with-an-unknown-server) |
+| `browse children`, `refs`, `tree`, `path` | [Browsing](#browsing) | [3. Navigate by Browse Path](RECIPES.md#3-navigate-by-browse-path) |
+| `find namespace`, `node`, `type` | [Searching](#searching) | [2. Find and Read a Specific Variable](RECIPES.md#2-find-and-read-a-specific-variable) |
+| `get value`, `node`, `attr`, `vars`, `server` | [Reading Values and Nodes](#reading-values-and-nodes) | [11. Collect All Variables from a Device](RECIPES.md#11-collect-all-variables-from-a-device) |
+| `write value`, `attr` | [Writing](#writing) | [5. Write a Value Safely](RECIPES.md#5-write-a-value-safely), [12. Copy a Value Between Servers](RECIPES.md#12-copy-a-value-between-servers-in-the-opc-ua-json-encoding) |
+| `call method` | | [9. Inspect a Method Before Calling It](RECIPES.md#9-inspect-a-method-before-calling-it) |
+| `monitor value`, `event`, `alarm` | [Monitoring](#monitoring), [Data-change filters](#data-change-filters-deadband) | [4. Monitor Values and Events](RECIPES.md#4-monitor-values-and-events) |
+| `alarms list`, `ack`, `confirm`, `comment`, `shelve`, `unshelve`, `watch` | | [23. Handle Alarms](RECIPES.md#23-handle-alarms-list-acknowledge-confirm-shelve) |
+| `alarms enable`, `disable`, `suppress`, `unsuppress`, `remove-from-service`, `place-in-service`, `silence`, `reset`, `respond`, `groups`, `metrics`, `audit` | | [27. Alarm Maintenance](RECIPES.md#27-alarm-maintenance-out-of-service-suppression-latched-alarms-dialogs-audit) |
+| `diagnostics summary`, `sessions`, `subscriptions`, `sampling`, `enable`, `disable` | [Diagnostics of a server](#diagnostics-of-a-server) | [24. Who Is Connected? Server Diagnostics](RECIPES.md#24-who-is-connected-server-diagnostics) |
+| `history value`, `event`, `update-values`, `delete-values`, `update-events`, `delete-events` | [Historical Data](#historical-data), [History modes](#history-modes) | [6. Historical Data and Export](RECIPES.md#6-historical-data-and-export) |
+| `export nodes`, `values` | [Export](#export) | [6. Historical Data and Export](RECIPES.md#6-historical-data-and-export) |
+| `fx inspect`, `connect`, `close` | [OPC UA FX](#opc-ua-fx-captured-against-a-go-opcua-server) | [30. Commission OPC UA FX](RECIPES.md#30-commission-opc-ua-fx-inspect-a-controller-connect-manage-connection-sets) |
+| `fx cm list`, `process`, `edit`, `export`, `import` | [FX ConnectionManager](#fx-connectionmanager) | [30. Commission OPC UA FX](RECIPES.md#30-commission-opc-ua-fx-inspect-a-controller-connect-manage-connection-sets) |
+| `gds props`, `trustlist`, `groups`, `certs`, `csr`, `update-cert`, `self-signed`, `delete-cert`, `reset`, `transaction`, `rejected`, `apply`, `cancel` | | [26. Manage a Server's Certificates (GDS Push)](RECIPES.md#26-manage-a-servers-certificates-gds-push) |
+| `gds pull` (`enroll`, `register`, `request`, `finish`, `wait`, `find`, `get`, `query`, `query-servers`, `update`, `unregister`, `trustlist`, `groups`, `certs`, `status`, `revoke`, `check-revocation`) | | [28. Get a Certificate from a GDS (Pull)](RECIPES.md#28-get-a-certificate-from-a-gds-pull) |
+| `pubsub subscribe`, `publish`, `decode` | [Subscribe](#subscribe), [Publish and decode](#publish-and-decode), [MQTT 5.0](#mqtt-50), [AMQP 1.0](#amqp-10-rabbitmq-and-artemis), [Ethernet](#ethernet), [Chunked NetworkMessages](#chunked-networkmessages) | [13](RECIPES.md#13-find-out-what-a-pubsub-publisher-sends), [15](RECIPES.md#15-test-a-pubsub-subscriber), [17](RECIPES.md#17-pubsub-through-an-mqtt-50-or-amqp-10-broker), [18](RECIPES.md#18-pubsub-over-raw-ethernet), [19](RECIPES.md#19-send-and-receive-large-datasets-in-chunks) |
+| `pubsub discover` | [UADP discovery](#uadp-discovery) | [20. Find Publishers with UADP Discovery](RECIPES.md#20-find-publishers-with-uadp-discovery) |
+| `pubsub call`, `respond` | [PubSub Actions over UDP](#pubsub-actions-over-udp), [through MQTT](#pubsub-actions-through-mqtt) | [22. Call PubSub Actions](RECIPES.md#22-call-pubsub-actions-request--response) |
+| `pubsub sks get-keys` | | [14. Read Secured PubSub Messages with Keys from an SKS](RECIPES.md#14-read-secured-pubsub-messages-with-keys-from-an-sks) |
+| `pubsub config show`, `add-connection`, `add-dataset`, `add-writer-group`, `add-writer`, `add-reader-group`, `add-reader`, `add-action`, `remove`, `enable`, `disable`, `diagnostics`, `export`, `reserve-ids` | [PubSub configuration of a server](#pubsub-configuration-of-a-server), [Disable, enable and remove](#disable-enable-and-remove) | [16. Reconfigure the PubSub of a Server](RECIPES.md#16-reconfigure-the-pubsub-of-a-server), [21. Watch PubSub Diagnostics Counters](RECIPES.md#21-watch-pubsub-diagnostics-counters) |
+| `serve` | | [29. Run a Test Server and Talk to It](RECIPES.md#29-run-a-test-server-and-talk-to-it-incl-ua-json) |
+| `version` | [Version](#version) | |
+| `completion` | | [README: Shell completion](README.md#shell-completion) |
+
 ## Table of Contents
 
+- [Where each command is shown](#where-each-command-is-shown)
 - [Connectivity](#connectivity)
   - [Ping](#ping)
   - [Ping (JSON)](#ping-json)
 - [Discovery](#discovery)
   - [Discover Servers](#discover-servers)
   - [Discover Endpoints](#discover-endpoints)
-  - [Discover Endpoints — Best](#discover-endpoints-best)
-  - [Discover Endpoints — Verbose (Troubleshooting)](#discover-endpoints-verbose-troubleshooting)
+  - [Discover Endpoints — Best](#discover-endpoints--best)
+  - [Discover Endpoints — Verbose (Troubleshooting)](#discover-endpoints--verbose-troubleshooting)
 - [Browsing](#browsing)
   - [Browse Children (Root)](#browse-children-root)
   - [Browse Children (DeviceSet)](#browse-children-deviceset)
   - [Browse Tree](#browse-tree)
   - [Browse References](#browse-references)
   - [Browse Path](#browse-path)
-  - [Browse Path — Qualified (Per-Segment Namespace)](#browse-path-qualified-per-segment-namespace)
-  - [Browse Path — Quiet Mode](#browse-path-quiet-mode)
+  - [Browse Path — Qualified (Per-Segment Namespace)](#browse-path--qualified-per-segment-namespace)
+  - [Browse Path — Quiet Mode](#browse-path--quiet-mode)
 - [Reading Values and Nodes](#reading-values-and-nodes)
   - [Get Value (Single)](#get-value-single)
   - [Get Value (Symbolic Alias)](#get-value-symbolic-alias)
@@ -50,12 +83,12 @@ This PLC only offers anonymous / username over `None/None`, and does not support
   - [Get Vars (Metadata Only)](#get-vars-metadata-only)
   - [Get Vars (Quiet Mode)](#get-vars-quiet-mode)
 - [Writing](#writing)
-  - [Write Value — Dry Run](#write-value-dry-run)
-  - [Write Value — Dry Run (JSON)](#write-value-dry-run-json)
+  - [Write Value — Dry Run](#write-value--dry-run)
+  - [Write Value — Dry Run (JSON)](#write-value--dry-run-json)
 - [Monitoring](#monitoring)
   - [Monitor Value (Table)](#monitor-value-table)
   - [Monitor Value (with Sampling Interval)](#monitor-value-with-sampling-interval)
-  - [Monitor Value (JSONL, with --count)](#monitor-value-jsonl-with-count)
+  - [Monitor Value (JSONL, with --count)](#monitor-value-jsonl-with---count)
   - [Monitor Event (Unsupported)](#monitor-event-unsupported)
 - [Historical Data](#historical-data)
   - [History Value (Unsupported)](#history-value-unsupported)
@@ -75,6 +108,10 @@ This PLC only offers anonymous / username over `None/None`, and does not support
 - [OPC UA FX (captured against a go-opcua server)](#opc-ua-fx-captured-against-a-go-opcua-server)
   - [FX Inspect](#fx-inspect)
   - [FX Inspect (JSON)](#fx-inspect-json)
+  - [FX Connect: verify a FunctionalEntity](#fx-connect-verify-a-functionalentity)
+  - [FX Connect (JSON)](#fx-connect-json)
+  - [FX Close](#fx-close)
+  - [FX ConnectionManager](#fx-connectionmanager)
 - [Version](#version)
 - [v0.5.0 features (captured against brokers and a go-opcua server)](#v050-features-captured-against-brokers-and-a-go-opcua-server)
   - [MQTT 5.0](#mqtt-50)
@@ -83,6 +120,8 @@ This PLC only offers anonymous / username over `None/None`, and does not support
   - [Chunked NetworkMessages](#chunked-networkmessages)
   - [UADP discovery](#uadp-discovery)
   - [Diagnostics of a server](#diagnostics-of-a-server)
+  - [PubSub Actions over UDP](#pubsub-actions-over-udp)
+  - [PubSub Actions through MQTT](#pubsub-actions-through-mqtt)
 - [v0.4.0 features (captured against a go-opcua server)](#v040-features-captured-against-a-go-opcua-server)
   - [PubSub configuration of a server](#pubsub-configuration-of-a-server)
   - [Subscribe](#subscribe)
@@ -97,8 +136,9 @@ This PLC only offers anonymous / username over `None/None`, and does not support
 - [v0.2.0 features (not exercised on this PLC)](#v020-features-not-exercised-on-this-plc)
   - [Secure connect](#secure-connect)
   - [IndexRange and timestamps](#indexrange-and-timestamps)
-  - [Monitor queue / overflow / event filters](#monitor-queue-overflow-event-filters)
+  - [Monitor queue / overflow / event filters](#monitor-queue--overflow--event-filters)
   - [History modes](#history-modes)
+
 ## Connectivity
 
 ### Ping
